@@ -12,9 +12,12 @@ try:
     from AppKit import (
         NSScreen,
         NSStatusWindowLevel,
+        NSPanel,
+        NSWindowCollectionBehaviorCanJoinAllApplications,
         NSWindowCollectionBehaviorCanJoinAllSpaces,
         NSWindowCollectionBehaviorFullScreenAuxiliary,
         NSWindowCollectionBehaviorIgnoresCycle,
+        NSWindowCollectionBehaviorMoveToActiveSpace,
         NSWindowCollectionBehaviorStationary,
     )
     import objc
@@ -250,6 +253,11 @@ class OverlayWindow(QWidget):
         self._content_reflow_timer = QTimer(self)
         self._content_reflow_timer.setSingleShot(True)
         self._content_reflow_timer.timeout.connect(self._reflow_content)
+        self._topmost_timer = QTimer(self)
+        self._topmost_timer.setInterval(1000)
+        self._topmost_timer.timeout.connect(
+            lambda: self._set_all_spaces(log_ready=False)
+        )
         
         self.initUI()
         self.oldPos = self.pos()
@@ -258,13 +266,22 @@ class OverlayWindow(QWidget):
         """Called when window is shown - set all-spaces behavior here"""
         super().showEvent(event)
         if HAS_APPKIT:
-            self._set_all_spaces()
+            self._set_all_spaces(log_ready=True)
             # Qt and macOS can both update the native window during a Space/full-
             # screen transition. Reassert the panel behavior after those updates.
             QTimer.singleShot(0, self._set_all_spaces)
             QTimer.singleShot(300, self._set_all_spaces)
+            self._topmost_timer.start()
+
+    def hideEvent(self, event):
+        self._topmost_timer.stop()
+        super().hideEvent(event)
+
+    def closeEvent(self, event):
+        self._topmost_timer.stop()
+        super().closeEvent(event)
     
-    def _set_all_spaces(self):
+    def _set_all_spaces(self, log_ready=False):
         """Make window appear on all macOS Spaces/Desktops"""
         try:
             # Get the native NSWindow from Qt's winId
@@ -273,22 +290,31 @@ class OverlayWindow(QWidget):
             ns_window = ns_view.window()
             current_behavior = int(ns_window.collectionBehavior())
             current_behavior &= ~NSWindowCollectionBehaviorStationary
+            current_behavior &= ~NSWindowCollectionBehaviorMoveToActiveSpace
             ns_window.setCollectionBehavior_(
                 current_behavior |
+                NSWindowCollectionBehaviorCanJoinAllApplications |
                 NSWindowCollectionBehaviorCanJoinAllSpaces |
                 NSWindowCollectionBehaviorFullScreenAuxiliary |
                 NSWindowCollectionBehaviorIgnoresCycle
             )
-            ns_window.setLevel_(NSStatusWindowLevel + 1)
             ns_window.setHidesOnDeactivate_(False)
             ns_window.setCanHide_(False)
+            if ns_window.isKindOfClass_(NSPanel):
+                ns_window.setFloatingPanel_(True)
+                ns_window.setBecomesKeyOnlyIfNeeded_(True)
+            # setFloatingPanel_ resets the level to NSFloatingWindowLevel (3),
+            # so apply our overlay level afterwards.
+            ns_window.setLevel_(NSStatusWindowLevel + 1)
             ns_window.orderFrontRegardless()
-            print(
-                "[Overlay] Full-screen auxiliary panel ready "
-                f"(level={int(ns_window.level())}, "
-                f"behavior={int(ns_window.collectionBehavior())})",
-                flush=True,
-            )
+            if log_ready:
+                print(
+                    "[Overlay] Full-screen auxiliary panel ready "
+                    f"(class={ns_window.className()}, "
+                    f"level={int(ns_window.level())}, "
+                    f"behavior={int(ns_window.collectionBehavior())})",
+                    flush=True,
+                )
         except Exception as e:
             print(f"Could not set all-spaces behavior: {e}")
 
