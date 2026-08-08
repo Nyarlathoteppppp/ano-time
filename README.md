@@ -146,10 +146,18 @@ Xcode Command Line Tools. Run `./build_apple_speech.sh` manually to rebuild it.
 | Parameter | Description | Details |
 | :--- | :--- | :--- |
 | `silence_threshold`| Sensitivity | `0.005` (Quiet) to `0.05` (Loud) |
-| `device_index` | Mic ID | `auto` or specific index `0`, `1`... |
+| `device_index` | Audio source | `system` for macOS app/video audio, `auto`, or mic index `0`, `1`... |
+
+Select **System Audio (ScreenCaptureKit — videos/apps)** in the Dashboard to
+translate audio played by browsers and media apps without BlackHole. The first
+launch requires **System Settings → Privacy & Security → Screen & System Audio
+Recording** permission; restart the translator after granting it. This source
+excludes the translator process itself to avoid feedback loops.
 
 ## Troubleshooting
-- **No Audio?** Check the terminal for "Audio Capture" logs. If using BlackHole, ensure it's selected in `config.ini` or auto-detected.
+- **No Audio?** Check the terminal for capture logs. For System Audio, grant
+  Screen & System Audio Recording and restart; for a microphone, grant Microphone
+  access. BlackHole remains optional for custom audio routing.
 - **Resize not working?** Use the designated "◢" handle in the bottom-right.
 - **Hot Reload**: Modify any `.py` file or save settings in the UI to trigger a reload.
 

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 
 from audio_capture import AudioCapture
+from system_audio_capture import SystemAudioCapture
 from transcriber import Transcriber
 from translator import Translator
 from overlay_window import OverlayWindow
@@ -35,7 +36,10 @@ class Pipeline(QObject):
         config.print_config()
         
         # Initialize components
-        self.audio = AudioCapture(
+        audio_capture_class = (
+            SystemAudioCapture if config.device_index == "system" else AudioCapture
+        )
+        self.audio = audio_capture_class(
             device_index=config.device_index,
             sample_rate=config.sample_rate,
             silence_threshold=config.silence_threshold,

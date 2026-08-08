@@ -4,7 +4,7 @@ import subprocess
 import threading
 import time
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 
 class NativeNotchOverlay(QObject):
@@ -79,9 +79,9 @@ class NativeNotchOverlay(QObject):
 
     def _handle_event(self, event):
         if event == "exit":
-            self.stop_requested.emit()
+            QTimer.singleShot(0, self.stop_requested.emit)
         elif event == "glass":
-            self._show_glass_overlay()
+            QTimer.singleShot(0, self._show_glass_overlay)
 
     def _show_glass_overlay(self):
         if self.delegate:
@@ -94,8 +94,12 @@ class NativeNotchOverlay(QObject):
             display_mode="glass",
             allow_notch_switch=True,
         )
-        self.delegate.stop_requested.connect(self.stop_requested.emit)
-        self.delegate.notch_requested.connect(self._show_native_overlay)
+        self.delegate.stop_requested.connect(
+            lambda: QTimer.singleShot(0, self.stop_requested.emit)
+        )
+        self.delegate.notch_requested.connect(
+            lambda: QTimer.singleShot(0, self._show_native_overlay)
+        )
         for chunk_id in sorted(self.transcript_data):
             item = self.transcript_data[chunk_id]
             self.delegate.update_text(chunk_id, item["original"], item["translated"])
@@ -107,9 +111,7 @@ class NativeNotchOverlay(QObject):
             self.delegate = None
         self.show()
         if self.transcript_data:
-            latest_id = max(self.transcript_data)
-            item = self.transcript_data[latest_id]
-            self._send({"original": item["original"], "translated": item["translated"]})
+            self._send({"items": self._latest_items()})
 
     def update_text(self, chunk_id, original_text, translated_text):
         existing = self.transcript_data.setdefault(
@@ -125,10 +127,17 @@ class NativeNotchOverlay(QObject):
             self.delegate.update_text(chunk_id, original_text, translated_text)
             return
 
-        self._send({
-            "original": existing["original"],
-            "translated": existing["translated"],
-        })
+        self._send({"items": self._latest_items()})
+
+    def _latest_items(self):
+        return [
+            {
+                "id": chunk_id,
+                "original": self.transcript_data[chunk_id]["original"],
+                "translated": self.transcript_data[chunk_id]["translated"],
+            }
+            for chunk_id in sorted(self.transcript_data)[-2:]
+        ]
 
     def _send(self, payload):
         process = self.process

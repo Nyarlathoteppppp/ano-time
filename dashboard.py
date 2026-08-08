@@ -810,6 +810,9 @@ class Dashboard(QWidget):
     def populate_devices(self):
         self.device_combo.clear()
         self.device_combo.addItem("Auto (Default)", "auto")
+        self.device_combo.addItem(
+            "System Audio (ScreenCaptureKit — videos/apps)", "system"
+        )
         
         try:
             devices = sd.query_devices()

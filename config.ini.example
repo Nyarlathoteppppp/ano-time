@@ -32,6 +32,7 @@ source_language = auto
 transcription_workers = 4
 
 [audio]
+; auto / numeric microphone index / system (macOS ScreenCaptureKit app audio)
 device_index = auto
 sample_rate = 16000
 silence_threshold = 0.005

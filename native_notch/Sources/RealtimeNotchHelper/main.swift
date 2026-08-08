@@ -6,12 +6,20 @@ private struct InputMessage: Decodable {
     let command: String?
     let original: String?
     let translated: String?
+    let items: [SubtitleLine]?
+}
+
+private struct SubtitleLine: Codable, Identifiable {
+    let id: Int
+    let original: String
+    let translated: String
 }
 
 @MainActor
 private final class SubtitleState: ObservableObject {
-    @Published var original = "Waiting for speech…"
-    @Published var translated = ""
+    @Published var items = [
+        SubtitleLine(id: 0, original: "Waiting for speech…", translated: "")
+    ]
     @Published var generation = 0
     var onExpand: (() -> Void)?
     var onGlass: (() -> Void)?
@@ -30,17 +38,21 @@ private struct SubtitleContent: View {
     @ObservedObject var state: SubtitleState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(state.original)
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(state.items.suffix(2)) { item in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.original)
+                        .font(.system(size: 10.5, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
 
-            if !state.translated.isEmpty {
-                Text(state.translated)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(3)
+                    if !item.translated.isEmpty {
+                        Text(item.translated)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                    }
+                }
             }
 
             HStack(spacing: 8) {
@@ -54,7 +66,7 @@ private struct SubtitleContent: View {
             }
             .font(.system(size: 12, weight: .medium))
         }
-        .frame(width: 540, alignment: .leading)
+        .frame(width: 560, alignment: .leading)
     }
 }
 
@@ -114,8 +126,15 @@ private struct RealtimeNotchHelper {
                       let message = try? JSONDecoder().decode(InputMessage.self, from: data) else { continue }
                 if message.command == "quit" { break }
                 Task { @MainActor in
-                    if let original = message.original, !original.isEmpty { state.original = original }
-                    if let translated = message.translated { state.translated = translated }
+                    if let items = message.items, !items.isEmpty {
+                        state.items = Array(items.suffix(2))
+                    } else if let original = message.original {
+                        state.items = [SubtitleLine(
+                            id: 0,
+                            original: original,
+                            translated: message.translated ?? ""
+                        )]
+                    }
                     state.generation += 1
                     let currentGeneration = state.generation
                     await notch.expand()

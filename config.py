@@ -55,10 +55,12 @@ class Config:
         self.silence_duration = self._getfloat("audio", "silence_duration", 1.0)
         self.chunk_duration = self._getfloat("audio", "chunk_duration", 0.5)
         
-        # Device index: 'auto' or empty = auto-detect BlackHole, or set a specific index
+        # Device index: 'system' = ScreenCaptureKit system audio; otherwise a mic index/auto.
         device_idx_str = self._get("audio", "device_index", "auto")
         if device_idx_str.isdigit():
             self.device_index = int(device_idx_str)
+        elif device_idx_str.lower() in ("system", "system_audio"):
+            self.device_index = "system"
         elif device_idx_str.lower() in ("auto", ""):
             self.device_index = self._find_blackhole_device()
         else:
