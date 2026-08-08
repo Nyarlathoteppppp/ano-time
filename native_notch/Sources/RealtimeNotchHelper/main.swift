@@ -42,6 +42,22 @@ private final class SubtitleState: ObservableObject {
         Self.sizeDefaults?.set(displayCount, forKey: "displayCount")
     }
 
+    var contentWidth: CGFloat {
+        let visibleItems = items.suffix(displayCount)
+        let englishFont = NSFont.systemFont(ofSize: 11.5, weight: .regular)
+        let translatedFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
+        let measured = visibleItems.reduce(CGFloat(0)) { longest, item in
+            let englishWidth = (item.original as NSString).size(
+                withAttributes: [.font: englishFont]
+            ).width
+            let translatedWidth = (item.translated as NSString).size(
+                withAttributes: [.font: translatedFont]
+            ).width
+            return max(longest, max(englishWidth, translatedWidth))
+        }
+        return min(600, max(160, ceil(measured + 8)))
+    }
+
 }
 
 private func emitEvent(_ event: String) {
@@ -77,13 +93,14 @@ private struct SubtitleContent: View {
             }
         }
         .frame(
-            width: state.displayCount == 1 ? 380 : (state.displayCount == 2 ? 460 : 540),
+            width: state.contentWidth,
             alignment: .leading
         )
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onTapGesture { state.onCycleSize?() }
         .animation(.easeInOut(duration: 0.18), value: state.displayCount)
+        .animation(.easeInOut(duration: 0.16), value: state.contentWidth)
     }
 }
 

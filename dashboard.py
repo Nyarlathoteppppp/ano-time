@@ -3,27 +3,44 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTabWidget, QSpinBox, QDoubleSpinBox, QGridLayout,
                              QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
                              QMessageBox, QTextEdit, QDialog)
-from PyQt6.QtCore import Qt, QSize, pyqtSignal, QThread
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QThread, QTimer
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtGui import QFont, QIcon, QColor
 import sys
 import sounddevice as sd
 from config import config
 
+try:
+    from ctypes import c_void_p
+    from AppKit import (
+        NSBackingStoreBuffered, NSColor, NSPanel,
+        NSViewHeightSizable, NSViewWidthSizable,
+        NSVisualEffectBlendingModeBehindWindow,
+        NSVisualEffectMaterialHUDWindow, NSVisualEffectStateActive,
+        NSVisualEffectView, NSWindowBelow, NSWindowStyleMaskBorderless,
+    )
+    import objc
+    HAS_NATIVE_GLASS = True
+except ImportError:
+    HAS_NATIVE_GLASS = False
+
 # Modern QSS Styles
 STYLESHEET = """
-QMainWindow, QWidget {
-    background-color: #1e1e2e;
+QWidget {
+    background: transparent;
     color: #cdd6f4;
     font-family: 'Helvetica Neue', Arial, sans-serif;
 }
+QWidget#DashboardRoot {
+    background-color: rgba(15, 20, 30, 72);
+}
 QTabWidget::pane {
-    border: 1px solid #313244;
-    background: #1e1e2e;
-    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 35);
+    background: rgba(20, 24, 36, 55);
+    border-radius: 12px;
 }
 QTabBar::tab {
-    background: #313244;
+    background: rgba(255, 255, 255, 18);
     color: #a6adc8;
     padding: 10px 20px;
     border-top-left-radius: 8px;
@@ -31,31 +48,38 @@ QTabBar::tab {
     margin-right: 2px;
 }
 QTabBar::tab:selected {
-    background: #89b4fa;
-    color: #1e1e2e;
+    background: rgba(137, 180, 250, 210);
+    color: #10131c;
     font-weight: bold;
 }
 QLabel {
     font-size: 14px;
 }
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
-    background-color: #313244;
-    border: 1px solid #45475a;
-    border-radius: 4px;
-    padding: 5px;
+    background-color: rgba(255, 255, 255, 20);
+    border: 1px solid rgba(255, 255, 255, 42);
+    border-radius: 7px;
+    padding: 6px;
     color: #cdd6f4;
     selection-background-color: #585b70;
 }
+QComboBox QAbstractItemView {
+    background-color: rgba(28, 32, 44, 245);
+    border: 1px solid rgba(255, 255, 255, 45);
+    color: #cdd6f4;
+    selection-background-color: rgba(137, 180, 250, 190);
+    selection-color: #10131c;
+}
 QPushButton {
-    background-color: #89b4fa;
-    color: #1e1e2e;
-    border: none;
+    background-color: rgba(137, 180, 250, 205);
+    color: #10131c;
+    border: 1px solid rgba(255, 255, 255, 30);
     padding: 8px 16px;
     border-radius: 6px;
     font-weight: bold;
 }
 QPushButton:hover {
-    background-color: #b4befe;
+    background-color: rgba(180, 190, 254, 235);
 }
 QPushButton#StopButton {
     background-color: #f38ba8;
@@ -64,7 +88,7 @@ QPushButton#StopButton:hover {
     background-color: #eba0ac;
 }
 QGroupBox {
-    border: 1px solid #45475a;
+    border: 1px solid rgba(255, 255, 255, 38);
     border-radius: 6px;
     margin-top: 10px;
     padding-top: 10px;
@@ -88,19 +112,100 @@ class Dashboard(QWidget):
         audio_test = getattr(self, "audio_test_worker", None)
         if audio_test and audio_test.isRunning():
             audio_test.wait(2500)
+        if self._native_blur_window is not None:
+            self._native_blur_window.close()
+            self._native_blur_window = None
+            self._native_blur_view = None
         # Force application exit
         QApplication.quit()
         event.accept()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._install_native_glass()
+        # Qt's QNSWindow can be attached one event-loop turn after showEvent.
+        QTimer.singleShot(0, self._install_native_glass)
+        QTimer.singleShot(200, self._install_native_glass)
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self._sync_native_glass()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_native_glass()
+
+    def _native_window(self):
+        if not HAS_NATIVE_GLASS:
+            return None
+        try:
+            ns_view = objc.objc_object(c_void_p=c_void_p(int(self.winId())))
+            return ns_view.window()
+        except Exception as exc:
+            print(f"[Dashboard] Could not resolve native window: {exc}")
+            return None
+
+    def _install_native_glass(self):
+        if not HAS_NATIVE_GLASS or self._native_blur_window is not None:
+            return
+        ns_window = self._native_window()
+        if ns_window is None:
+            return
+        ns_window.setOpaque_(False)
+        ns_window.setBackgroundColor_(NSColor.clearColor())
+        ns_window.setTitlebarAppearsTransparent_(True)
+
+        blur_window = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+            ns_window.frame(), NSWindowStyleMaskBorderless,
+            NSBackingStoreBuffered, False,
+        )
+        blur_window.setOpaque_(False)
+        blur_window.setBackgroundColor_(NSColor.clearColor())
+        blur_window.setHasShadow_(False)
+        blur_window.setIgnoresMouseEvents_(True)
+        blur_window.setHidesOnDeactivate_(False)
+
+        effect = NSVisualEffectView.alloc().initWithFrame_(
+            blur_window.contentView().bounds()
+        )
+        effect.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
+        effect.setMaterial_(NSVisualEffectMaterialHUDWindow)
+        effect.setBlendingMode_(NSVisualEffectBlendingModeBehindWindow)
+        effect.setState_(NSVisualEffectStateActive)
+        effect.setWantsLayer_(True)
+        effect.layer().setCornerRadius_(16.0)
+        effect.layer().setMasksToBounds_(True)
+        blur_window.contentView().addSubview_(effect)
+        ns_window.addChildWindow_ordered_(blur_window, NSWindowBelow)
+        self._native_blur_window = blur_window
+        self._native_blur_view = effect
+        self._sync_native_glass()
+        print("[Dashboard] Native macOS glass installed", flush=True)
+
+    def _sync_native_glass(self):
+        blur_window = getattr(self, "_native_blur_window", None)
+        if blur_window is None:
+            return
+        ns_window = self._native_window()
+        if ns_window is None:
+            return
+        blur_window.setFrame_display_(ns_window.frame(), True)
+        blur_window.orderFrontRegardless()
+        ns_window.orderFrontRegardless()
+
     def __init__(self):
         super().__init__()
+        self._native_blur_window = None
+        self._native_blur_view = None
+        self.setObjectName("DashboardRoot")
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._session_generation = 0
         self._session_state = "idle"
         self._startup_workers = {}
         self.pipeline = None
         self.overlay_window = None
         self.setWindowTitle("Real-Time Translator - Control Center")
-        self.setMinimumSize(600, 500)
+        self.setMinimumSize(760, 540)
         self.setStyleSheet(STYLESHEET)
         
         # Main Layout
@@ -150,17 +255,17 @@ class Dashboard(QWidget):
         summary.setObjectName("ClassroomSummary")
         summary.setStyleSheet("""
             QFrame#ClassroomSummary {
-                background-color: #313244;
-                border: 1px solid #45475a;
+                background-color: rgba(255, 255, 255, 14);
+                border: 1px solid rgba(255, 255, 255, 32);
                 border-radius: 10px;
             }
             QFrame#ClassroomSummary QLabel { background: transparent; }
         """)
         summary_layout = QGridLayout(summary)
         summary_layout.setContentsMargins(16, 12, 16, 12)
-        summary_layout.addWidget(QLabel("Audio"), 0, 0)
-        summary_layout.addWidget(QLabel("ASR"), 1, 0)
-        summary_layout.addWidget(QLabel("Translation"), 2, 0)
+        summary_layout.addWidget(QLabel("Audio（音频来源）"), 0, 0)
+        summary_layout.addWidget(QLabel("ASR（语音识别）"), 1, 0)
+        summary_layout.addWidget(QLabel("Translation（翻译模型）"), 2, 0)
         self.audio_summary = QLabel()
         self.asr_summary = QLabel()
         self.translation_summary = QLabel()
@@ -172,7 +277,7 @@ class Dashboard(QWidget):
         layout.addWidget(summary)
 
         display_row = QHBoxLayout()
-        display_row.addWidget(QLabel("Subtitle Mode:"))
+        display_row.addWidget(QLabel("Subtitle Mode（字幕显示模式）:"))
         self.display_mode = QComboBox()
         self.display_mode.addItem("Resizable Glass", "glass")
         self.display_mode.addItem("Physical MacBook Notch", "notch")
@@ -250,7 +355,7 @@ class Dashboard(QWidget):
             message = "System Audio selected and saved. Launch Translator when ready."
         self.audio_test_status.setText(message)
         self.audio_test_status.setStyleSheet(
-            "color: #a6e3a1; background: #313244; padding: 10px; border-radius: 6px;"
+            "color: #a6e3a1; background: rgba(255,255,255,14); padding: 10px; border-radius: 8px;"
         )
 
     def open_system_audio_settings(self):
@@ -292,7 +397,7 @@ class Dashboard(QWidget):
             text = message
         self.audio_test_status.setText(text)
         self.audio_test_status.setStyleSheet(
-            f"color: {color}; background: #313244; padding: 10px; border-radius: 6px;"
+            f"color: {color}; background: rgba(255,255,255,14); padding: 10px; border-radius: 8px;"
         )
 
     def init_audio_tab(self):
@@ -301,7 +406,7 @@ class Dashboard(QWidget):
         layout.setSpacing(15)
         
         # Device Selection
-        layout.addWidget(QLabel("Input Device:"), 0, 0)
+        layout.addWidget(QLabel("Input Device（音频来源）:"), 0, 0)
         self.device_combo = QComboBox()
         self.populate_devices()
         self.device_combo.currentIndexChanged.connect(self.update_home_summary)
@@ -314,14 +419,14 @@ class Dashboard(QWidget):
         layout.addWidget(refresh_btn, 0, 2)
         
         # Sample Rate
-        layout.addWidget(QLabel("Sample Rate:"), 1, 0)
+        layout.addWidget(QLabel("Sample Rate（采样率）:"), 1, 0)
         self.sample_rate = QSpinBox()
         self.sample_rate.setRange(8000, 48000)
         self.sample_rate.setValue(config.sample_rate)
         layout.addWidget(self.sample_rate, 1, 1)
 
         # Silence Threshold
-        layout.addWidget(QLabel("Silence Threshold:"), 2, 0)
+        layout.addWidget(QLabel("Silence Threshold（静音判定阈值）:"), 2, 0)
         self.silence_thresh = QDoubleSpinBox()
         self.silence_thresh.setRange(0.001, 1.0)
         self.silence_thresh.setSingleStep(0.001)
@@ -329,12 +434,12 @@ class Dashboard(QWidget):
         self.silence_thresh.setValue(config.silence_threshold)
         layout.addWidget(self.silence_thresh, 2, 1)
         
-        layout.addWidget(QLabel("Silence Duration (s):"), 3, 0)
+        layout.addWidget(QLabel("Silence Duration（持续静音多久才断句，秒）:"), 3, 0)
         self.silence_dur = QDoubleSpinBox()
         self.silence_dur.setValue(config.silence_duration)
         layout.addWidget(self.silence_dur, 3, 1)
 
-        layout.addWidget(QLabel("Live Refresh Interval (s):"), 4, 0)
+        layout.addWidget(QLabel("Live Refresh Interval（临时字幕刷新间隔，秒）:"), 4, 0)
         self.update_interval = QDoubleSpinBox()
         self.update_interval.setRange(0.2, 2.0)
         self.update_interval.setSingleStep(0.1)
@@ -367,7 +472,7 @@ class Dashboard(QWidget):
         )
         self.audio_test_status.setWordWrap(True)
         self.audio_test_status.setStyleSheet(
-            "color: #a6adc8; background: #313244; padding: 10px; border-radius: 6px;"
+            "color: #a6adc8; background: rgba(255,255,255,14); padding: 10px; border-radius: 8px;"
         )
         layout.addWidget(self.audio_test_status, 6, 0, 1, 3)
 
@@ -450,7 +555,7 @@ class Dashboard(QWidget):
             "Without permissions, you'll see manual instructions (very easy!).</i>"
         )
         help_text.setWordWrap(True)
-        help_text.setStyleSheet("background-color: #313244; padding: 10px; border-radius: 5px; font-size: 12px;")
+        help_text.setStyleSheet("background-color: rgba(255,255,255,14); padding: 10px; border-radius: 8px; font-size: 12px;")
         layout.addWidget(help_text)
         
         layout.addStretch()
@@ -739,13 +844,13 @@ class Dashboard(QWidget):
         )
         self.asr_backend.currentTextChanged.connect(self._on_backend_changed)
         self.asr_backend.currentTextChanged.connect(self.update_home_summary)
-        layout.addRow("ASR Backend:", self.asr_backend)
+        layout.addRow("ASR Backend（语音识别引擎）:", self.asr_backend)
         
         # Whisper Model
         self.whisper_model = QComboBox()
         self.whisper_model.addItems(["tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en", "large-v3", "turbo"])
         self.whisper_model.setCurrentText(config.whisper_model)
-        layout.addRow("Whisper Model:", self.whisper_model)
+        layout.addRow("Whisper Model（Whisper 模型大小）:", self.whisper_model)
         
         # FunASR Model
         self.funasr_model = QComboBox()
@@ -769,19 +874,19 @@ class Dashboard(QWidget):
             "Multi-language: iic/SenseVoiceSmall\n"
             "Latest 31-lang model: FunAudioLLM/Fun-ASR-Nano-2512"
         )
-        layout.addRow("FunASR Model:", self.funasr_model)
+        layout.addRow("FunASR Model（FunASR 模型）:", self.funasr_model)
         
         self.device_type = QComboBox()
         self.device_type.addItems(["cpu", "cuda", "mps", "auto"])
         self.device_type.setCurrentText(config.whisper_device)
         self.device_type.currentTextChanged.connect(self._on_device_changed)
-        layout.addRow("Compute Device:", self.device_type)
+        layout.addRow("Compute Device（计算设备）:", self.device_type)
         
         self.compute_type = QComboBox()
         self.compute_type.addItems(["int8", "float16", "float32"])
         self.compute_type.setCurrentText(config.whisper_compute_type)
         self.compute_type.currentTextChanged.connect(self._on_quantization_changed)
-        layout.addRow("Quantization:", self.compute_type)
+        layout.addRow("Quantization（推理精度与内存占用）:", self.compute_type)
         
         # Source Language Configuration
         self.source_language = QComboBox()
@@ -789,7 +894,7 @@ class Dashboard(QWidget):
         self.source_language.addItems(["auto", "en", "zh", "vi", "ja", "ko", "es", "fr", "de", "ru", "ar", "pt", "it"])
         source_lang = config.source_language if config.source_language else "auto"
         self.source_language.setCurrentText(source_lang)
-        layout.addRow("Source Language:", self.source_language)
+        layout.addRow("Source Language（原文语言）:", self.source_language)
         
         # Update UI based on initial backend
         self._on_backend_changed(config.asr_backend)
@@ -895,35 +1000,35 @@ class Dashboard(QWidget):
             "Custom": config.api_base_url or "",
         }
         self.provider.currentTextChanged.connect(self._on_translation_provider_changed)
-        layout.addRow("Provider:", self.provider)
+        layout.addRow("Provider（翻译服务商）:", self.provider)
         
         self.api_key = QLineEdit(config.api_key)
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key.setPlaceholderText("sk-...")
-        layout.addRow("API Key:", self.api_key)
+        layout.addRow("API Key（主翻译服务密钥）:", self.api_key)
 
         self.groq_api_key = QLineEdit(config.groq_api_key)
         self.groq_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.groq_api_key.setPlaceholderText("gsk_...")
-        layout.addRow("Groq Key:", self.groq_api_key)
+        layout.addRow("Groq Key（快速过渡翻译密钥）:", self.groq_api_key)
 
         self.gemini_api_key = QLineEdit(config.gemini_api_key)
         self.gemini_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.gemini_api_key.setPlaceholderText("Google AI Studio key")
-        layout.addRow("Gemini Key:", self.gemini_api_key)
+        layout.addRow("Gemini Key（Gemini 免费池密钥）:", self.gemini_api_key)
 
         self.cloudflare_account_id = QLineEdit(config.cloudflare_account_id)
         self.cloudflare_account_id.setPlaceholderText("Cloudflare account ID")
-        layout.addRow("Cloudflare Account:", self.cloudflare_account_id)
+        layout.addRow("Cloudflare Account（账户 ID）:", self.cloudflare_account_id)
 
         self.cloudflare_api_token = QLineEdit(config.cloudflare_api_token)
         self.cloudflare_api_token.setEchoMode(QLineEdit.EchoMode.Password)
         self.cloudflare_api_token.setPlaceholderText("Cloudflare API token")
-        layout.addRow("Cloudflare Token:", self.cloudflare_api_token)
+        layout.addRow("Cloudflare Token（Workers AI 访问令牌）:", self.cloudflare_api_token)
         
         self.base_url = QLineEdit(config.api_base_url or "")
         self.base_url.setPlaceholderText("https://api.openai.com/v1")
-        layout.addRow("Base URL:", self.base_url)
+        layout.addRow("Base URL（API 接口地址）:", self.base_url)
         
         # Model selection with refresh button
         model_layout = QHBoxLayout()
@@ -939,13 +1044,13 @@ class Dashboard(QWidget):
         self.refresh_models_btn.clicked.connect(self.refresh_model_list)
         model_layout.addWidget(self.refresh_models_btn)
         
-        layout.addRow("Model:", model_layout)
+        layout.addRow("Model（翻译模型）:", model_layout)
         
         self.target_lang = QComboBox()
         self.target_lang.addItems(["Chinese", "English", "Japanese", "French", "Spanish", "German", "Korean"])
         self.target_lang.setEditable(True)
         self.target_lang.setCurrentText(config.target_lang)
-        layout.addRow("Target Language:", self.target_lang)
+        layout.addRow("Target Language（目标语言）:", self.target_lang)
 
         self.translation_domain = QLineEdit(config.translation_domain)
         self.translation_domain.setPlaceholderText(
@@ -954,7 +1059,7 @@ class Dashboard(QWidget):
         self.translation_domain.setToolTip(
             "Domain context sent to the translation model to preserve technical terminology"
         )
-        layout.addRow("Course Domain:", self.translation_domain)
+        layout.addRow("Course Domain（课程专业背景）:", self.translation_domain)
 
         self.fast_translation_backend = QComboBox()
         self.fast_translation_backend.addItems(["apple", "off"])
@@ -962,7 +1067,7 @@ class Dashboard(QWidget):
         self.fast_translation_backend.setToolTip(
             "apple: show an immediate on-device draft, then replace it with the LLM-refined translation"
         )
-        layout.addRow("Instant Draft:", self.fast_translation_backend)
+        layout.addRow("Instant Draft（即时草稿翻译）:", self.fast_translation_backend)
 
         self._on_translation_provider_changed(self.provider.currentText())
         
