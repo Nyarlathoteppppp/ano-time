@@ -85,6 +85,9 @@ class Dashboard(QWidget):
         """Ensure total program quit when dashboard is closed"""
         self.status_label.setText("Stopping...")
         self.on_stop()
+        audio_test = getattr(self, "audio_test_worker", None)
+        if audio_test and audio_test.isRunning():
+            audio_test.wait(2500)
         # Force application exit
         QApplication.quit()
         event.accept()
@@ -120,6 +123,7 @@ class Dashboard(QWidget):
         self.init_device_manager_tab()
         self.init_transcription_tab()
         self.init_translation_tab()
+        self.update_home_summary()
         
         # Footer Actions
         footer = QHBoxLayout()
@@ -141,6 +145,31 @@ class Dashboard(QWidget):
         self.status_label = QLabel("Ready")
         self.status_label.setStyleSheet("font-size: 18px; color: #a6e3a1;")
         layout.addWidget(self.status_label)
+
+        summary = QFrame()
+        summary.setObjectName("ClassroomSummary")
+        summary.setStyleSheet("""
+            QFrame#ClassroomSummary {
+                background-color: #313244;
+                border: 1px solid #45475a;
+                border-radius: 10px;
+            }
+            QFrame#ClassroomSummary QLabel { background: transparent; }
+        """)
+        summary_layout = QGridLayout(summary)
+        summary_layout.setContentsMargins(16, 12, 16, 12)
+        summary_layout.addWidget(QLabel("Audio"), 0, 0)
+        summary_layout.addWidget(QLabel("ASR"), 1, 0)
+        summary_layout.addWidget(QLabel("Translation"), 2, 0)
+        self.audio_summary = QLabel()
+        self.asr_summary = QLabel()
+        self.translation_summary = QLabel()
+        for label in (self.audio_summary, self.asr_summary, self.translation_summary):
+            label.setStyleSheet("color: #a6e3a1; font-weight: 600;")
+        summary_layout.addWidget(self.audio_summary, 0, 1)
+        summary_layout.addWidget(self.asr_summary, 1, 1)
+        summary_layout.addWidget(self.translation_summary, 2, 1)
+        layout.addWidget(summary)
 
         display_row = QHBoxLayout()
         display_row.addWidget(QLabel("Subtitle Mode:"))
@@ -169,9 +198,9 @@ class Dashboard(QWidget):
         self.log_btn.setFixedSize(200, 38)
         self.log_btn.clicked.connect(self.open_runtime_log)
         
+        btn_layout.addWidget(self.start_btn)
+        btn_layout.addWidget(self.stop_btn)
         layout.addLayout(btn_layout)
-        layout.addWidget(self.start_btn)
-        layout.addWidget(self.stop_btn)
         layout.addWidget(self.log_btn)
         
         info = QLabel("The translator will open as an overlay window.\nYou can minimize this dashboard.")
@@ -186,6 +215,86 @@ class Dashboard(QWidget):
         from runtime_log import LOG_PATH
         subprocess.run(["open", LOG_PATH], check=False)
 
+    def update_home_summary(self, *_):
+        if not hasattr(self, "audio_summary"):
+            return
+        source_data = self.device_combo.currentData() if hasattr(self, "device_combo") else config.device_index
+        if source_data == "system":
+            source = "System Audio · videos/apps"
+            source_color = "#a6e3a1"
+        elif source_data in ("auto", None):
+            source = "Default microphone"
+            source_color = "#f9e2af"
+        else:
+            source = self.device_combo.currentText() if hasattr(self, "device_combo") else f"Device {source_data}"
+            source_color = "#f9e2af"
+        self.audio_summary.setText(source)
+        self.audio_summary.setStyleSheet(f"color: {source_color}; font-weight: 600;")
+
+        backend = self.asr_backend.currentText() if hasattr(self, "asr_backend") else config.asr_backend
+        self.asr_summary.setText(
+            "Apple on-device (live)" if backend == "apple" else backend
+        )
+        model = self.model.currentText() if hasattr(self, "model") else config.model
+        self.translation_summary.setText(model)
+
+    def use_system_audio(self):
+        index = self.device_combo.findData("system")
+        if index >= 0:
+            self.device_combo.setCurrentIndex(index)
+        self.save_config(show_status=False)
+        self.update_home_summary()
+        if self._session_state == "running":
+            message = "System Audio selected. Stop and Launch again to apply it."
+        else:
+            message = "System Audio selected and saved. Launch Translator when ready."
+        self.audio_test_status.setText(message)
+        self.audio_test_status.setStyleSheet(
+            "color: #a6e3a1; background: #313244; padding: 10px; border-radius: 6px;"
+        )
+
+    def open_system_audio_settings(self):
+        import subprocess
+        subprocess.Popen([
+            "open",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        ])
+
+    def test_system_audio(self):
+        if self._session_state in ("starting", "running"):
+            self.audio_test_status.setText(
+                "Stop the translator before running the independent audio test."
+            )
+            return
+        self.test_system_audio_btn.setEnabled(False)
+        self.test_system_audio_btn.setText("Testing…")
+        self.audio_test_status.setText(
+            "Listening for system audio for about two seconds. Play a video now."
+        )
+        self.audio_test_worker = SystemAudioTestWorker(self.sample_rate.value())
+        self.audio_test_worker.result.connect(self.on_system_audio_test_result)
+        self.audio_test_worker.start()
+
+    def on_system_audio_test_result(self, success, message, peak):
+        self.test_system_audio_btn.setEnabled(True)
+        self.test_system_audio_btn.setText("Test Permission & Audio")
+        if success and peak > 0.0001:
+            color = "#a6e3a1"
+            text = f"Permission works. System audio detected (peak {peak:.4f})."
+        elif success:
+            color = "#f9e2af"
+            text = (
+                "Permission works, but the captured audio was silent. "
+                "Play a video with audible sound and test again."
+            )
+        else:
+            color = "#f38ba8"
+            text = message
+        self.audio_test_status.setText(text)
+        self.audio_test_status.setStyleSheet(
+            f"color: {color}; background: #313244; padding: 10px; border-radius: 6px;"
+        )
+
     def init_audio_tab(self):
         tab = QWidget()
         layout = QGridLayout() # Use Grid for organized form
@@ -195,6 +304,7 @@ class Dashboard(QWidget):
         layout.addWidget(QLabel("Input Device:"), 0, 0)
         self.device_combo = QComboBox()
         self.populate_devices()
+        self.device_combo.currentIndexChanged.connect(self.update_home_summary)
         layout.addWidget(self.device_combo, 0, 1)
         
         # Refresh Button
@@ -235,7 +345,33 @@ class Dashboard(QWidget):
         )
         layout.addWidget(self.update_interval, 4, 1)
 
-        layout.setRowStretch(5, 1) # Push to top
+        action_row = QHBoxLayout()
+        self.use_system_audio_btn = QPushButton("Use System Audio")
+        self.use_system_audio_btn.setToolTip(
+            "Select native ScreenCaptureKit audio from videos and applications"
+        )
+        self.use_system_audio_btn.clicked.connect(self.use_system_audio)
+        action_row.addWidget(self.use_system_audio_btn)
+
+        self.test_system_audio_btn = QPushButton("Test Permission & Audio")
+        self.test_system_audio_btn.clicked.connect(self.test_system_audio)
+        action_row.addWidget(self.test_system_audio_btn)
+
+        self.open_audio_permission_btn = QPushButton("Open Permission Settings")
+        self.open_audio_permission_btn.clicked.connect(self.open_system_audio_settings)
+        action_row.addWidget(self.open_audio_permission_btn)
+        layout.addLayout(action_row, 5, 0, 1, 3)
+
+        self.audio_test_status = QLabel(
+            "System Audio uses macOS ScreenCaptureKit; BlackHole is not required."
+        )
+        self.audio_test_status.setWordWrap(True)
+        self.audio_test_status.setStyleSheet(
+            "color: #a6adc8; background: #313244; padding: 10px; border-radius: 6px;"
+        )
+        layout.addWidget(self.audio_test_status, 6, 0, 1, 3)
+
+        layout.setRowStretch(7, 1) # Push to top
         
         tab.setLayout(layout)
         self.tabs.addTab(tab, "🎤 Audio")
@@ -247,11 +383,15 @@ class Dashboard(QWidget):
         layout.setSpacing(15)
         
         # Header
-        header = QLabel("Audio Device Manager")
+        header = QLabel("Legacy BlackHole Routing")
         header.setStyleSheet("font-size: 16px; font-weight: bold; color: #fab387;")
         layout.addWidget(header)
         
-        info = QLabel("Create multi-output devices to capture system audio + hear it through speakers")
+        info = QLabel(
+            "Optional legacy/custom routing. Normal macOS system-audio capture uses "
+            "ScreenCaptureKit on the Audio tab and does not need BlackHole."
+        )
+        info.setWordWrap(True)
         info.setStyleSheet("color: #6c7086; font-size: 12px; font-style: italic;")
         layout.addWidget(info)
         
@@ -316,7 +456,7 @@ class Dashboard(QWidget):
         layout.addStretch()
         
         tab.setLayout(layout)
-        self.tabs.addTab(tab, "🔧 Device Manager")
+        self.tabs.addTab(tab, "🔧 Legacy BlackHole")
         
         # Initial population
         self.refresh_audio_devices()
@@ -598,6 +738,7 @@ class Dashboard(QWidget):
             "funasr: Alibaba ASR (excellent for Chinese)"
         )
         self.asr_backend.currentTextChanged.connect(self._on_backend_changed)
+        self.asr_backend.currentTextChanged.connect(self.update_home_summary)
         layout.addRow("ASR Backend:", self.asr_backend)
         
         # Whisper Model
@@ -766,6 +907,7 @@ class Dashboard(QWidget):
         self.model = QComboBox()
         self.model.setEditable(True)
         self.model.addItem(config.model)
+        self.model.currentTextChanged.connect(self.update_home_summary)
         model_layout.addWidget(self.model)
         
         self.refresh_models_btn = QPushButton("🔄")
@@ -1008,6 +1150,44 @@ class Dashboard(QWidget):
         self.start_btn.setEnabled(True)
         self.start_btn.setText("▶ Launch Translator")
         self.showNormal()
+
+class SystemAudioTestWorker(QThread):
+    result = pyqtSignal(bool, str, float)
+
+    def __init__(self, sample_rate):
+        super().__init__()
+        self.sample_rate = sample_rate
+
+    def run(self):
+        capture = None
+        peak = 0.0
+        success = False
+        message = ""
+        try:
+            import numpy as np
+            from system_audio_capture import SystemAudioCapture
+
+            capture = SystemAudioCapture(
+                sample_rate=self.sample_rate,
+                streaming_step_size=0.2,
+            )
+            generator = capture.generator()
+            for _ in range(10):
+                chunk = next(generator)
+                if len(chunk):
+                    peak = max(peak, float(np.max(np.abs(chunk))))
+            success = True
+            message = "System audio permission is available."
+        except Exception as exc:
+            message = (
+                "System Audio could not start. Open permission settings, allow the "
+                f"translator/Python helper, then restart. Detail: {exc}"
+            )
+        finally:
+            if capture:
+                capture.stop()
+        self.result.emit(success, message, peak)
+
 
 class StartupWorker(QThread):
     ready = pyqtSignal(int, object)

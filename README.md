@@ -174,6 +174,12 @@ launch requires **System Settings → Privacy & Security → Screen & System Aud
 Recording** permission; restart the translator after granting it. This source
 excludes the translator process itself to avoid feedback loops.
 
+The Control Center home page shows the selected audio source, ASR backend, and
+translation model. Its Audio tab provides **Use System Audio**, **Test Permission
+& Audio**, and **Open Permission Settings**. The test distinguishes a permission
+failure from a valid but silent capture; play a video while it runs to verify
+that actual samples are arriving.
+
 ## Troubleshooting
 - **No Audio?** Check the terminal for capture logs. For System Audio, grant
   Screen & System Audio Recording and restart; for a microphone, grant Microphone
