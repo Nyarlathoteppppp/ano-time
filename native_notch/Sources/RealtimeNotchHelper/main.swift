@@ -42,13 +42,6 @@ private final class SubtitleState: ObservableObject {
         Self.sizeDefaults?.set(displayCount, forKey: "displayCount")
     }
 
-    var sizeTitle: String {
-        switch displayCount {
-        case 1: return "小 · 1条"
-        case 2: return "中 · 2条"
-        default: return "大 · 3条"
-        }
-    }
 }
 
 private func emitEvent(_ event: String) {
@@ -64,53 +57,20 @@ private struct SubtitleContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                Button(action: { state.onCycleSize?() }) {
-                    Label(state.sizeTitle, systemImage: "rectangle.3.group")
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("点击切换小、中、大刘海字幕")
-                Spacer()
-                Button("Glass") { state.onGlass?() }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                Button("Exit") { state.onExit?() }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.red)
-            }
-            .font(.system(size: 11, weight: .medium))
-
             ForEach(state.items.suffix(state.displayCount)) { item in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.original)
-                        .font(.system(
-                            size: 11.5,
-                            weight: item.finalized == true ? .medium : .regular
-                        ))
-                        .foregroundStyle(
-                            .white.opacity(item.finalized == true ? 0.96 : 0.78)
-                        )
-                        .lineLimit(1)
-                        .animation(.easeOut(duration: 0.12), value: item.finalized)
-
-                    if !item.translated.isEmpty {
-                        Text(item.translated)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(2)
-                    }
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { state.onCycleSize?() }
+                Text(item.translated.isEmpty ? "…" : item.translated)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
             }
-
         }
         .frame(
             width: state.displayCount == 1 ? 380 : (state.displayCount == 2 ? 460 : 540),
             alignment: .leading
         )
         .fixedSize(horizontal: false, vertical: true)
+        .contentShape(Rectangle())
+        .onTapGesture { state.onCycleSize?() }
         .animation(.easeInOut(duration: 0.18), value: state.displayCount)
     }
 }
@@ -121,12 +81,8 @@ private struct CompactLeading: View {
         Button(action: {
             state.onCycleSize?()
         }) {
-            HStack(spacing: 4) {
-                Image(systemName: "captions.bubble.fill")
-                Text("\(state.displayCount)")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-            }
-            .foregroundStyle(.blue)
+            Image(systemName: "captions.bubble.fill")
+                .foregroundStyle(.blue)
         }
         .buttonStyle(.plain)
         .help("点击切换显示 1、2、3 条字幕")
