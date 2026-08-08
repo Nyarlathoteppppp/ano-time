@@ -7,15 +7,18 @@ from hybrid_translator import HybridTranslator
 
 
 class _FakeTranslator:
-    def __init__(self, name, error=None):
+    def __init__(self, name, error=None, usage=None):
         self.name = name
         self.error = error
+        self.usage = usage
         self.calls = 0
 
     def translate(self, *_args, **_kwargs):
         self.calls += 1
         if self.error:
             raise self.error
+        if self.usage is not None and _kwargs.get("usage_callback"):
+            _kwargs["usage_callback"](self.usage)
         return self.name
 
 
@@ -62,6 +65,23 @@ class HybridTranslatorTests(unittest.TestCase):
             self.assertEqual((groq.calls, gemini.calls), (1, 1))
             self.assertEqual(router.translate("next"), "gemini")
             self.assertEqual(groq.calls, 1)
+
+    def test_provider_timeout_fails_over_when_deadline_remains(self):
+        with tempfile.TemporaryDirectory() as directory:
+            groq = _FakeTranslator("groq", TimeoutError("provider timeout"))
+            gemini = _FakeTranslator("gemini")
+            router = self._router(
+                [
+                    {"name": "groq", "translator": groq},
+                    {"name": "gemini", "translator": gemini},
+                ],
+                directory,
+            )
+            self.assertEqual(
+                router.translate("sentence", deadline=time.monotonic() + 3),
+                "gemini",
+            )
+            self.assertEqual((groq.calls, gemini.calls), (1, 1))
 
     def test_persisted_daily_limit_skips_exhausted_provider(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -112,6 +132,41 @@ class HybridTranslatorTests(unittest.TestCase):
             self.assertEqual(router.translate("during cooldown"), "qwen")
             router.providers[0]["cooldown_until"] = time.monotonic() - 1
             self.assertEqual(router.translate("after reset"), "groq")
+
+    def test_actual_usage_replaces_reservation_and_survives_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            usage_path = os.path.join(directory, "usage.json")
+            first_groq = _FakeTranslator("groq", usage=900)
+            first_router = HybridTranslator(
+                [
+                    {
+                        "name": "groq",
+                        "translator": first_groq,
+                        "tpm_limit": 1000,
+                        "priority": 0,
+                    }
+                ],
+                usage_path=usage_path,
+            )
+            self.assertEqual(first_router.translate("first"), "groq")
+            self.assertEqual(first_router.providers[0]["last_minute_tokens"], 900)
+
+            restarted_groq = _FakeTranslator("groq")
+            qwen = _FakeTranslator("qwen")
+            restarted = HybridTranslator(
+                [
+                    {
+                        "name": "groq",
+                        "translator": restarted_groq,
+                        "tpm_limit": 1000,
+                        "priority": 0,
+                    },
+                    {"name": "qwen", "translator": qwen, "priority": 1},
+                ],
+                usage_path=usage_path,
+            )
+            self.assertEqual(restarted.translate("second"), "qwen")
+            self.assertEqual(restarted_groq.calls, 0)
 
 
 if __name__ == "__main__":

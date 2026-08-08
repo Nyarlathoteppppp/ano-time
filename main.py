@@ -108,6 +108,7 @@ class Pipeline(QObject):
                     "rpm_limit": 30,
                     "tpm_limit": 8000,
                     "daily_limit": 1000,
+                    "daily_timezone": "UTC",
                     "priority": 0,
                 })
             if config.gemini_api_key:
@@ -122,6 +123,7 @@ class Pipeline(QObject):
                     "rpm_limit": 15,
                     "tpm_limit": 250000,
                     "daily_limit": 500,
+                    "daily_timezone": "America/Los_Angeles",
                     "priority": 0,
                 })
             if config.qwen_mt_api_key and config.qwen_mt_base_url:

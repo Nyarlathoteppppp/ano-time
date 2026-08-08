@@ -3,8 +3,9 @@ import os
 import threading
 import time
 from collections import deque
-from datetime import date
+from datetime import date, datetime
 from math import ceil
+from zoneinfo import ZoneInfo
 
 
 class HybridTranslator:
@@ -19,6 +20,7 @@ class HybridTranslator:
             item.setdefault("rpm_limit", None)
             item.setdefault("tpm_limit", None)
             item.setdefault("daily_limit", None)
+            item.setdefault("daily_timezone", None)
             item.setdefault("priority", 0)
             item["cooldown_until"] = 0.0
             item["daily_block_date"] = None
@@ -29,6 +31,37 @@ class HybridTranslator:
         self._lock = threading.Lock()
         self._next_index = 0
         self._usage = self._load_usage()
+        self._reservation_counter = 0
+        self._restore_minute_windows()
+
+    def _today(self, provider):
+        timezone = provider.get("daily_timezone")
+        if timezone:
+            return datetime.now(ZoneInfo(timezone)).date().isoformat()
+        return date.today().isoformat()
+
+    def _restore_minute_windows(self):
+        wall_now = time.time()
+        monotonic_now = time.monotonic()
+        for provider in self.providers:
+            record = self._usage.get(provider["name"], {})
+            for event in record.get("recent", []):
+                try:
+                    wall_time = float(event["time"])
+                    tokens = int(event["tokens"])
+                    reservation_id = int(event["id"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                age = wall_now - wall_time
+                if 0 <= age < 60:
+                    event_time = monotonic_now - age
+                    provider["recent_attempts"].append(event_time)
+                    provider["recent_tokens"].append(
+                        (event_time, tokens, reservation_id)
+                    )
+                    self._reservation_counter = max(
+                        self._reservation_counter, reservation_id
+                    )
 
     def _load_usage(self):
         if not self.usage_path:
@@ -44,6 +77,22 @@ class HybridTranslator:
         if not self.usage_path:
             return
         try:
+            wall_now = time.time()
+            monotonic_now = time.monotonic()
+            for provider in self.providers:
+                record = self._usage.setdefault(
+                    provider["name"],
+                    {"date": self._today(provider), "attempts": 0},
+                )
+                record["recent"] = [
+                    {
+                        "time": wall_now - max(0.0, monotonic_now - event_time),
+                        "tokens": tokens,
+                        "id": reservation_id,
+                    }
+                    for event_time, tokens, reservation_id in provider["recent_tokens"]
+                    if monotonic_now - event_time < 60
+                ]
             directory = os.path.dirname(self.usage_path)
             if directory:
                 os.makedirs(directory, exist_ok=True)
@@ -55,7 +104,7 @@ class HybridTranslator:
             print(f"[Hybrid] Could not persist provider usage: {exc}", flush=True)
 
     def _daily_attempts_locked(self, provider):
-        today = date.today().isoformat()
+        today = self._today(provider)
         record = self._usage.get(provider["name"], {})
         if record.get("date") != today:
             record = {"date": today, "attempts": 0}
@@ -77,7 +126,7 @@ class HybridTranslator:
             )
             return False
         tpm_limit = provider.get("tpm_limit")
-        if tpm_limit and sum(tokens for _, tokens in token_usage) + estimated_tokens > tpm_limit:
+        if tpm_limit and sum(tokens for _, tokens, _ in token_usage) + estimated_tokens > tpm_limit:
             if token_usage:
                 provider["cooldown_until"] = max(
                     provider["cooldown_until"], token_usage[0][0] + 60
@@ -88,16 +137,31 @@ class HybridTranslator:
         if daily_limit and daily_attempts >= daily_limit:
             return False
         attempts.append(now)
-        token_usage.append((now, estimated_tokens))
+        self._reservation_counter += 1
+        reservation_id = self._reservation_counter
+        token_usage.append((now, estimated_tokens, reservation_id))
         record = self._usage.setdefault(
-            provider["name"], {"date": date.today().isoformat(), "attempts": 0}
+            provider["name"], {"date": self._today(provider), "attempts": 0}
         )
         record["attempts"] = daily_attempts + 1
         provider["last_daily_attempts"] = record["attempts"]
         provider["last_minute_requests"] = len(attempts)
-        provider["last_minute_tokens"] = sum(tokens for _, tokens in token_usage)
+        provider["last_minute_tokens"] = sum(tokens for _, tokens, _ in token_usage)
         self._save_usage_locked()
-        return True
+        return reservation_id
+
+    def _record_actual_usage(self, provider, reservation_id, actual_tokens):
+        with self._lock:
+            updated = deque()
+            for event_time, tokens, event_id in provider["recent_tokens"]:
+                if event_id == reservation_id:
+                    tokens = max(0, int(actual_tokens))
+                updated.append((event_time, tokens, event_id))
+            provider["recent_tokens"] = updated
+            provider["last_minute_tokens"] = sum(
+                tokens for _, tokens, _ in updated
+            )
+            self._save_usage_locked()
 
     def _select_provider(self, excluded, estimated_tokens):
         now = time.monotonic()
@@ -113,7 +177,7 @@ class HybridTranslator:
                     if provider["name"] in excluded:
                         continue
                     blocked_date = provider.get("daily_block_date")
-                    today = date.today().isoformat()
+                    today = self._today(provider)
                     if blocked_date:
                         if blocked_date == today:
                             continue
@@ -130,10 +194,13 @@ class HybridTranslator:
                             f"[Hybrid] {provider['name']} minute quota reset; returning to free pool",
                             flush=True,
                         )
-                    if not self._reserve_locked(provider, now, estimated_tokens):
+                    reservation_id = self._reserve_locked(
+                        provider, now, estimated_tokens
+                    )
+                    if not reservation_id:
                         continue
                     self._next_index = (index + 1) % count
-                    return provider
+                    return provider, reservation_id
         return None
 
     @staticmethod
@@ -173,7 +240,7 @@ class HybridTranslator:
             if any(word in message for word in ("daily", "per day", "rpd")):
                 seconds = 0
                 with self._lock:
-                    provider["daily_block_date"] = date.today().isoformat()
+                    provider["daily_block_date"] = self._today(provider)
             else:
                 seconds = max(60.0, self._retry_after(exc))
         elif status in (400, 401, 403, 404):
@@ -197,9 +264,10 @@ class HybridTranslator:
         last_error = None
         estimated_tokens = self._estimate_tokens(args, kwargs)
         while len(excluded) < len(self.providers):
-            provider = self._select_provider(excluded, estimated_tokens)
-            if provider is None:
+            selection = self._select_provider(excluded, estimated_tokens)
+            if selection is None:
                 break
+            provider, reservation_id = selection
             excluded.add(provider["name"])
             quota_parts = []
             if provider.get("daily_limit"):
@@ -212,17 +280,37 @@ class HybridTranslator:
                 )
             if provider.get("tpm_limit"):
                 quota_parts.append(
-                    f"estimated_tpm={provider.get('last_minute_tokens', 0)}/{provider['tpm_limit']}"
+                    f"reserved_tpm={provider.get('last_minute_tokens', 0)}/{provider['tpm_limit']}"
                 )
             quota = f" ({', '.join(quota_parts)})" if quota_parts else ""
             print(f"[Hybrid] Using {provider['name']}{quota}", flush=True)
+            attempt_kwargs = dict(kwargs)
+            global_deadline = kwargs.get("deadline")
+            if (
+                global_deadline is not None
+                and len(excluded) == 1
+                and len(self.providers) > 1
+                and global_deadline - time.monotonic() > 2.0
+            ):
+                # Reserve time for a second provider when the first endpoint hangs.
+                attempt_kwargs["deadline"] = min(
+                    global_deadline, time.monotonic() + 1.5
+                )
+            attempt_kwargs["usage_callback"] = lambda total, p=provider, r=reservation_id: (
+                self._record_actual_usage(p, r, total)
+            )
             try:
-                return provider["translator"].translate(*args, **kwargs)
-            except TimeoutError:
-                # The hard deadline is already exhausted; a failover cannot finish.
-                raise
+                return provider["translator"].translate(*args, **attempt_kwargs)
+            except TimeoutError as exc:
+                last_error = exc
+                self._record_actual_usage(provider, reservation_id, 0)
+                self._cool_down(provider, exc)
+                deadline = kwargs.get("deadline")
+                if deadline is not None and time.monotonic() >= deadline:
+                    break
             except Exception as exc:
                 last_error = exc
+                self._record_actual_usage(provider, reservation_id, 0)
                 self._cool_down(provider, exc)
         if last_error:
             raise last_error

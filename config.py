@@ -34,7 +34,9 @@ class Config:
         self.translation_threads = self._getint("translation", "threads", 4)
         self.ai_deadline_seconds = self._getfloat("translation", "ai_deadline_seconds", 3.0)
         self.fast_translation_backend = self._get("translation", "fast_backend", "off").lower()
-        self.translation_provider = self._get("translation", "provider", "Custom")
+        self.translation_provider = self._get(
+            "translation", "provider", "Groq + Gemini → Qwen-MT"
+        )
         glossary_path = self._get("translation", "glossary_path", "course_glossary.tsv")
         self.glossary_path = (
             glossary_path

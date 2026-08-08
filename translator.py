@@ -77,8 +77,22 @@ class Translator:
         cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
         return cleaned.strip()
 
+    @staticmethod
+    def _report_usage(usage, callback):
+        if not usage or not callback:
+            return
+        total = getattr(usage, "total_tokens", None)
+        if total is None and isinstance(usage, dict):
+            total = usage.get("total_tokens")
+        if total is not None:
+            try:
+                callback(int(total))
+            except Exception as exc:
+                print(f"[Translator] Usage callback failed: {exc}", flush=True)
+
     def translate(self, text, use_context=True, on_update=None, remember_context=True,
-                  draft_translation=None, context_text=None, deadline=None):
+                  draft_translation=None, context_text=None, deadline=None,
+                  usage_callback=None):
         """
         Translates the given text. Returns the translated string.
         Uses previous transcription as context for better continuity.
@@ -195,6 +209,14 @@ class Translator:
                 stream=on_update is not None,
                 **request_options,
             )
+            metered_stream = bool(
+                on_update is not None and self.base_url and any(
+                    host in self.base_url
+                    for host in ("api.groq.com", "generativelanguage.googleapis.com")
+                )
+            )
+            if metered_stream:
+                completion_options["stream_options"] = {"include_usage": True}
             is_gemini_35 = (
                 self.base_url and "generativelanguage.googleapis.com" in self.base_url
                 and self.model.startswith("gemini-3.5-")
@@ -211,10 +233,14 @@ class Translator:
 
             if on_update is not None:
                 parts = []
+                stream_usage = None
                 try:
                     for chunk in response:
                         if time.monotonic() >= deadline:
                             raise TimeoutError("AI translation exceeded its hard deadline")
+                        usage = getattr(chunk, "usage", None)
+                        if usage:
+                            stream_usage = usage
                         if not chunk.choices:
                             continue
                         content = chunk.choices[0].delta.content
@@ -228,8 +254,10 @@ class Translator:
                     if close:
                         close()
                 raw_result = "".join(parts).strip()
+                self._report_usage(stream_usage, usage_callback)
             else:
                 raw_result = response.choices[0].message.content.strip()
+                self._report_usage(getattr(response, "usage", None), usage_callback)
 
             if time.monotonic() >= deadline:
                 raise TimeoutError("AI translation exceeded its hard deadline")
