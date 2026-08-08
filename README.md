@@ -117,6 +117,11 @@ only for finalized utterances, so a slow or blocked API cannot delay the local
 draft. Stage timings and failures are written to `logs/runtime.log`; open it
 from the Dashboard with **Open Runtime Log**.
 
+The Apple draft is display-only: finalized remote requests translate the English
+source directly and stream their result over the draft. SiliconFlow
+`deepseek-ai/DeepSeek-V4-Flash` automatically sends `enable_thinking = false`;
+generic translation requests use `temperature = 0` and a 256-token output cap.
+
 Choose `glass` or `notch` under **Subtitle Mode** on the Dashboard. On MacBooks
 with a camera housing, `notch` uses the native SwiftUI/AppKit
 [DynamicNotchKit](https://github.com/MrKai77/DynamicNotchKit) component instead

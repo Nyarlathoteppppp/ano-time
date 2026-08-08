@@ -121,19 +121,22 @@ class Translator:
                         "domains": self.domain_prompt,
                     }
                 }
+            elif (self.base_url and "siliconflow" in self.base_url and
+                  self.model == "deepseek-ai/DeepSeek-V4-Flash"):
+                request_options["extra_body"] = {"enable_thinking": False}
             elif self.base_url and "api.deepseek.com" in self.base_url and self.model.startswith("deepseek-v4"):
                 request_options["extra_body"] = {"thinking": {"type": "disabled"}}
 
             completion_options = dict(
                 model=self.model,
                 messages=messages,
-                max_tokens=500,  # Increased to handle thinking tokens
+                max_tokens=256,
                 timeout=10.0,    # 10s timeout to prevent hanging
                 stream=on_update is not None,
                 **request_options,
             )
             if not is_qwen_mt:
-                completion_options["temperature"] = 0.3
+                completion_options["temperature"] = 0
             response = self.client.chat.completions.create(**completion_options)
 
             if on_update is not None:

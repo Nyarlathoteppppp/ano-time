@@ -450,17 +450,22 @@ class Pipeline(QObject):
             log_stage("llm_refine", chunk_id=chunk_id, status="skipped", detail="refinement slots busy")
             return
         try:
-            refine_executor.submit(self._run_refinement, text, chunk_id, draft)
+            refine_executor.submit(self._run_refinement, text, chunk_id)
         except Exception:
             self._refine_slots.release()
             raise
 
-    def _run_refinement(self, text, chunk_id, draft):
+    def _run_refinement(self, text, chunk_id):
         try:
             if not self.running:
                 return
             started = time.perf_counter()
-            translated = self.translator.translate(text, draft_translation=draft)
+            translated = self.translator.translate(
+                text,
+                on_update=lambda partial: self.signals.update_text.emit(
+                    chunk_id, text, partial
+                ),
+            )
             elapsed_ms = (time.perf_counter() - started) * 1000
             if translated and self.running:
                 self.signals.update_text.emit(chunk_id, text, translated)
@@ -487,10 +492,9 @@ class Pipeline(QObject):
 
             translated = self.translator.translate(
                 text,
-                on_update=None if draft else lambda partial: self.signals.update_text.emit(
+                on_update=lambda partial: self.signals.update_text.emit(
                     chunk_id, text, partial
                 ),
-                draft_translation=draft,
             )
             print(f"[Final {chunk_id}] Translated: {translated}")
             self.signals.update_text.emit(chunk_id, text, translated)
