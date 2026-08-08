@@ -765,6 +765,15 @@ class Dashboard(QWidget):
         self.target_lang.setCurrentText(config.target_lang)
         layout.addRow("Target Language:", self.target_lang)
 
+        self.translation_domain = QLineEdit(config.translation_domain)
+        self.translation_domain.setPlaceholderText(
+            "Postgraduate computer science coursework with mathematics terminology"
+        )
+        self.translation_domain.setToolTip(
+            "Domain context sent to the translation model to preserve technical terminology"
+        )
+        layout.addRow("Course Domain:", self.translation_domain)
+
         self.fast_translation_backend = QComboBox()
         self.fast_translation_backend.addItems(["apple", "off"])
         self.fast_translation_backend.setCurrentText(config.fast_translation_backend)
@@ -855,6 +864,7 @@ class Dashboard(QWidget):
         cp.set("api", "base_url", self.base_url.text())
         cp.set("translation", "model", self.model.currentText())
         cp.set("translation", "target_lang", self.target_lang.currentText())
+        cp.set("translation", "domain", self.translation_domain.text())
         cp.set("translation", "fast_backend", self.fast_translation_backend.currentText())
         cp.set("translation", "provider", self.provider.currentText())
         self.provider_keys[self.provider.currentText()] = self.api_key.text()

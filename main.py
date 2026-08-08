@@ -74,7 +74,8 @@ class Pipeline(QObject):
             target_lang=config.target_lang,
             base_url=config.api_base_url,
             api_key=config.api_key,
-            model=config.model
+            model=config.model,
+            domain_prompt=config.translation_domain,
         )
 
         self.fast_translator = None

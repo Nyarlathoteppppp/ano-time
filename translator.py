@@ -4,7 +4,8 @@ import os
 import re
 
 class Translator:
-    def __init__(self, api_key=None, base_url=None, model="MBZUAI-IFM/K2-Think-nothink", target_lang="Chinese"):
+    def __init__(self, api_key=None, base_url=None, model="MBZUAI-IFM/K2-Think-nothink",
+                 target_lang="Chinese", domain_prompt=None):
         """
         Translates text using an LLM.
         
@@ -16,6 +17,10 @@ class Translator:
         """
         self.target_lang = target_lang
         self.model = model
+        self.domain_prompt = domain_prompt or (
+            "Postgraduate computer science coursework. Preserve computer science "
+            "and mathematics terminology accurately, consistently, and in standard academic language."
+        )
         
         # If no key provided, check env. If still none, we might be in local mode (no auth) or fail.
         # Some local servers don't need a valid key, but the client requires a string.
@@ -66,6 +71,7 @@ class Translator:
         elif draft_translation:
             system_prompt = (
                 f"You are a professional real-time translator and editor. "
+                f"Domain context: {self.domain_prompt} "
                 f"Improve the draft translation into {self.target_lang}. "
                 f"Correct mistranslations using the original text, preserve meaning and terminology, "
                 f"and output ONLY the improved translation."
@@ -77,6 +83,7 @@ class Translator:
         elif use_context and self.previous_text:
             system_prompt = (
                 f"You are a professional real-time translator. "
+                f"Domain context: {self.domain_prompt} "
                 f"Translate the following user input into {self.target_lang}.\\n\\n"
                 f"<context>\\n"
                 f"Previous Sentence: \"{self.previous_text}\"\\n"
@@ -92,6 +99,7 @@ class Translator:
         else:
             system_prompt = (
                 f"You are a professional real-time translator. "
+                f"Domain context: {self.domain_prompt} "
                 f"Translate the following user input into {self.target_lang}. "
                 f"Do not add any explanations, just output the translation."
             )
@@ -110,6 +118,7 @@ class Translator:
                     "translation_options": {
                         "source_lang": "auto",
                         "target_lang": self.target_lang,
+                        "domains": self.domain_prompt,
                     }
                 }
             elif self.base_url and "api.deepseek.com" in self.base_url and self.model.startswith("deepseek-v4"):

@@ -104,6 +104,10 @@ their required single-user-message format and `translation_options` automaticall
 API keys stay in the ignored local `config.ini`; model names remain editable and
 can also be fetched from `/models`.
 
+Use **Course Domain** to provide subject context. It is sent as Qwen-MT's `domains`
+option and is included in the system prompt for generic LLM providers, helping keep
+computer science and mathematics terminology accurate and consistent.
+
 Set `fast_backend = apple` under `[translation]` to display an on-device draft
 before the configured LLM returns its refined translation. Apple Translation
 requires its source/target language assets to be installed on macOS.

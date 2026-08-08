@@ -5,6 +5,7 @@ api_key = your-api-key
 [translation]
 model = qwen2.5:7b
 target_lang = Chinese
+domain = Postgraduate computer science coursework with computer science and mathematics terminology.
 threads = 4
 fast_backend = apple
 provider = Custom

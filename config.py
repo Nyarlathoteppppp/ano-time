@@ -25,6 +25,11 @@ class Config:
         self.model = self._get("translation", "model", "gpt-3.5-turbo")
         self.model = self._get("translation", "model", "gpt-3.5-turbo")
         self.target_lang = self._get("translation", "target_lang", "Chinese")
+        self.translation_domain = self._get(
+            "translation",
+            "domain",
+            "Postgraduate computer science coursework with computer science and mathematics terminology.",
+        )
         self.translation_threads = self._getint("translation", "threads", 4)
         self.fast_translation_backend = self._get("translation", "fast_backend", "off").lower()
         self.translation_provider = self._get("translation", "provider", "Custom")
