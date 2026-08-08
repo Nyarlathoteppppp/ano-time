@@ -708,7 +708,16 @@ class Pipeline(QObject):
         # Groq is the low-latency bridge between the local Apple draft and the
         # higher-quality final model. It never blocks refinement and cannot
         # overwrite a final-model result that arrived first.
-        if isinstance(self.translator, HybridTranslator) and config.groq_api_key:
+        word_count = len(text.split())
+        if word_count <= 3:
+            log_stage(
+                "groq_bridge",
+                chunk_id=chunk_id,
+                status="skipped",
+                words=word_count,
+                detail="segment has 3 words or fewer",
+            )
+        elif isinstance(self.translator, HybridTranslator) and config.groq_api_key:
             try:
                 started = time.perf_counter()
                 bridge_deadline = min(
