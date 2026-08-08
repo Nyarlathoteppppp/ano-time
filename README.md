@@ -111,8 +111,11 @@ only for finalized utterances, so a slow or blocked API cannot delay the local
 draft. Stage timings and failures are written to `logs/runtime.log`; open it
 from the Dashboard with **Open Runtime Log**.
 
-Choose `glass` or `notch` under **Subtitle Mode** on the Dashboard. The overlay's
-own **Notch/Glass** button switches modes immediately without restarting.
+Choose `glass` or `notch` under **Subtitle Mode** on the Dashboard. On MacBooks
+with a camera housing, `notch` reads the physical notch geometry through AppKit
+and expands the latest subtitle downward from it. Double-click the notch subtitle
+panel to return to resizable `glass` mode; the glass panel's **Physical Notch**
+button switches back without restarting.
 
 #### `[transcription]` Section
 | Parameter | Description | Details |

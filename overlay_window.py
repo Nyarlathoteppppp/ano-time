@@ -1,14 +1,20 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QTextEdit, QVBoxLayout, QGraphicsDropShadowEffect, 
                              QSizeGrip, QHBoxLayout, QScrollArea, QLabel, QFrame)
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QColor, QPalette
+from PyQt6.QtGui import QFont, QColor, QPalette, QPainter, QPainterPath
 
 from ctypes import c_void_p
 import time
 
 # macOS: Make window visible on all desktops (Spaces)
 try:
-    from AppKit import NSWindowCollectionBehaviorCanJoinAllSpaces, NSWindowCollectionBehaviorStationary
+    from AppKit import (
+        NSScreen,
+        NSStatusWindowLevel,
+        NSWindowCollectionBehaviorCanJoinAllSpaces,
+        NSWindowCollectionBehaviorFullScreenAuxiliary,
+        NSWindowCollectionBehaviorStationary,
+    )
     import objc
     HAS_APPKIT = True
 except ImportError:
@@ -76,6 +82,49 @@ class DragHandle(QLabel):
     def mouseReleaseEvent(self, event):
         self.start_pos = None
 
+
+class NotchSurface(QFrame):
+    """Transparent surface that grows downward from the physical display notch."""
+    mode_switch_requested = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.notch_mode = False
+        self.notch_width = 185
+        self.notch_height = 32
+
+    def set_notch_geometry(self, enabled, width=185, height=32):
+        self.notch_mode = enabled
+        self.notch_width = max(1, int(width))
+        self.notch_height = max(1, int(height))
+        self.update()
+
+    def mouseDoubleClickEvent(self, event):
+        if self.notch_mode and event.button() == Qt.MouseButton.LeftButton:
+            self.mode_switch_requested.emit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self.notch_mode:
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 248))
+
+        center_x = self.width() / 2
+        neck_left = center_x - self.notch_width / 2
+        path = QPainterPath()
+        path.addRect(neck_left, 0, self.notch_width, self.notch_height + 8)
+        path.addRoundedRect(0, self.notch_height - 5,
+                            self.width(), self.height() - self.notch_height + 5,
+                            25, 25)
+        painter.drawPath(path)
+
 class OverlayWindow(QWidget):
     stop_requested = pyqtSignal()
 
@@ -108,8 +157,11 @@ class OverlayWindow(QWidget):
             ns_view = objc.objc_object(c_void_p=c_void_p(win_id))
             ns_window = ns_view.window()
             ns_window.setCollectionBehavior_(
-                NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorStationary
+                NSWindowCollectionBehaviorCanJoinAllSpaces |
+                NSWindowCollectionBehaviorStationary |
+                NSWindowCollectionBehaviorFullScreenAuxiliary
             )
+            ns_window.setLevel_(NSStatusWindowLevel)
             print("Window set to appear on all Spaces")
         except Exception as e:
             print(f"Could not set all-spaces behavior: {e}")
@@ -126,13 +178,13 @@ class OverlayWindow(QWidget):
         self.setMinimumSize(320, 140)
         
         # Layout
-        layout = QVBoxLayout()
-        layout.setContentsMargins(10, 10, 10, 10)
-        self.setLayout(layout)
+        self.root_layout = QVBoxLayout()
+        self.root_layout.setContentsMargins(10, 10, 10, 10)
+        self.setLayout(self.root_layout)
 
         # Dedicated drag surface; child labels otherwise consume mouse events.
         self.drag_handle = DragHandle(self)
-        layout.addWidget(self.drag_handle)
+        self.root_layout.addWidget(self.drag_handle)
         
         # SCROLL AREA
         self.scroll_area = QScrollArea()
@@ -147,8 +199,9 @@ class OverlayWindow(QWidget):
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         
         # Container for LogItems
-        self.container = QFrame()
+        self.container = NotchSurface()
         self.container.setObjectName("glassPanel")
+        self.container.mode_switch_requested.connect(self.toggle_display_mode)
         self._set_glass_style()
         shadow = QGraphicsDropShadowEffect(self.container)
         shadow.setBlurRadius(30)
@@ -162,10 +215,12 @@ class OverlayWindow(QWidget):
         self.container.setLayout(self.container_layout)
         
         self.scroll_area.setWidget(self.container)
-        layout.addWidget(self.scroll_area)
+        self.root_layout.addWidget(self.scroll_area)
         
         # Bottom Control Bar (Resize Grip + Save Button)
-        grip_layout = QHBoxLayout()
+        self.control_bar = QWidget()
+        grip_layout = QHBoxLayout(self.control_bar)
+        grip_layout.setContentsMargins(0, 0, 0, 0)
         
         # Save Button
         from PyQt6.QtWidgets import QPushButton, QStyle 
@@ -234,7 +289,7 @@ class OverlayWindow(QWidget):
         self.size_grip.setStyleSheet("background: rgba(255,255,255,35); border-radius: 6px;")
         grip_layout.addWidget(self.size_grip)
         
-        layout.addLayout(grip_layout)
+        self.root_layout.addWidget(self.control_bar)
         
         # Set initial window size
         self.resize(self.window_width, self.window_height)
@@ -260,6 +315,7 @@ class OverlayWindow(QWidget):
         self.set_display_mode(self.display_mode, initial=True)
 
     def _set_glass_style(self):
+        self.container.set_notch_geometry(False)
         self.container.setStyleSheet("""
             QFrame#glassPanel {
                 background-color: rgba(15, 20, 30, 178);
@@ -271,11 +327,36 @@ class OverlayWindow(QWidget):
     def _set_notch_style(self):
         self.container.setStyleSheet("""
             QFrame#glassPanel {
-                background-color: rgba(0, 0, 0, 235);
-                border: 1px solid rgba(255, 255, 255, 40);
-                border-radius: 30px;
+                background-color: transparent;
+                border: none;
             }
         """)
+
+    def _physical_notch_metrics(self):
+        """Return the built-in display camera-housing width and top inset in points."""
+        if not HAS_APPKIT:
+            return None
+        try:
+            candidates = []
+            for ns_screen in NSScreen.screens():
+                inset = float(ns_screen.safeAreaInsets().top)
+                left = ns_screen.auxiliaryTopLeftArea()
+                right = ns_screen.auxiliaryTopRightArea()
+                if inset <= 0 or left is None or right is None:
+                    continue
+                left_edge = float(left.origin.x + left.size.width)
+                right_edge = float(right.origin.x)
+                width = right_edge - left_edge
+                if width > 0:
+                    candidates.append((inset, width, str(ns_screen.localizedName())))
+            if not candidates:
+                return None
+            inset, width, name = max(candidates, key=lambda item: item[0])
+            print(f"[Overlay] Physical notch detected on {name}: {width:.0f}x{inset:.0f} pt")
+            return int(round(width)), int(round(inset))
+        except Exception as exc:
+            print(f"[Overlay] Could not read physical notch geometry: {exc}")
+            return None
 
     def toggle_display_mode(self):
         self.set_display_mode("notch" if self.display_mode == "glass" else "glass")
@@ -288,21 +369,27 @@ class OverlayWindow(QWidget):
 
         if mode == "notch":
             self._set_notch_style()
-            self.drag_handle.setText("⠿  Notch subtitles")
-            self.mode_btn.setText("▣ Glass")
-            self.save_btn.hide()
-            self.size_grip.hide()
-            screen = QApplication.primaryScreen().availableGeometry()
-            width = min(max(620, self.window_width), screen.width() - 40)
-            height = 170
+            self.drag_handle.hide()
+            self.control_bar.hide()
+            self.root_layout.setContentsMargins(0, 0, 0, 0)
+            metrics = self._physical_notch_metrics()
+            notch_width, notch_height = metrics if metrics else (185, 32)
+            self.container.set_notch_geometry(True, notch_width, notch_height)
+            self.container.setToolTip("Double-click to return to glass subtitle mode")
+            self.container_layout.setContentsMargins(18, notch_height + 9, 18, 12)
+            screen = QApplication.primaryScreen().geometry()
+            width = min(max(680, notch_width + 420), screen.width() - 32)
+            height = max(148, notch_height + 108)
             self.resize(width, height)
-            self.move(screen.x() + (screen.width() - width) // 2, screen.y() + 8)
+            self.move(screen.x() + (screen.width() - width) // 2, screen.y())
         else:
             self._set_glass_style()
+            self.drag_handle.show()
+            self.control_bar.show()
+            self.root_layout.setContentsMargins(10, 10, 10, 10)
+            self.container_layout.setContentsMargins(10, 10, 10, 10)
             self.drag_handle.setText("⠿  Drag subtitles")
-            self.mode_btn.setText("◒ Notch")
-            self.save_btn.show()
-            self.size_grip.show()
+            self.mode_btn.setText("◒ Physical Notch")
             if not initial and self._glass_geometry is not None:
                 self.setGeometry(self._glass_geometry)
 

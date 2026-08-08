@@ -139,8 +139,10 @@ class Dashboard(QWidget):
         display_row = QHBoxLayout()
         display_row.addWidget(QLabel("Subtitle Mode:"))
         self.display_mode = QComboBox()
-        self.display_mode.addItems(["glass", "notch"])
-        self.display_mode.setCurrentText(config.display_mode)
+        self.display_mode.addItem("Resizable Glass", "glass")
+        self.display_mode.addItem("Physical MacBook Notch", "notch")
+        mode_index = self.display_mode.findData(config.display_mode)
+        self.display_mode.setCurrentIndex(max(0, mode_index))
         display_row.addWidget(self.display_mode)
         layout.addLayout(display_row)
         
@@ -835,7 +837,7 @@ class Dashboard(QWidget):
         self.provider_keys[self.provider.currentText()] = self.api_key.text()
         cp.set("providers", "deepseek_api_key", self.provider_keys.get("DeepSeek Official", ""))
         cp.set("providers", "siliconflow_api_key", self.provider_keys.get("SiliconFlow", ""))
-        cp.set("display", "mode", self.display_mode.currentText())
+        cp.set("display", "mode", self.display_mode.currentData())
         
         with open(config_path, 'w') as f:
             cp.write(f)
