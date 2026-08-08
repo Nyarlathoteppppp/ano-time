@@ -63,8 +63,8 @@ private struct SubtitleContent: View {
     @ObservedObject var state: SubtitleState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
                 Button(action: { state.onCycleSize?() }) {
                     Label(state.sizeTitle, systemImage: "rectangle.3.group")
                 }
@@ -72,6 +72,12 @@ private struct SubtitleContent: View {
                 .foregroundStyle(.secondary)
                 .help("点击切换小、中、大刘海字幕")
                 Spacer()
+                Button("Glass") { state.onGlass?() }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                Button("Exit") { state.onExit?() }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.red)
             }
             .font(.system(size: 11, weight: .medium))
 
@@ -99,21 +105,12 @@ private struct SubtitleContent: View {
                 .onTapGesture { state.onCycleSize?() }
             }
 
-            HStack(spacing: 8) {
-                Spacer()
-                Button("Glass") { state.onGlass?() }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                Button("Exit") { state.onExit?() }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.red)
-            }
-            .font(.system(size: 12, weight: .medium))
         }
         .frame(
-            width: state.displayCount == 1 ? 500 : (state.displayCount == 2 ? 580 : 660),
+            width: state.displayCount == 1 ? 380 : (state.displayCount == 2 ? 460 : 540),
             alignment: .leading
         )
+        .fixedSize(horizontal: false, vertical: true)
         .animation(.easeInOut(duration: 0.18), value: state.displayCount)
     }
 }
