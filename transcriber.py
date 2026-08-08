@@ -33,7 +33,6 @@ class Transcriber:
         print(f"[Transcriber] Using faster-whisper (CPU/CUDA) with model: {model_size}")
     
     def _init_mlx(self, model_size):
-        sssss
         try:
             import mlx_whisper
             # MLX doesn't need explicit model loading here
@@ -538,7 +537,10 @@ class Transcriber:
             kwargs = {
                 "path_or_hf_repo": f"mlx-community/whisper-{self.model_size}-mlx",
                 "language": self.language,
-                "temperature": 0.0
+                "temperature": 0.0,
+                "no_speech_threshold": 0.45,
+                "logprob_threshold": -0.8,
+                "compression_ratio_threshold": 2.2
             }
             if prompt:
                 kwargs["initial_prompt"] = prompt

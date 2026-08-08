@@ -4,12 +4,14 @@ A high-performance real-time speech-to-text and translation application built fo
 
 ## Features
 - **⚡️ Real-Time Transcription**: Instant streaming display using `faster-whisper`, `mlx-whisper`, or `FunASR`.
-- **🎯 Multiple ASR Backends**: Choose between Whisper (multilingual), MLX (Apple Silicon optimized), or FunASR (industrial-grade Chinese/English).
+- **🎯 Multiple ASR Backends**: Choose between Apple SpeechTranscriber (macOS 26 native streaming), Whisper, MLX, or FunASR.
 - **🌊 Word-by-Word Streaming**: See text appear as you speak, with smart context accumulation.
 - **🔄 Async Translation**: Translates text to Chinese (or target language) in the background without blocking the UI.
 - **🖥️ Overlay UI**: Always-on-top, transparent, click-through window for seamless usage during meetings/videos.
 - **⚙️ Hot Reloading**: Change code or config and the app restarts automatically.
 - **💾 Transcript Saving**: One-click save of your session history. Can be used as subtitle or LLM analyze.
+- **🪟 Resizable Glass Overlay**: Drag the overlay from its handle and resize it from the bottom-right corner.
+- **⚡ Two-Stage Translation**: Show an Apple on-device draft first, then replace it with an LLM-refined translation.
 
 ## Demo
 https://github.com/user-attachments/assets/9982fe5d-3937-42d5-bcfc-e23748c01edf
@@ -95,13 +97,26 @@ Settings are managed via the Dashboard, but stored in `config.ini`.
 | `api_key` | Auth Key | `sk-...` (or `dummy` for local) |
 | `target_lang` | Output Language | `Chinese`, `English`, `Japanese` |
 
+The Translation tab includes provider presets for DeepSeek Official, SiliconFlow,
+and custom OpenAI-compatible endpoints. API keys stay in the ignored local
+`config.ini`; model names remain editable and can also be fetched from `/models`.
+
+Set `fast_backend = apple` under `[translation]` to display an on-device draft
+before the configured LLM returns its refined translation. Apple Translation
+requires its source/target language assets to be installed on macOS.
+
 #### `[transcription]` Section
 | Parameter | Description | Details |
 | :--- | :--- | :--- |
-| `backend` | ASR Engine | `whisper` (default), `mlx` (Apple Silicon), `funasr` (Alibaba) |
+| `backend` | ASR Engine | `apple` (macOS 26 native), `whisper`, `mlx`, `funasr` |
 | `whisper_model` | Whisper Model Size | `tiny` (fast), `large-v3` (accurate) |
 | `funasr_model` | FunASR Model Name | `paraformer-zh` (Chinese), `SenseVoiceSmall` (Multi-lang) |
 | `device` | Compute Unit | `auto` (Apple Neural Engine), `cuda` (NVIDIA) |
+
+For the lowest-latency microphone transcription on macOS 26+, set `backend = apple`.
+The native helper uses Apple's on-device `SpeechAnalyzer`/`SpeechTranscriber`, emits
+volatile and finalized results continuously, and builds automatically with the installed
+Xcode Command Line Tools. Run `./build_apple_speech.sh` manually to rebuild it.
 
 #### `[audio]` Section
 | Parameter | Description | Details |

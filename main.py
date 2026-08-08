@@ -24,6 +24,10 @@ class Pipeline(QObject):
         super().__init__()
         self.signals = WorkerSignals()
         self.running = True
+        self._translation_state_lock = threading.Lock()
+        self._partial_versions = {}
+        self._last_partial_text = {}
+        self._finalized_chunks = set()
         
         # Print config for debugging
         config.print_config()
@@ -51,13 +55,16 @@ class Pipeline(QObject):
         else:
             model_size = config.whisper_model
             
-        self.transcriber = Transcriber(
-            backend=config.asr_backend,
-            model_size=model_size,
-            device=config.whisper_device,
-            compute_type=config.whisper_compute_type,
-            language=config.source_language
-        )
+        self.transcriber = None
+        self.apple_transcriber = None
+        if config.asr_backend != "apple":
+            self.transcriber = Transcriber(
+                backend=config.asr_backend,
+                model_size=model_size,
+                device=config.whisper_device,
+                compute_type=config.whisper_compute_type,
+                language=config.source_language
+            )
         
         # Initialize Translator
         print(f"[Pipeline] Initializing Translator (target={config.target_lang})...")
@@ -67,9 +74,21 @@ class Pipeline(QObject):
             api_key=config.api_key,
             model=config.model
         )
+
+        self.fast_translator = None
+        if config.fast_translation_backend == "apple":
+            try:
+                from apple_translation import AppleTranslator
+                self.fast_translator = AppleTranslator(
+                    source=config.source_language or "en",
+                    target=config.target_lang,
+                )
+            except Exception as exc:
+                print(f"[Pipeline] Apple Translation unavailable, using LLM only: {exc}")
         
         # Warmup Transcriber (Critical for MLX/GPU)
-        self.transcriber.warmup()
+        if self.transcriber:
+            self.transcriber.warmup()
 
     def start(self):
         """Start the processing pipeline in a dedicated thread"""
@@ -82,12 +101,18 @@ class Pipeline(QObject):
         print("\n[Pipeline] Stopping...")
         self.running = False
         self.audio.stop()
-        if self.thread.is_alive():
+        if hasattr(self, "thread") and self.thread.is_alive():
             self.thread.join(timeout=2)
+        if self.fast_translator:
+            self.fast_translator.stop()
         print("[Pipeline] Stopped.")
 
     def processing_loop(self):
         """Fully parallel pipeline: multiple concurrent transcription + translation"""
+        if config.asr_backend == "apple":
+            self._processing_loop_apple()
+            return
+
         print("Pipeline processing loop started (FULLY PARALLEL mode).")
         
         # Create multiple transcribers for concurrent processing
@@ -162,7 +187,7 @@ class Pipeline(QObject):
                         
                 # Dynamic VAD Logic
                 # 1. Standard: > 2.0s duration AND > 1.0s silence (Configured)
-                standard_cut = (is_silence and buffer_duration > 2.0)
+                standard_cut = (is_silence and buffer_duration > 1.0)
                 
                 # 2. Soft Limit: > 6.0s duration AND > 0.4s silence (Catch brief pauses to avoid huge latency)
                 soft_limit_cut = False
@@ -183,6 +208,9 @@ class Pipeline(QObject):
                     # FINALIZE
                     final_buffer = buffer.copy()
                     cid = chunk_id
+                    with self._translation_state_lock:
+                        self._finalized_chunks.add(cid)
+                        self._partial_versions[cid] = self._partial_versions.get(cid, 0) + 1
                     
                     # Store current prompt to pass to task (thread safety)
                     prompt = self.last_final_text
@@ -212,7 +240,13 @@ class Pipeline(QObject):
                     # RMS Check to avoid partial hallucination on silence
                     rms = np.sqrt(np.mean(partial_buffer**2))
                     if rms > self.audio.silence_threshold:
-                        transcribe_executor.submit(self._process_partial_chunk, partial_buffer, chunk_id, prompt)
+                        transcribe_executor.submit(
+                            self._process_partial_chunk,
+                            partial_buffer,
+                            chunk_id,
+                            prompt,
+                            translate_executor
+                        )
                     
                     last_update_time = now
                     
@@ -222,13 +256,99 @@ class Pipeline(QObject):
             transcribe_executor.shutdown(wait=False)
             translate_executor.shutdown(wait=False)
 
-    def _process_partial_chunk(self, audio_data, chunk_id, prompt=""):
-        """Transcribe and update UI (No translation)"""
+    def _processing_loop_apple(self):
+        """Feed PCM audio to Apple's native streaming speech recognizer."""
+        from apple_transcriber import AppleSpeechTranscriber
+
+        translate_executor = ThreadPoolExecutor(max_workers=config.translation_threads)
+        state_lock = threading.Lock()
+        state = {"chunk_id": 1, "last_partial_at": 0.0}
+
+        def on_result(text, is_final):
+            if not self.running:
+                return
+            text = " ".join(text.split())
+            if not text:
+                return
+            now = time.time()
+            with state_lock:
+                chunk_id = state["chunk_id"]
+
+                if is_final:
+                    with self._translation_state_lock:
+                        self._finalized_chunks.add(chunk_id)
+                        self._partial_versions[chunk_id] = self._partial_versions.get(chunk_id, 0) + 1
+                    state["chunk_id"] += 1
+                    state["last_partial_at"] = 0.0
+                elif now - state["last_partial_at"] < config.update_interval:
+                    self.signals.update_text.emit(chunk_id, text, "")
+                    return
+                else:
+                    state["last_partial_at"] = now
+
+            if is_final:
+                print(f"[Apple Final {chunk_id}] {text}")
+                self.last_final_text = text
+                self.signals.update_text.emit(chunk_id, text, "(translating...)")
+                translate_executor.submit(self._run_translation, text, chunk_id)
+                return
+
+            self.signals.update_text.emit(chunk_id, text, "")
+            with self._translation_state_lock:
+                previous = self._last_partial_text.get(chunk_id)
+                if previous == text or len(text) < 6:
+                    return
+                self._last_partial_text[chunk_id] = text
+                version = self._partial_versions.get(chunk_id, 0) + 1
+                self._partial_versions[chunk_id] = version
+            translate_executor.submit(self._run_partial_translation, text, chunk_id, version)
+
+        self.apple_transcriber = AppleSpeechTranscriber(
+            language=config.source_language or "en",
+            sample_rate=config.sample_rate,
+            on_result=on_result,
+        )
+
+        try:
+            print("[Pipeline] Starting Apple SpeechTranscriber...")
+            self.apple_transcriber.start()
+            print("[Pipeline] Apple SpeechTranscriber ready")
+            for audio_chunk in self.audio.generator():
+                if not self.running:
+                    break
+                self.apple_transcriber.feed(audio_chunk)
+        except Exception as exc:
+            print(f"[Pipeline] Apple Speech error: {exc}")
+        finally:
+            if self.apple_transcriber:
+                self.apple_transcriber.stop()
+            translate_executor.shutdown(wait=False)
+
+    def _process_partial_chunk(self, audio_data, chunk_id, prompt="", translate_executor=None):
+        """Transcribe and translate an in-progress utterance."""
         try:
             # Use accumulated context as prompt
             text = self.transcriber.transcribe(audio_data, prompt=prompt)
             if text:
                 self.signals.update_text.emit(chunk_id, text, "")
+                normalized = " ".join(text.split())
+                with self._translation_state_lock:
+                    if chunk_id in self._finalized_chunks:
+                        return
+                    previous = self._last_partial_text.get(chunk_id)
+                    # Avoid paying for identical/near-empty partial hypotheses.
+                    if normalized == previous or len(normalized) < 6:
+                        return
+                    self._last_partial_text[chunk_id] = normalized
+                    version = self._partial_versions.get(chunk_id, 0) + 1
+                    self._partial_versions[chunk_id] = version
+                if translate_executor:
+                    translate_executor.submit(
+                        self._run_partial_translation,
+                        text,
+                        chunk_id,
+                        version
+                    )
         except Exception as e:
             print(f"[Partial {chunk_id}] Error: {e}")
 
@@ -253,10 +373,57 @@ class Pipeline(QObject):
         except Exception as e:
             print(f"[Final {chunk_id}] Error: {e}")
 
+    def _run_partial_translation(self, text, chunk_id, version):
+        """Stream a partial translation while ignoring superseded hypotheses."""
+        try:
+            if not self.running:
+                return
+            def emit_if_current(partial):
+                with self._translation_state_lock:
+                    current = self._partial_versions.get(chunk_id) == version
+                    current = current and chunk_id not in self._finalized_chunks
+                if current:
+                    self.signals.update_text.emit(chunk_id, text, partial)
+
+            draft = None
+            if self.fast_translator:
+                try:
+                    draft = self.fast_translator.translate(text)
+                    emit_if_current(draft)
+                except Exception as exc:
+                    print(f"[Apple Partial Translation {chunk_id}] Failed: {exc}")
+
+            translated = self.translator.translate(
+                text,
+                use_context=True,
+                on_update=None if draft else emit_if_current,
+                remember_context=False,
+                draft_translation=draft,
+            )
+            emit_if_current(translated)
+        except Exception as e:
+            print(f"[Partial Translation {chunk_id}] Failed: {e}")
+
     def _run_translation(self, text, chunk_id):
         """Run translation in background and emit result"""
         try:
-            translated = self.translator.translate(text)
+            if not self.running:
+                return
+            draft = None
+            if self.fast_translator:
+                try:
+                    draft = self.fast_translator.translate(text)
+                    self.signals.update_text.emit(chunk_id, text, draft)
+                except Exception as exc:
+                    print(f"[Apple Final Translation {chunk_id}] Failed: {exc}")
+
+            translated = self.translator.translate(
+                text,
+                on_update=None if draft else lambda partial: self.signals.update_text.emit(
+                    chunk_id, text, partial
+                ),
+                draft_translation=draft,
+            )
             print(f"[Final {chunk_id}] Translated: {translated}")
             self.signals.update_text.emit(chunk_id, text, translated)
         except Exception as e:

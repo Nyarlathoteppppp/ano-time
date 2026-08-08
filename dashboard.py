@@ -553,7 +553,7 @@ class Dashboard(QWidget):
         
         # ASR Backend Selection
         self.asr_backend = QComboBox()
-        self.asr_backend.addItems(["whisper", "mlx", "funasr"])
+        self.asr_backend.addItems(["apple", "whisper", "mlx", "funasr"])
         self.asr_backend.setCurrentText(config.asr_backend)
         self.asr_backend.setToolTip(
             "whisper: CPU/CUDA (faster-whisper)\n"
@@ -682,6 +682,24 @@ class Dashboard(QWidget):
     def init_translation_tab(self):
         tab = QWidget()
         layout = QFormLayout()
+
+        self.provider = QComboBox()
+        self.provider.addItems(["DeepSeek Official", "SiliconFlow", "Custom"])
+        current_base = (config.api_base_url or "").lower()
+        if "api.deepseek.com" in current_base:
+            self.provider.setCurrentText("DeepSeek Official")
+        elif "siliconflow" in current_base:
+            self.provider.setCurrentText("SiliconFlow")
+        else:
+            self.provider.setCurrentText("Custom")
+        self._current_provider = self.provider.currentText()
+        self.provider_keys = {
+            "DeepSeek Official": config.deepseek_api_key or config.api_key,
+            "SiliconFlow": config.siliconflow_api_key,
+            "Custom": config.api_key,
+        }
+        self.provider.currentTextChanged.connect(self._on_translation_provider_changed)
+        layout.addRow("Provider:", self.provider)
         
         self.api_key = QLineEdit(config.api_key)
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
@@ -712,9 +730,30 @@ class Dashboard(QWidget):
         self.target_lang.setEditable(True)
         self.target_lang.setCurrentText(config.target_lang)
         layout.addRow("Target Language:", self.target_lang)
+
+        self.fast_translation_backend = QComboBox()
+        self.fast_translation_backend.addItems(["apple", "off"])
+        self.fast_translation_backend.setCurrentText(config.fast_translation_backend)
+        self.fast_translation_backend.setToolTip(
+            "apple: show an immediate on-device draft, then replace it with the LLM-refined translation"
+        )
+        layout.addRow("Instant Draft:", self.fast_translation_backend)
         
         tab.setLayout(layout)
         self.tabs.addTab(tab, "🈵 Translation")
+
+    def _on_translation_provider_changed(self, provider):
+        if hasattr(self, "api_key"):
+            self.provider_keys[self._current_provider] = self.api_key.text()
+            self.api_key.setText(self.provider_keys.get(provider, ""))
+        self._current_provider = provider
+        if provider == "DeepSeek Official":
+            self.base_url.setText("https://api.deepseek.com")
+            self.model.setCurrentText("deepseek-v4-flash")
+        elif provider == "SiliconFlow":
+            self.base_url.setText("https://api.siliconflow.cn/v1")
+            if self.model.currentText().startswith("deepseek-v4-"):
+                self.model.setCurrentText("deepseek-ai/DeepSeek-V4-Flash")
 
     def populate_devices(self):
         self.device_combo.clear()
@@ -750,6 +789,7 @@ class Dashboard(QWidget):
         if not cp.has_section("api"): cp.add_section("api")
         if not cp.has_section("translation"): cp.add_section("translation")
         if not cp.has_section("transcription"): cp.add_section("transcription")
+        if not cp.has_section("providers"): cp.add_section("providers")
         
         # Audio
         idx = self.device_combo.currentData()
@@ -771,6 +811,11 @@ class Dashboard(QWidget):
         cp.set("api", "base_url", self.base_url.text())
         cp.set("translation", "model", self.model.currentText())
         cp.set("translation", "target_lang", self.target_lang.currentText())
+        cp.set("translation", "fast_backend", self.fast_translation_backend.currentText())
+        cp.set("translation", "provider", self.provider.currentText())
+        self.provider_keys[self.provider.currentText()] = self.api_key.text()
+        cp.set("providers", "deepseek_api_key", self.provider_keys.get("DeepSeek Official", ""))
+        cp.set("providers", "siliconflow_api_key", self.provider_keys.get("SiliconFlow", ""))
         
         with open(config_path, 'w') as f:
             cp.write(f)

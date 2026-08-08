@@ -48,7 +48,8 @@ class Translator:
         cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
         return cleaned.strip()
 
-    def translate(self, text, use_context=True):
+    def translate(self, text, use_context=True, on_update=None, remember_context=True,
+                  draft_translation=None):
         """
         Translates the given text. Returns the translated string.
         Uses previous transcription as context for better continuity.
@@ -57,7 +58,18 @@ class Translator:
             return ""
 
         # Build context-aware prompt
-        if use_context and self.previous_text:
+        if draft_translation:
+            system_prompt = (
+                f"You are a professional real-time translator and editor. "
+                f"Improve the draft translation into {self.target_lang}. "
+                f"Correct mistranslations using the original text, preserve meaning and terminology, "
+                f"and output ONLY the improved translation."
+            )
+            user_message = (
+                f"Original:\n{text}\n\n"
+                f"Draft translation:\n{draft_translation}"
+            )
+        elif use_context and self.previous_text:
             system_prompt = (
                 f"You are a professional real-time translator. "
                 f"Translate the following user input into {self.target_lang}.\\n\\n"
@@ -71,31 +83,54 @@ class Translator:
                 f"3. Do NOT repeat or include the Previous Sentence/Translation in your output.\\n"
                 f"4. Output ONLY the translation of the user message."
             )
+            user_message = text
         else:
             system_prompt = (
                 f"You are a professional real-time translator. "
                 f"Translate the following user input into {self.target_lang}. "
                 f"Do not add any explanations, just output the translation."
             )
+            user_message = text
 
         try:
+            request_options = {}
+            if self.base_url and "api.deepseek.com" in self.base_url and self.model.startswith("deepseek-v4"):
+                request_options["extra_body"] = {"thinking": {"type": "disabled"}}
+
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": text}
+                    {"role": "user", "content": user_message}
                 ],
                 temperature=0.3,
                 max_tokens=500,  # Increased to handle thinking tokens
-                timeout=10.0     # 10s timeout to prevent hanging
+                timeout=10.0,    # 10s timeout to prevent hanging
+                stream=on_update is not None,
+                **request_options,
             )
-            raw_result = response.choices[0].message.content.strip()
+
+            if on_update is not None:
+                parts = []
+                for chunk in response:
+                    if not chunk.choices:
+                        continue
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        parts.append(content)
+                        partial = self._strip_thinking("".join(parts))
+                        if partial:
+                            on_update(partial)
+                raw_result = "".join(parts).strip()
+            else:
+                raw_result = response.choices[0].message.content.strip()
             # Strip thinking tags if present
             result = self._strip_thinking(raw_result)
             
             # Store for next translation context
-            self.previous_text = text
-            self.previous_translation = result
+            if remember_context:
+                self.previous_text = text
+                self.previous_translation = result
             
             return result
         except OpenAIError as e:

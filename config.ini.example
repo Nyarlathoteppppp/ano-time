@@ -1,11 +1,17 @@
 [api]
 base_url = http://localhost:11434/v1/
-api_key = sk-talkai-bd76c0f60c6f4e50bcfa39fc1dce0efd
+api_key = your-api-key
 
 [translation]
 model = qwen2.5:7b
 target_lang = Chinese
 threads = 4
+fast_backend = apple
+provider = Custom
+
+[providers]
+deepseek_api_key =
+siliconflow_api_key =
 
 [display]
 display_duration = 10
@@ -33,4 +39,3 @@ streaming_interval = 3
 streaming_step_size = 0.2
 update_interval = 0.8
 streaming_overlap = 0.3
-

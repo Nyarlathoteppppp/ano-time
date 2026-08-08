@@ -26,6 +26,10 @@ class Config:
         self.model = self._get("translation", "model", "gpt-3.5-turbo")
         self.target_lang = self._get("translation", "target_lang", "Chinese")
         self.translation_threads = self._getint("translation", "threads", 4)
+        self.fast_translation_backend = self._get("translation", "fast_backend", "off").lower()
+        self.translation_provider = self._get("translation", "provider", "Custom")
+        self.deepseek_api_key = self._get("providers", "deepseek_api_key", "")
+        self.siliconflow_api_key = self._get("providers", "siliconflow_api_key", "")
         
         # Transcription settings
         self.asr_backend = self._get("transcription", "backend", "whisper").lower()
@@ -109,6 +113,7 @@ class Config:
         print(f"  API Key: {self.api_key[:8]}...{self.api_key[-4:] if len(self.api_key) > 12 else '***'}")
         print(f"  Model: {self.model}")
         print(f"  Target Language: {self.target_lang}")
+        print(f"  Fast Translation: {self.fast_translation_backend}")
         print(f"  ASR Backend: {self.asr_backend}")
         print(f"  Whisper Model: {self.whisper_model}")
         print(f"  FunASR Model: {self.funasr_model}")

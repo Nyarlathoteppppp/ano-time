@@ -63,9 +63,9 @@ class SettingsWindow(QWidget):
         
         # ASR Backend Selection
         self.backend_input = QComboBox()
-        self.backend_input.addItems(["whisper", "mlx", "funasr"])
+        self.backend_input.addItems(["apple", "whisper", "mlx", "funasr"])
         self.backend_input.setCurrentText(config.asr_backend)
-        self.backend_input.setToolTip("ASR Backend: whisper (CPU/CUDA), mlx (Apple Silicon), funasr (Alibaba FunASR)")
+        self.backend_input.setToolTip("ASR Backend: apple (macOS 26 native), whisper (CPU/CUDA), mlx (Apple Silicon), funasr (Alibaba FunASR)")
         form_layout.addRow("ASR Backend:", self.backend_input)
         
         # Whisper Model

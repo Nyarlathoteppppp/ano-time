@@ -45,75 +45,36 @@ class LogItem(QFrame):
     def update_original(self, text):
         self.original_label.setText(f"[{time.strftime('%H:%M:%S')}] {text}")
 
-class OverlayWindow(QWidget):
-    def __init__(self, display_duration=None, window_width=400, window_height=None):
-        super().__init__()
-        # display_duration is not really used in log mode, but kept for compatibility
-        self.window_width = window_width
-        
-        # Default height to full screen height if not specified
-        screen_geometry = QApplication.primaryScreen().availableGeometry()
-        self.window_height = window_height if window_height else screen_geometry.height()
-        
-        self.initUI()
-        self.oldPos = self.pos()
-
-    def showEvent(self, event):
-        """Called when window is shown - set all-spaces behavior here"""
-        super().showEvent(event)
-        if HAS_APPKIT:
-            self._set_all_spaces()
-    
-    def _set_all_spaces(self):
-        """Make window appear on all macOS Spaces/Desktops"""
-        try:
-            # Get the native NSWindow from Qt's winId
-            win_id = int(self.winId())
-            ns_view = objc.objc_object(c_void_p=c_void_p(win_id))
-            ns_window = ns_view.window()
-            ns_window.setCollectionBehavior_(
-                NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorStationary
-            )
-            print("Window set to appear on all Spaces")
-        except Exception as e:
-            print(f"Could not set all-spaces behavior: {e}")
-
-    def initUI(self):
-        # Window flags for transparency and staying on top
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint | 
-            Qt.WindowType.WindowStaysOnTopHint | 
-            Qt.WindowType.WindowDoesNotAcceptFocus
-        )
-class ResizeHandle(QLabel):
+class DragHandle(QLabel):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent_window = parent
-        self.setText("◢")
-        self.setStyleSheet("color: rgba(255, 255, 255, 100); font-size: 16px;")
-        self.setFixedSize(20, 20)
-        self.setAlignment(Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
-        self.setCursor(Qt.CursorShape.SizeFDiagCursor)
-        
-        self.startPos = None
+        self.setText("⠿  Drag subtitles")
+        self.setStyleSheet(
+            "color: rgba(255,255,255,150); font-size: 12px; "
+            "padding: 5px 8px; background: transparent;"
+        )
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+        self.start_pos = None
         
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.startPos = event.globalPosition().toPoint()
+            self.start_pos = event.globalPosition().toPoint()
             event.accept()
             
     def mouseMoveEvent(self, event):
-        if self.startPos:
-            delta = event.globalPosition().toPoint() - self.startPos
-            new_width = max(self.parent_window.minimumWidth(), self.parent_window.width() + delta.x())
-            new_height = max(self.parent_window.minimumHeight(), self.parent_window.height() + delta.y())
-            
-            self.parent_window.resize(new_width, new_height)
-            self.startPos = event.globalPosition().toPoint()
+        if self.start_pos:
+            current = event.globalPosition().toPoint()
+            delta = current - self.start_pos
+            self.parent_window.move(
+                self.parent_window.x() + delta.x(),
+                self.parent_window.y() + delta.y(),
+            )
+            self.start_pos = current
             event.accept()
             
     def mouseReleaseEvent(self, event):
-        self.startPos = None
+        self.start_pos = None
 
 class OverlayWindow(QWidget):
     stop_requested = pyqtSignal()
@@ -159,11 +120,16 @@ class OverlayWindow(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setMinimumSize(320, 140)
         
         # Layout
         layout = QVBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
         self.setLayout(layout)
+
+        # Dedicated drag surface; child labels otherwise consume mouse events.
+        self.drag_handle = DragHandle(self)
+        layout.addWidget(self.drag_handle)
         
         # SCROLL AREA
         self.scroll_area = QScrollArea()
@@ -179,7 +145,19 @@ class OverlayWindow(QWidget):
         
         # Container for LogItems
         self.container = QFrame()
-        self.container.setStyleSheet("background-color: rgba(0, 0, 0, 150); border-radius: 10px;")
+        self.container.setObjectName("glassPanel")
+        self.container.setStyleSheet("""
+            QFrame#glassPanel {
+                background-color: rgba(15, 20, 30, 178);
+                border: 1px solid rgba(255, 255, 255, 55);
+                border-radius: 16px;
+            }
+        """)
+        shadow = QGraphicsDropShadowEffect(self.container)
+        shadow.setBlurRadius(30)
+        shadow.setOffset(0, 8)
+        shadow.setColor(QColor(0, 0, 0, 150))
+        self.container.setGraphicsEffect(shadow)
         self.container_layout = QVBoxLayout()
         self.container_layout.setContentsMargins(10, 10, 10, 10)
         # Allocate alignment to top so items stack from top
@@ -235,9 +213,12 @@ class OverlayWindow(QWidget):
         
         grip_layout.addStretch()
         
-        # Visual Grip Indicator
-        self.grip_label = ResizeHandle(self)
-        grip_layout.addWidget(self.grip_label)
+        # Native corner grip works reliably with frameless Qt windows.
+        self.size_grip = QSizeGrip(self)
+        self.size_grip.setFixedSize(26, 26)
+        self.size_grip.setToolTip("Drag to resize subtitles")
+        self.size_grip.setStyleSheet("background: rgba(255,255,255,35); border-radius: 6px;")
+        grip_layout.addWidget(self.size_grip)
         
         layout.addLayout(grip_layout)
         
