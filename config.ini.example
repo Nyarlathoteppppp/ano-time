@@ -12,6 +12,8 @@ provider = Custom
 [providers]
 deepseek_api_key =
 siliconflow_api_key =
+qwen_mt_api_key =
+qwen_mt_base_url =
 
 [display]
 display_duration = 10

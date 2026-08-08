@@ -704,19 +704,33 @@ class Dashboard(QWidget):
         layout = QFormLayout()
 
         self.provider = QComboBox()
-        self.provider.addItems(["DeepSeek Official", "SiliconFlow", "Custom"])
+        self.provider.addItems([
+            "DeepSeek Official",
+            "SiliconFlow",
+            "Alibaba Cloud Qwen-MT",
+            "Custom",
+        ])
         current_base = (config.api_base_url or "").lower()
         if "api.deepseek.com" in current_base:
             self.provider.setCurrentText("DeepSeek Official")
         elif "siliconflow" in current_base:
             self.provider.setCurrentText("SiliconFlow")
+        elif "maas.aliyuncs.com" in current_base or "dashscope" in current_base:
+            self.provider.setCurrentText("Alibaba Cloud Qwen-MT")
         else:
             self.provider.setCurrentText("Custom")
         self._current_provider = self.provider.currentText()
         self.provider_keys = {
             "DeepSeek Official": config.deepseek_api_key or config.api_key,
             "SiliconFlow": config.siliconflow_api_key,
+            "Alibaba Cloud Qwen-MT": config.qwen_mt_api_key,
             "Custom": config.api_key,
+        }
+        self.provider_urls = {
+            "DeepSeek Official": "https://api.deepseek.com",
+            "SiliconFlow": "https://api.siliconflow.cn/v1",
+            "Alibaba Cloud Qwen-MT": config.qwen_mt_base_url,
+            "Custom": config.api_base_url or "",
         }
         self.provider.currentTextChanged.connect(self._on_translation_provider_changed)
         layout.addRow("Provider:", self.provider)
@@ -765,6 +779,7 @@ class Dashboard(QWidget):
     def _on_translation_provider_changed(self, provider):
         if hasattr(self, "api_key"):
             self.provider_keys[self._current_provider] = self.api_key.text()
+            self.provider_urls[self._current_provider] = self.base_url.text()
             self.api_key.setText(self.provider_keys.get(provider, ""))
         self._current_provider = provider
         if provider == "DeepSeek Official":
@@ -774,6 +789,14 @@ class Dashboard(QWidget):
             self.base_url.setText("https://api.siliconflow.cn/v1")
             if self.model.currentText().startswith("deepseek-v4-"):
                 self.model.setCurrentText("deepseek-ai/DeepSeek-V4-Flash")
+        elif provider == "Alibaba Cloud Qwen-MT":
+            self.base_url.setText(self.provider_urls.get(provider, ""))
+            self.base_url.setPlaceholderText(
+                "https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+            )
+            self.model.setCurrentText("qwen-mt-flash")
+        else:
+            self.base_url.setText(self.provider_urls.get(provider, self.base_url.text()))
 
     def populate_devices(self):
         self.device_combo.clear()
@@ -835,8 +858,11 @@ class Dashboard(QWidget):
         cp.set("translation", "fast_backend", self.fast_translation_backend.currentText())
         cp.set("translation", "provider", self.provider.currentText())
         self.provider_keys[self.provider.currentText()] = self.api_key.text()
+        self.provider_urls[self.provider.currentText()] = self.base_url.text()
         cp.set("providers", "deepseek_api_key", self.provider_keys.get("DeepSeek Official", ""))
         cp.set("providers", "siliconflow_api_key", self.provider_keys.get("SiliconFlow", ""))
+        cp.set("providers", "qwen_mt_api_key", self.provider_keys.get("Alibaba Cloud Qwen-MT", ""))
+        cp.set("providers", "qwen_mt_base_url", self.provider_urls.get("Alibaba Cloud Qwen-MT", ""))
         cp.set("display", "mode", self.display_mode.currentData())
         
         with open(config_path, 'w') as f:

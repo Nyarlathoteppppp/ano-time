@@ -30,6 +30,8 @@ class Config:
         self.translation_provider = self._get("translation", "provider", "Custom")
         self.deepseek_api_key = self._get("providers", "deepseek_api_key", "")
         self.siliconflow_api_key = self._get("providers", "siliconflow_api_key", "")
+        self.qwen_mt_api_key = self._get("providers", "qwen_mt_api_key", "")
+        self.qwen_mt_base_url = self._get("providers", "qwen_mt_base_url", "")
         
         # Transcription settings
         self.asr_backend = self._get("transcription", "backend", "whisper").lower()

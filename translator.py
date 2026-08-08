@@ -57,8 +57,13 @@ class Translator:
         if not text or not text.strip():
             return ""
 
-        # Build context-aware prompt
-        if draft_translation:
+        is_qwen_mt = self.model.startswith("qwen-mt-")
+
+        # Qwen-MT is a purpose-built, single-turn translation API. It rejects
+        # system messages and receives language selection through extra_body.
+        if is_qwen_mt:
+            messages = [{"role": "user", "content": text}]
+        elif draft_translation:
             system_prompt = (
                 f"You are a professional real-time translator and editor. "
                 f"Improve the draft translation into {self.target_lang}. "
@@ -92,23 +97,35 @@ class Translator:
             )
             user_message = text
 
+        if not is_qwen_mt:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ]
+
         try:
             request_options = {}
-            if self.base_url and "api.deepseek.com" in self.base_url and self.model.startswith("deepseek-v4"):
+            if is_qwen_mt:
+                request_options["extra_body"] = {
+                    "translation_options": {
+                        "source_lang": "auto",
+                        "target_lang": self.target_lang,
+                    }
+                }
+            elif self.base_url and "api.deepseek.com" in self.base_url and self.model.startswith("deepseek-v4"):
                 request_options["extra_body"] = {"thinking": {"type": "disabled"}}
 
-            response = self.client.chat.completions.create(
+            completion_options = dict(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ],
-                temperature=0.3,
+                messages=messages,
                 max_tokens=500,  # Increased to handle thinking tokens
                 timeout=10.0,    # 10s timeout to prevent hanging
                 stream=on_update is not None,
                 **request_options,
             )
+            if not is_qwen_mt:
+                completion_options["temperature"] = 0.3
+            response = self.client.chat.completions.create(**completion_options)
 
             if on_update is not None:
                 parts = []

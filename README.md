@@ -99,8 +99,10 @@ Settings are managed via the Dashboard, but stored in `config.ini`.
 | `target_lang` | Output Language | `Chinese`, `English`, `Japanese` |
 
 The Translation tab includes provider presets for DeepSeek Official, SiliconFlow,
-and custom OpenAI-compatible endpoints. API keys stay in the ignored local
-`config.ini`; model names remain editable and can also be fetched from `/models`.
+Alibaba Cloud Qwen-MT, and custom OpenAI-compatible endpoints. Qwen-MT models use
+their required single-user-message format and `translation_options` automatically.
+API keys stay in the ignored local `config.ini`; model names remain editable and
+can also be fetched from `/models`.
 
 Set `fast_backend = apple` under `[translation]` to display an on-device draft
 before the configured LLM returns its refined translation. Apple Translation
