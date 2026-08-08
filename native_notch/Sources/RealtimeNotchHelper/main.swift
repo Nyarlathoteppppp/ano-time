@@ -120,26 +120,68 @@ private struct RealtimeNotchHelper {
         app.setActivationPolicy(.accessory)
 
         let state = SubtitleState()
-        let notch = DynamicNotch(style: .auto) {
-            SubtitleContent(state: state)
-        } compactLeading: {
-            CompactLeading(state: state)
-        } compactTrailing: {
-            CompactTrailing(state: state)
+
+        func makeNotch(style: DynamicNotchStyle) -> DynamicNotch<
+            SubtitleContent, CompactLeading, CompactTrailing
+        > {
+            DynamicNotch(style: style) {
+                SubtitleContent(state: state)
+            } compactLeading: {
+                CompactLeading(state: state)
+            } compactTrailing: {
+                CompactTrailing(state: state)
+            }
+        }
+
+        let regularNotch = makeNotch(style: .auto)
+        // One-line mode uses matching upper/lower radii so both sides form a
+        // capsule. Medium and large retain DynamicNotchKit's normal silhouette.
+        let smallNotch = makeNotch(style: .notch(
+            topCornerRadius: 48,
+            bottomCornerRadius: 48
+        ))
+
+        func expandActiveNotch() async {
+            if state.displayCount == 1 {
+                await smallNotch.expand()
+            } else {
+                await regularNotch.expand()
+            }
+        }
+
+        func compactActiveNotch() async {
+            if state.displayCount == 1 {
+                await smallNotch.compact()
+            } else {
+                await regularNotch.compact()
+            }
+        }
+
+        func hideBothNotches() async {
+            await smallNotch.hide()
+            await regularNotch.hide()
         }
 
         func terminate(_ event: String) {
             emitEvent(event)
             Task { @MainActor in
-                await notch.hide()
+                await hideBothNotches()
                 NSApp.terminate(nil)
             }
         }
 
-        state.onExpand = { Task { @MainActor in await notch.expand() } }
+        state.onExpand = { Task { @MainActor in await expandActiveNotch() } }
         state.onCycleSize = {
+            let previousCount = state.displayCount
             state.cycleSize()
-            Task { @MainActor in await notch.expand() }
+            Task { @MainActor in
+                if previousCount == 1 && state.displayCount != 1 {
+                    await smallNotch.hide()
+                } else if previousCount != 1 && state.displayCount == 1 {
+                    await regularNotch.hide()
+                }
+                await expandActiveNotch()
+            }
         }
         state.onGlass = { terminate("glass") }
         state.onExit = { terminate("exit") }
@@ -160,24 +202,24 @@ private struct RealtimeNotchHelper {
                             finalized: true
                         )]
                     }
-                    await notch.expand()
+                    await expandActiveNotch()
                     state.compactTask?.cancel()
                     state.compactTask = Task { @MainActor in
                         try? await Task.sleep(for: .seconds(6))
                         guard !Task.isCancelled else { return }
-                        await notch.compact()
+                        await compactActiveNotch()
                     }
                 }
             }
             DispatchQueue.main.async {
                 Task { @MainActor in
-                    await notch.hide()
+                    await hideBothNotches()
                     NSApp.terminate(nil)
                 }
             }
         }
 
-        Task { @MainActor in await notch.compact() }
+        Task { @MainActor in await compactActiveNotch() }
         app.run()
     }
 }

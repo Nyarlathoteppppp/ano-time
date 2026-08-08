@@ -1,5 +1,4 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QTextEdit, QVBoxLayout,
-                             QGraphicsDropShadowEffect,
                              QSizeGrip, QHBoxLayout, QScrollArea, QLabel, QFrame,
                              QSizePolicy, QLayout)
 from PyQt6.QtCore import Qt, QPoint, QRect, QSettings, QTimer, pyqtSignal
@@ -62,7 +61,7 @@ class LogItem(QFrame):
         self.setLayout(self.layout)
         
         # Original Text Label
-        self.original_label = QLabel(f"[{timestamp}] {original_text}")
+        self.original_label = QLabel(original_text)
         self.original_label.setWordWrap(True)
         self.original_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
@@ -90,7 +89,7 @@ class LogItem(QFrame):
         self.refresh_layout()
 
     def update_original(self, text):
-        self.original_label.setText(f"[{time.strftime('%H:%M:%S')}] {text}")
+        self.original_label.setText(text)
         self.refresh_layout()
 
     def refresh_layout(self):
@@ -474,12 +473,6 @@ class OverlayWindow(QWidget):
         self.container.setObjectName("glassPanel")
         self.container.mode_switch_requested.connect(self.toggle_display_mode)
         self._set_glass_style()
-        if not self.video_overlay:
-            shadow = QGraphicsDropShadowEffect(self.container)
-            shadow.setBlurRadius(30)
-            shadow.setOffset(0, 8)
-            shadow.setColor(QColor(0, 0, 0, 150))
-            self.container.setGraphicsEffect(shadow)
         self.container_layout = QVBoxLayout()
         self.container_layout.setContentsMargins(10, 10, 10, 10)
         self.container_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
@@ -635,21 +628,14 @@ class OverlayWindow(QWidget):
 
     def _set_glass_style(self):
         self.container.set_notch_geometry(False)
-        if self.video_overlay:
-            self.container.setStyleSheet("""
-                QFrame#glassPanel {
-                    background-color: transparent;
-                    border: none;
-                }
-            """)
-        else:
-            self.container.setStyleSheet("""
-                QFrame#glassPanel {
-                    background-color: rgba(12, 16, 24, 82);
-                    border: 1px solid rgba(255, 255, 255, 72);
-                    border-radius: 16px;
-                }
-            """)
+        # The native blur/transparent top-level window is the only surface.
+        # Keeping this inner frame clear avoids a visible frame-within-frame.
+        self.container.setStyleSheet("""
+            QFrame#glassPanel {
+                background-color: transparent;
+                border: none;
+            }
+        """)
 
     def _set_notch_style(self):
         self.container.setStyleSheet("""
