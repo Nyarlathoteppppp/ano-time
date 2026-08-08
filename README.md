@@ -157,6 +157,9 @@ Xcode Command Line Tools. Run `./build_apple_speech.sh` manually to rebuild it.
 `./start_mac.sh` starts the Dashboard directly for fast, stable classroom use.
 Developers can opt into source-file hot reload with
 `REALTIME_TON_DEV_RELOAD=1 ./start_mac.sh`.
+The Dashboard is process-wide single-instance: opening the desktop launcher again
+activates the existing Dashboard instead of creating another session. Stop/relaunch
+uses generation IDs so a late initializer cannot reopen an obsolete subtitle window.
 
 #### `[audio]` Section
 | Parameter | Description | Details |

@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
                              QMessageBox, QTextEdit, QDialog)
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QThread
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtGui import QFont, QIcon, QColor
 import sys
 import sounddevice as sd
@@ -90,6 +91,11 @@ class Dashboard(QWidget):
 
     def __init__(self):
         super().__init__()
+        self._session_generation = 0
+        self._session_state = "idle"
+        self._startup_workers = {}
+        self.pipeline = None
+        self.overlay_window = None
         self.setWindowTitle("Real-Time Translator - Control Center")
         self.setMinimumSize(600, 500)
         self.setStyleSheet(STYLESHEET)
@@ -899,6 +905,14 @@ class Dashboard(QWidget):
             self.status_label.setText(f"Saved.{suffix}")
 
     def on_start(self):
+        if self._session_state in ("starting", "running"):
+            if self.overlay_window:
+                self.overlay_window.show()
+            return
+
+        self._session_generation += 1
+        generation = self._session_generation
+        self._session_state = "starting"
         # Launch exactly what is visible in the Dashboard; no separate Save click required.
         self.save_config(show_status=False)
         # 1. Update UI to Loading State
@@ -908,22 +922,36 @@ class Dashboard(QWidget):
         self.start_btn.setText("Loading...")
         
         # 2. Start Worker Thread
-        from PyQt6.QtCore import QThread, pyqtSignal
-        self.startup_worker = StartupWorker()
-        self.startup_worker.finished.connect(self.on_pipeline_ready)
-        self.startup_worker.start()
+        worker = StartupWorker(generation)
+        self._startup_workers[generation] = worker
+        worker.ready.connect(self.on_pipeline_ready)
+        worker.finished.connect(
+            lambda generation=generation: self._startup_workers.pop(generation, None)
+        )
+        worker.start()
 
-    def on_pipeline_ready(self, _, pipeline):
+    def on_pipeline_ready(self, generation, pipeline):
         # Create Window on Main Thread
         from config import config
-        
+
+        # A Stop/new Launch invalidates every older startup. Dispose its native
+        # helpers instead of allowing a late callback to create another window.
+        if generation != self._session_generation or self._session_state != "starting":
+            if pipeline:
+                pipeline.stop()
+            return
+
         if not pipeline:
-             self.status_label.setText("Initialization Failed Check Console")
-             self.start_btn.setEnabled(True)
-             self.start_btn.setText("▶ Launch Translator")
-             return
+            self._session_state = "idle"
+            self.status_label.setText("Initialization Failed Check Console")
+            self.start_btn.setEnabled(True)
+            self.start_btn.setText("▶ Launch Translator")
+            return
 
         self.pipeline = pipeline
+        if self.overlay_window:
+            self.overlay_window.close()
+            self.overlay_window = None
         if self.display_mode.currentData() == "notch":
             from native_notch_overlay import NativeNotchOverlay as OverlayClass
         else:
@@ -944,6 +972,7 @@ class Dashboard(QWidget):
 
         # Start Pipeline Thread
         self.pipeline.start()
+        self._session_state = "running"
 
         self.status_label.setText("Running...")
         self.status_label.setStyleSheet("font-size: 18px; color: #a6e3a1;")
@@ -962,13 +991,16 @@ class Dashboard(QWidget):
         self.showNormal()
 
     def on_stop(self):
-        if hasattr(self, 'pipeline') and self.pipeline:
-            self.pipeline.stop()
-            self.pipeline = None
-            
-        if hasattr(self, 'overlay_window') and self.overlay_window:
+        self._session_generation += 1
+        self._session_state = "idle"
+
+        if self.overlay_window:
             self.overlay_window.close()
             self.overlay_window = None
+
+        if self.pipeline:
+            self.pipeline.stop()
+            self.pipeline = None
             
         self.status_label.setText("Stopped")
         self.stop_btn.hide()
@@ -978,18 +1010,60 @@ class Dashboard(QWidget):
         self.showNormal()
 
 class StartupWorker(QThread):
-    finished = pyqtSignal(object, object) # window(None), pipeline
+    ready = pyqtSignal(int, object)
+
+    def __init__(self, generation):
+        super().__init__()
+        self.generation = generation
 
     def run(self):
         try:
             from main import Pipeline
             pipeline = Pipeline()
-            self.finished.emit(None, pipeline)
+            self.ready.emit(self.generation, pipeline)
         except Exception as e:
             print(f"Startup Error: {e}")
             import traceback
             traceback.print_exc()
-            self.finished.emit(None, None)
+            self.ready.emit(self.generation, None)
+
+
+INSTANCE_SERVER_NAME = "com.realtime-ton.dashboard"
+
+
+def notify_existing_instance():
+    """Return True after asking an existing Dashboard process to show itself."""
+    socket = QLocalSocket()
+    socket.connectToServer(INSTANCE_SERVER_NAME)
+    if not socket.waitForConnected(250):
+        return False
+    socket.write(b"activate")
+    socket.waitForBytesWritten(250)
+    socket.disconnectFromServer()
+    return True
+
+
+def start_instance_server(on_activate):
+    """Own the process-wide singleton socket, recovering stale socket files."""
+    server = QLocalServer()
+    if not server.listen(INSTANCE_SERVER_NAME):
+        # A process may have won the singleton race after our initial probe.
+        # Never unlink its live socket; only remove the path if connection fails.
+        if notify_existing_instance():
+            return None
+        QLocalServer.removeServer(INSTANCE_SERVER_NAME)
+        if not server.listen(INSTANCE_SERVER_NAME):
+            return None
+
+    def accept_connections():
+        while server.hasPendingConnections():
+            connection = server.nextPendingConnection()
+            on_activate()
+            connection.disconnectFromServer()
+            connection.deleteLater()
+
+    server.newConnection.connect(accept_connections)
+    return server
 
 if __name__ == "__main__":
     def exception_hook(exctype, value, traceback_obj):
@@ -1008,6 +1082,21 @@ if __name__ == "__main__":
     sys.excepthook = exception_hook
 
     app = QApplication(sys.argv)
+
+    if notify_existing_instance():
+        sys.exit(0)
+
     w = Dashboard()
+
+    def activate_dashboard():
+        w.showNormal()
+        w.raise_()
+        w.activateWindow()
+
+    instance_server = start_instance_server(activate_dashboard)
+    if instance_server is None:
+        # Another instance won a simultaneous-launch race after our first probe.
+        notify_existing_instance()
+        sys.exit(0)
     w.show()
     sys.exit(app.exec())
