@@ -1,11 +1,18 @@
-from PyQt6.QtWidgets import (QApplication, QWidget, QTextEdit, QVBoxLayout, QGraphicsDropShadowEffect, 
+from PyQt6.QtWidgets import (QApplication, QWidget, QTextEdit, QVBoxLayout,
+                             QGraphicsDropShadowEffect,
                              QSizeGrip, QHBoxLayout, QScrollArea, QLabel, QFrame,
                              QSizePolicy, QLayout)
 from PyQt6.QtCore import Qt, QPoint, QRect, QSettings, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QPalette, QPainter, QPainterPath
 
-from ctypes import c_void_p
+from ctypes import CDLL, c_int32, c_void_p
 import time
+
+_CORE_GRAPHICS = CDLL(
+    "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
+)
+_CORE_GRAPHICS.CGShieldingWindowLevel.restype = c_int32
+FULLSCREEN_OVERLAY_LEVEL = int(_CORE_GRAPHICS.CGShieldingWindowLevel()) + 1
 
 # macOS: Make window visible on all desktops (Spaces)
 try:
@@ -13,8 +20,8 @@ try:
         NSBackingStoreBuffered,
         NSColor,
         NSScreen,
-        NSScreenSaverWindowLevel,
         NSPanel,
+        NSScreenSaverWindowLevel,
         NSViewHeightSizable,
         NSViewWidthSizable,
         NSVisualEffectBlendingModeBehindWindow,
@@ -22,11 +29,15 @@ try:
         NSVisualEffectStateActive,
         NSVisualEffectView,
         NSWindowBelow,
+        NSWindowCollectionBehaviorAuxiliary,
         NSWindowCollectionBehaviorCanJoinAllApplications,
         NSWindowCollectionBehaviorCanJoinAllSpaces,
         NSWindowCollectionBehaviorFullScreenAuxiliary,
+        NSWindowCollectionBehaviorFullScreenNone,
+        NSWindowCollectionBehaviorFullScreenPrimary,
         NSWindowCollectionBehaviorIgnoresCycle,
         NSWindowCollectionBehaviorMoveToActiveSpace,
+        NSWindowCollectionBehaviorPrimary,
         NSWindowCollectionBehaviorStationary,
         NSWindowStyleMaskBorderless,
     )
@@ -245,7 +256,8 @@ class OverlayWindow(QWidget):
     notch_requested = pyqtSignal()
 
     def __init__(self, display_duration=None, window_width=400, window_height=None,
-                 display_mode="glass", allow_notch_switch=False):
+                 display_mode="glass", allow_notch_switch=False,
+                 video_overlay=False):
         super().__init__()
         # display_duration is not really used in log mode, but kept for compatibility
         self.window_width = window_width
@@ -255,6 +267,7 @@ class OverlayWindow(QWidget):
         screen_geometry = QApplication.primaryScreen().availableGeometry()
         self.window_height = window_height if window_height else screen_geometry.height()
         self.display_mode = display_mode if display_mode in ("glass", "notch") else "glass"
+        self.video_overlay = bool(video_overlay)
         self._glass_geometry = None
         self._settings = QSettings("RealtimeTon", "RealtimeTranslator")
         self._geometry_save_timer = QTimer(self)
@@ -299,15 +312,12 @@ class OverlayWindow(QWidget):
         super().closeEvent(event)
 
     def _install_native_blur(self, ns_window):
-        """Put an AppKit vibrancy panel behind the transparent Qt overlay."""
-        if self._native_blur_window is not None:
+        """Put an AppKit vibrancy panel behind microphone-mode glass."""
+        if self._native_blur_window is not None or self.video_overlay:
             return
-        frame = ns_window.frame()
         blur_window = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
-            frame,
-            NSWindowStyleMaskBorderless,
-            NSBackingStoreBuffered,
-            False,
+            ns_window.frame(), NSWindowStyleMaskBorderless,
+            NSBackingStoreBuffered, False,
         )
         blur_window.setOpaque_(False)
         blur_window.setBackgroundColor_(NSColor.clearColor())
@@ -329,7 +339,6 @@ class OverlayWindow(QWidget):
         effect.layer().setCornerRadius_(20.0)
         effect.layer().setMasksToBounds_(True)
         blur_window.contentView().addSubview_(effect)
-
         ns_window.addChildWindow_ordered_(blur_window, NSWindowBelow)
         self._native_blur_window = blur_window
         self._native_blur_view = effect
@@ -355,11 +364,19 @@ class OverlayWindow(QWidget):
             current_behavior = int(ns_window.collectionBehavior())
             current_behavior &= ~NSWindowCollectionBehaviorStationary
             current_behavior &= ~NSWindowCollectionBehaviorMoveToActiveSpace
+            # Qt adds the legacy FullScreenAuxiliary role to QNSPanel. On modern
+            # macOS that role can override CanJoinAllApplications during a
+            # browser's separate full-screen Space, so keep exactly one modern
+            # Stage Manager/full-screen role.
+            current_behavior &= ~NSWindowCollectionBehaviorPrimary
+            current_behavior &= ~NSWindowCollectionBehaviorAuxiliary
+            current_behavior &= ~NSWindowCollectionBehaviorFullScreenPrimary
+            current_behavior &= ~NSWindowCollectionBehaviorFullScreenAuxiliary
+            current_behavior &= ~NSWindowCollectionBehaviorFullScreenNone
             ns_window.setCollectionBehavior_(
                 current_behavior |
                 NSWindowCollectionBehaviorCanJoinAllApplications |
                 NSWindowCollectionBehaviorCanJoinAllSpaces |
-                NSWindowCollectionBehaviorFullScreenAuxiliary |
                 NSWindowCollectionBehaviorIgnoresCycle
             )
             ns_window.setHidesOnDeactivate_(False)
@@ -367,13 +384,12 @@ class OverlayWindow(QWidget):
             if ns_window.isKindOfClass_(NSPanel):
                 ns_window.setFloatingPanel_(True)
                 ns_window.setBecomesKeyOnlyIfNeeded_(True)
-            # Browser video-fullscreen windows can sit above the status-window
-            # level even though ordinary macOS full-screen windows do not. Use
-            # the system-overlay level so subtitles remain visible there too.
-            # The window still opts out of login-window visibility.
+            # Place subtitles above the CoreGraphics display shield. This is
+            # intentionally stronger than normal always-on-top/screen-saver
+            # levels so browser-native video full screen cannot cover them.
             ns_window.setCanBecomeVisibleWithoutLogin_(False)
-            ns_window.setLevel_(NSScreenSaverWindowLevel + 1)
-            if self.display_mode == "glass":
+            ns_window.setLevel_(FULLSCREEN_OVERLAY_LEVEL)
+            if self.display_mode == "glass" and not self.video_overlay:
                 self._install_native_blur(ns_window)
             self._sync_native_blur(ns_window)
             ns_window.orderFrontRegardless()
@@ -433,8 +449,12 @@ class OverlayWindow(QWidget):
         self.root_layout.setContentsMargins(10, 10, 10, 10)
         self.setLayout(self.root_layout)
 
-        # Dedicated drag surface; child labels otherwise consume mouse events.
+        # Compact drag surface; video mode keeps the content background clear.
         self.drag_handle = DragHandle(self)
+        if self.video_overlay:
+            self.drag_handle.setText("⠿  Move")
+            self.drag_handle.setFixedHeight(24)
+        self.drag_handle.setToolTip("Drag subtitle window")
         self.root_layout.addWidget(self.drag_handle)
         
         # SCROLL AREA
@@ -454,11 +474,12 @@ class OverlayWindow(QWidget):
         self.container.setObjectName("glassPanel")
         self.container.mode_switch_requested.connect(self.toggle_display_mode)
         self._set_glass_style()
-        shadow = QGraphicsDropShadowEffect(self.container)
-        shadow.setBlurRadius(30)
-        shadow.setOffset(0, 8)
-        shadow.setColor(QColor(0, 0, 0, 150))
-        self.container.setGraphicsEffect(shadow)
+        if not self.video_overlay:
+            shadow = QGraphicsDropShadowEffect(self.container)
+            shadow.setBlurRadius(30)
+            shadow.setOffset(0, 8)
+            shadow.setColor(QColor(0, 0, 0, 150))
+            self.container.setGraphicsEffect(shadow)
         self.container_layout = QVBoxLayout()
         self.container_layout.setContentsMargins(10, 10, 10, 10)
         self.container_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
@@ -614,13 +635,21 @@ class OverlayWindow(QWidget):
 
     def _set_glass_style(self):
         self.container.set_notch_geometry(False)
-        self.container.setStyleSheet("""
-            QFrame#glassPanel {
-                background-color: rgba(12, 16, 24, 82);
-                border: 1px solid rgba(255, 255, 255, 72);
-                border-radius: 16px;
-            }
-        """)
+        if self.video_overlay:
+            self.container.setStyleSheet("""
+                QFrame#glassPanel {
+                    background-color: transparent;
+                    border: none;
+                }
+            """)
+        else:
+            self.container.setStyleSheet("""
+                QFrame#glassPanel {
+                    background-color: rgba(12, 16, 24, 82);
+                    border: 1px solid rgba(255, 255, 255, 72);
+                    border-radius: 16px;
+                }
+            """)
 
     def _set_notch_style(self):
         self.container.setStyleSheet("""
@@ -686,9 +715,14 @@ class OverlayWindow(QWidget):
             self._set_glass_style()
             self.drag_handle.show()
             self.control_bar.show()
-            self.root_layout.setContentsMargins(10, 10, 10, 10)
-            self.container_layout.setContentsMargins(10, 10, 10, 10)
-            self.drag_handle.setText("⠿  Drag subtitles")
+            if self.video_overlay:
+                self.root_layout.setContentsMargins(0, 0, 0, 0)
+                self.container_layout.setContentsMargins(8, 2, 8, 4)
+                self.drag_handle.setText("⠿  Move")
+            else:
+                self.root_layout.setContentsMargins(10, 10, 10, 10)
+                self.container_layout.setContentsMargins(10, 10, 10, 10)
+                self.drag_handle.setText("⠿  Drag subtitles")
             self.mode_btn.setText("◒ Physical Notch")
             self.mode_btn.setVisible(self.allow_notch_switch)
             if not initial and self._glass_geometry is not None:

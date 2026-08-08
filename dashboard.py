@@ -1146,12 +1146,15 @@ class Dashboard(QWidget):
             from native_notch_overlay import NativeNotchOverlay as OverlayClass
         else:
             from overlay_window import OverlayWindow as OverlayClass
-        self.overlay_window = OverlayClass(
+        overlay_kwargs = dict(
             display_duration=config.display_duration,
             window_width=config.window_width,
             window_height=config.window_height,
             display_mode=self.display_mode.currentData(),
         )
+        if self.display_mode.currentData() != "notch":
+            overlay_kwargs["video_overlay"] = actual_audio == "SystemAudioCapture"
+        self.overlay_window = OverlayClass(**overlay_kwargs)
         self.overlay_window.show()
 
         # Connect Signals

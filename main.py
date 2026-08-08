@@ -864,12 +864,15 @@ def start_overlay_session():
         from native_notch_overlay import NativeNotchOverlay as OverlayClass
     else:
         OverlayClass = OverlayWindow
-    window = OverlayClass(
+    overlay_kwargs = dict(
         display_duration=config.display_duration,
         window_width=config.window_width,
         window_height=config.window_height,
         display_mode=config.display_mode,
     )
+    if config.display_mode != "notch":
+        overlay_kwargs["video_overlay"] = config.device_index == "system"
+    window = OverlayClass(**overlay_kwargs)
     window.show()
     
     # Logic
