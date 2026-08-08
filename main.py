@@ -19,6 +19,7 @@ from overlay_window import OverlayWindow
 from config import config
 from runtime_log import log_stage
 from stable_prefix import StablePrefixTracker
+from groq_bridge import GroqBridgeGate
 
 class WorkerSignals(QObject):
     # (chunk_id, original, translated, ASR state: "partial" | "final")
@@ -39,6 +40,10 @@ class Pipeline(QObject):
         self._last_finalized_segment = ""
         self._refine_queue_lock = threading.RLock()
         self._refine_futures = {}
+        self._groq_bridge_gate = GroqBridgeGate(
+            max_per_minute=15,
+            duplicate_window=30.0,
+        )
         
         # Print config for debugging
         config.print_config()
@@ -708,16 +713,23 @@ class Pipeline(QObject):
         # Groq is the low-latency bridge between the local Apple draft and the
         # higher-quality final model. It never blocks refinement and cannot
         # overwrite a final-model result that arrived first.
-        word_count = len(text.split())
-        if word_count <= 3:
+        groq_available = (
+            isinstance(self.translator, HybridTranslator) and config.groq_api_key
+        )
+        use_groq, skip_reason = (
+            self._groq_bridge_gate.allow(text)
+            if groq_available
+            else (False, "Groq bridge is not configured")
+        )
+        if not use_groq:
             log_stage(
                 "groq_bridge",
                 chunk_id=chunk_id,
                 status="skipped",
-                words=word_count,
-                detail="segment has 3 words or fewer",
+                words=len(text.split()),
+                detail=skip_reason,
             )
-        elif isinstance(self.translator, HybridTranslator) and config.groq_api_key:
+        else:
             try:
                 started = time.perf_counter()
                 bridge_deadline = min(
