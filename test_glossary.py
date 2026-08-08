@@ -126,6 +126,18 @@ class CourseGlossaryTests(unittest.TestCase):
         gemini.translate("Translate this.", use_context=False, remember_context=False)
         self.assertNotIn("temperature", gemini.client.chat.completions.options)
 
+        cloudflare = Translator(
+            api_key="test-key",
+            base_url="https://api.cloudflare.com/client/v4/accounts/test/ai/v1",
+            model="@cf/zai-org/glm-4.7-flash",
+        )
+        cloudflare.client = _RecordingClient()
+        cloudflare.translate("Translate this.", use_context=False, remember_context=False)
+        self.assertEqual(
+            cloudflare.client.chat.completions.options["extra_body"],
+            {"chat_template_kwargs": {"enable_thinking": False}},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

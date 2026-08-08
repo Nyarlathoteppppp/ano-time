@@ -94,7 +94,7 @@ class Pipeline(QObject):
             deadline_seconds=config.ai_deadline_seconds,
             glossary_path=config.glossary_path,
         )
-        if config.translation_provider == "Groq + Gemini → Qwen-MT":
+        if config.translation_provider == "Fast Free Pool → Qwen-MT":
             providers = []
             if config.groq_api_key:
                 providers.append({
@@ -109,7 +109,25 @@ class Pipeline(QObject):
                     "tpm_limit": 8000,
                     "daily_limit": 1000,
                     "daily_timezone": "UTC",
-                    "priority": 0,
+                    "priority": 2,
+                })
+            if config.cloudflare_account_id and config.cloudflare_api_token:
+                providers.append({
+                    "name": "Cloudflare GLM-4.7-Flash",
+                    "translator": Translator(
+                        base_url=(
+                            "https://api.cloudflare.com/client/v4/accounts/"
+                            f"{config.cloudflare_account_id}/ai/v1"
+                        ),
+                        api_key=config.cloudflare_api_token,
+                        model="@cf/zai-org/glm-4.7-flash",
+                        **translator_options,
+                    ),
+                    "daily_neuron_limit": 10000,
+                    "neuron_input_per_million": 5500,
+                    "neuron_output_per_million": 36400,
+                    "daily_timezone": "UTC",
+                    "priority": 1,
                 })
             if config.gemini_api_key:
                 providers.append({
@@ -135,7 +153,7 @@ class Pipeline(QObject):
                         model="qwen-mt-flash",
                         **translator_options,
                     ),
-                    "priority": 1,
+                    "priority": 3,
                 })
             self.translator = HybridTranslator(
                 providers,

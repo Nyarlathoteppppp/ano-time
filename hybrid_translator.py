@@ -20,12 +20,16 @@ class HybridTranslator:
             item.setdefault("rpm_limit", None)
             item.setdefault("tpm_limit", None)
             item.setdefault("daily_limit", None)
+            item.setdefault("daily_neuron_limit", None)
+            item.setdefault("neuron_input_per_million", 0)
+            item.setdefault("neuron_output_per_million", 0)
             item.setdefault("daily_timezone", None)
             item.setdefault("priority", 0)
             item["cooldown_until"] = 0.0
             item["daily_block_date"] = None
             item["recent_attempts"] = deque()
             item["recent_tokens"] = deque()
+            item["neuron_reservations"] = {}
             self.providers.append(item)
         self.usage_path = usage_path
         self._lock = threading.Lock()
@@ -107,12 +111,12 @@ class HybridTranslator:
         today = self._today(provider)
         record = self._usage.get(provider["name"], {})
         if record.get("date") != today:
-            record = {"date": today, "attempts": 0}
+            record = {"date": today, "attempts": 0, "neurons": 0.0}
             self._usage[provider["name"]] = record
             self._save_usage_locked()
         return int(record.get("attempts", 0))
 
-    def _reserve_locked(self, provider, now, estimated_tokens):
+    def _reserve_locked(self, provider, now, estimated_tokens, estimated_neurons):
         attempts = provider["recent_attempts"]
         while attempts and now - attempts[0] >= 60:
             attempts.popleft()
@@ -136,21 +140,36 @@ class HybridTranslator:
         daily_attempts = self._daily_attempts_locked(provider)
         if daily_limit and daily_attempts >= daily_limit:
             return False
+        record = self._usage.setdefault(
+            provider["name"],
+            {"date": self._today(provider), "attempts": 0, "neurons": 0.0},
+        )
+        daily_neuron_limit = provider.get("daily_neuron_limit")
+        current_neurons = float(record.get("neurons", 0.0))
+        if daily_neuron_limit and current_neurons + estimated_neurons > daily_neuron_limit:
+            return False
         attempts.append(now)
         self._reservation_counter += 1
         reservation_id = self._reservation_counter
         token_usage.append((now, estimated_tokens, reservation_id))
-        record = self._usage.setdefault(
-            provider["name"], {"date": self._today(provider), "attempts": 0}
-        )
         record["attempts"] = daily_attempts + 1
+        if daily_neuron_limit:
+            record["neurons"] = current_neurons + estimated_neurons
+            provider["neuron_reservations"][reservation_id] = estimated_neurons
+            provider["last_daily_neurons"] = record["neurons"]
         provider["last_daily_attempts"] = record["attempts"]
         provider["last_minute_requests"] = len(attempts)
         provider["last_minute_tokens"] = sum(tokens for _, tokens, _ in token_usage)
         self._save_usage_locked()
         return reservation_id
 
-    def _record_actual_usage(self, provider, reservation_id, actual_tokens):
+    def _record_actual_usage(self, provider, reservation_id, usage):
+        if isinstance(usage, dict):
+            actual_tokens = int(usage.get("total_tokens") or 0)
+            actual_neurons = float(usage.get("neurons") or 0.0)
+        else:
+            actual_tokens = int(usage or 0)
+            actual_neurons = 0.0
         with self._lock:
             updated = deque()
             for event_time, tokens, event_id in provider["recent_tokens"]:
@@ -161,9 +180,19 @@ class HybridTranslator:
             provider["last_minute_tokens"] = sum(
                 tokens for _, tokens, _ in updated
             )
+            if provider.get("daily_neuron_limit"):
+                reserved = provider["neuron_reservations"].pop(reservation_id, 0.0)
+                record = self._usage.setdefault(
+                    provider["name"],
+                    {"date": self._today(provider), "attempts": 0, "neurons": 0.0},
+                )
+                record["neurons"] = max(
+                    0.0, float(record.get("neurons", 0.0)) - reserved + actual_neurons
+                )
+                provider["last_daily_neurons"] = record["neurons"]
             self._save_usage_locked()
 
-    def _select_provider(self, excluded, estimated_tokens):
+    def _select_provider(self, excluded, estimated_tokens, estimated_neurons_by_name):
         now = time.monotonic()
         with self._lock:
             count = len(self.providers)
@@ -195,7 +224,10 @@ class HybridTranslator:
                             flush=True,
                         )
                     reservation_id = self._reserve_locked(
-                        provider, now, estimated_tokens
+                        provider,
+                        now,
+                        estimated_tokens,
+                        estimated_neurons_by_name.get(provider["name"], 0.0),
                     )
                     if not reservation_id:
                         continue
@@ -215,6 +247,19 @@ class HybridTranslator:
         input_tokens = cjk + ceil(non_cjk / 4)
         output_reserve = min(160, max(48, ceil(len(text) / 3)))
         return max(1, input_tokens + 220 + output_reserve)
+
+    @staticmethod
+    def _estimate_neurons(provider, args, kwargs):
+        text = str(args[0]) if args else str(kwargs.get("text", ""))
+        context = str(kwargs.get("context_text") or "")
+        combined = text + context
+        cjk = sum("\u3400" <= char <= "\u9fff" for char in combined)
+        input_tokens = cjk + ceil(max(0, len(combined) - cjk) / 4) + 220
+        output_tokens = min(160, max(48, ceil(len(text) / 3)))
+        return (
+            input_tokens * provider.get("neuron_input_per_million", 0)
+            + output_tokens * provider.get("neuron_output_per_million", 0)
+        ) / 1_000_000
 
     @staticmethod
     def _status_code(exc):
@@ -263,8 +308,14 @@ class HybridTranslator:
         excluded = set()
         last_error = None
         estimated_tokens = self._estimate_tokens(args, kwargs)
+        estimated_neurons_by_name = {
+            provider["name"]: self._estimate_neurons(provider, args, kwargs)
+            for provider in self.providers
+        }
         while len(excluded) < len(self.providers):
-            selection = self._select_provider(excluded, estimated_tokens)
+            selection = self._select_provider(
+                excluded, estimated_tokens, estimated_neurons_by_name
+            )
             if selection is None:
                 break
             provider, reservation_id = selection
@@ -281,6 +332,11 @@ class HybridTranslator:
             if provider.get("tpm_limit"):
                 quota_parts.append(
                     f"reserved_tpm={provider.get('last_minute_tokens', 0)}/{provider['tpm_limit']}"
+                )
+            if provider.get("daily_neuron_limit"):
+                quota_parts.append(
+                    f"neurons={provider.get('last_daily_neurons', 0):.2f}/"
+                    f"{provider['daily_neuron_limit']}"
                 )
             quota = f" ({', '.join(quota_parts)})" if quota_parts else ""
             print(f"[Hybrid] Using {provider['name']}{quota}", flush=True)

@@ -168,6 +168,49 @@ class HybridTranslatorTests(unittest.TestCase):
             self.assertEqual(restarted.translate("second"), "qwen")
             self.assertEqual(restarted_groq.calls, 0)
 
+    def test_cloudflare_neurons_use_actual_daily_usage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            glm = _FakeTranslator(
+                "glm", usage={"total_tokens": 71, "neurons": 0.98}
+            )
+            qwen = _FakeTranslator("qwen")
+            router = self._router(
+                [
+                    {
+                        "name": "glm",
+                        "translator": glm,
+                        "daily_neuron_limit": 4,
+                        "neuron_input_per_million": 5500,
+                        "neuron_output_per_million": 36400,
+                        "priority": 0,
+                    },
+                    {"name": "qwen", "translator": qwen, "priority": 1},
+                ],
+                directory,
+            )
+            self.assertEqual(router.translate("one"), "glm")
+            self.assertAlmostEqual(router.providers[0]["last_daily_neurons"], 0.98)
+            self.assertEqual(router.translate("two"), "glm")
+            self.assertAlmostEqual(router.providers[0]["last_daily_neurons"], 1.96)
+            self.assertEqual(router.translate("three"), "qwen")
+
+    def test_configured_quality_speed_priority_is_respected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            gemini = _FakeTranslator("gemini")
+            glm = _FakeTranslator("glm")
+            groq = _FakeTranslator("groq")
+            router = self._router(
+                [
+                    {"name": "gemini", "translator": gemini, "daily_limit": 1, "priority": 0},
+                    {"name": "glm", "translator": glm, "daily_limit": 1, "priority": 1},
+                    {"name": "groq", "translator": groq, "priority": 2},
+                ],
+                directory,
+            )
+            self.assertEqual(router.translate("one"), "gemini")
+            self.assertEqual(router.translate("two"), "glm")
+            self.assertEqual(router.translate("three"), "groq")
+
 
 if __name__ == "__main__":
     unittest.main()

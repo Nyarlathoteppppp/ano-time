@@ -35,7 +35,7 @@ class Config:
         self.ai_deadline_seconds = self._getfloat("translation", "ai_deadline_seconds", 3.0)
         self.fast_translation_backend = self._get("translation", "fast_backend", "off").lower()
         self.translation_provider = self._get(
-            "translation", "provider", "Groq + Gemini → Qwen-MT"
+            "translation", "provider", "Fast Free Pool → Qwen-MT"
         )
         glossary_path = self._get("translation", "glossary_path", "course_glossary.tsv")
         self.glossary_path = (
@@ -49,6 +49,8 @@ class Config:
         self.qwen_mt_base_url = self._get("providers", "qwen_mt_base_url", "")
         self.groq_api_key = self._get("providers", "groq_api_key", "")
         self.gemini_api_key = self._get("providers", "gemini_api_key", "")
+        self.cloudflare_account_id = self._get("providers", "cloudflare_account_id", "")
+        self.cloudflare_api_token = self._get("providers", "cloudflare_api_token", "")
         
         # Transcription settings
         self.asr_backend = self._get("transcription", "backend", "whisper").lower()

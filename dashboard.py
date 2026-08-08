@@ -863,7 +863,7 @@ class Dashboard(QWidget):
 
         self.provider = QComboBox()
         self.provider.addItems([
-            "Groq + Gemini → Qwen-MT",
+            "Fast Free Pool → Qwen-MT",
             "Alibaba Cloud Qwen-MT",
             "DeepSeek Official",
             "SiliconFlow",
@@ -878,14 +878,14 @@ class Dashboard(QWidget):
             self.provider.setCurrentText("Alibaba Cloud Qwen-MT")
         else:
             self.provider.setCurrentText("Custom")
-        if config.translation_provider == "Groq + Gemini → Qwen-MT":
-            self.provider.setCurrentText("Groq + Gemini → Qwen-MT")
+        if config.translation_provider == "Fast Free Pool → Qwen-MT":
+            self.provider.setCurrentText("Fast Free Pool → Qwen-MT")
         self._current_provider = self.provider.currentText()
         self.provider_keys = {
             "DeepSeek Official": config.deepseek_api_key or config.api_key,
             "SiliconFlow": config.siliconflow_api_key,
             "Alibaba Cloud Qwen-MT": config.qwen_mt_api_key,
-            "Groq + Gemini → Qwen-MT": "",
+            "Fast Free Pool → Qwen-MT": "",
             "Custom": config.api_key,
         }
         self.provider_urls = {
@@ -911,6 +911,15 @@ class Dashboard(QWidget):
         self.gemini_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.gemini_api_key.setPlaceholderText("Google AI Studio key")
         layout.addRow("Gemini Key:", self.gemini_api_key)
+
+        self.cloudflare_account_id = QLineEdit(config.cloudflare_account_id)
+        self.cloudflare_account_id.setPlaceholderText("Cloudflare account ID")
+        layout.addRow("Cloudflare Account:", self.cloudflare_account_id)
+
+        self.cloudflare_api_token = QLineEdit(config.cloudflare_api_token)
+        self.cloudflare_api_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.cloudflare_api_token.setPlaceholderText("Cloudflare API token")
+        layout.addRow("Cloudflare Token:", self.cloudflare_api_token)
         
         self.base_url = QLineEdit(config.api_base_url or "")
         self.base_url.setPlaceholderText("https://api.openai.com/v1")
@@ -966,7 +975,7 @@ class Dashboard(QWidget):
             self.provider_urls[self._current_provider] = self.base_url.text()
             self.api_key.setText(self.provider_keys.get(provider, ""))
         self._current_provider = provider
-        hybrid = provider == "Groq + Gemini → Qwen-MT"
+        hybrid = provider == "Fast Free Pool → Qwen-MT"
         if hasattr(self, "base_url"):
             self.api_key.setEnabled(not hybrid)
             self.base_url.setEnabled(not hybrid)
@@ -974,7 +983,7 @@ class Dashboard(QWidget):
             self.refresh_models_btn.setEnabled(not hybrid)
         if hybrid:
             self.base_url.setText("Automatic quota-aware rotation")
-            self.model.setCurrentText("GPT-OSS ↔ Gemini; Qwen-MT fallback")
+            self.model.setCurrentText("Gemini → GLM → Groq → Qwen-MT")
         elif provider == "DeepSeek Official":
             self.base_url.setText("https://api.deepseek.com")
             self.model.setCurrentText("deepseek-v4-flash")
@@ -1048,7 +1057,7 @@ class Dashboard(QWidget):
         cp.set("transcription", "source_language", self.source_language.currentText())
         
         # Translation
-        if self.provider.currentText() != "Groq + Gemini → Qwen-MT":
+        if self.provider.currentText() != "Fast Free Pool → Qwen-MT":
             cp.set("api", "api_key", self.api_key.text())
             cp.set("api", "base_url", self.base_url.text())
             cp.set("translation", "model", self.model.currentText())
@@ -1064,6 +1073,8 @@ class Dashboard(QWidget):
         cp.set("providers", "qwen_mt_base_url", self.provider_urls.get("Alibaba Cloud Qwen-MT", ""))
         cp.set("providers", "groq_api_key", self.groq_api_key.text())
         cp.set("providers", "gemini_api_key", self.gemini_api_key.text())
+        cp.set("providers", "cloudflare_account_id", self.cloudflare_account_id.text())
+        cp.set("providers", "cloudflare_api_token", self.cloudflare_api_token.text())
         cp.set("display", "mode", self.display_mode.currentData())
         
         with open(config_path, 'w') as f:

@@ -49,7 +49,11 @@ class Translator:
         direct_provider = bool(
             base_url and any(
                 host in base_url
-                for host in ("api.groq.com", "generativelanguage.googleapis.com")
+                for host in (
+                    "api.groq.com",
+                    "generativelanguage.googleapis.com",
+                    "api.cloudflare.com",
+                )
             )
         )
         http_client = httpx.Client(verify=False, trust_env=not direct_provider)
@@ -81,12 +85,18 @@ class Translator:
     def _report_usage(usage, callback):
         if not usage or not callback:
             return
-        total = getattr(usage, "total_tokens", None)
-        if total is None and isinstance(usage, dict):
-            total = usage.get("total_tokens")
+        def value(name):
+            return usage.get(name) if isinstance(usage, dict) else getattr(usage, name, None)
+
+        total = value("total_tokens")
         if total is not None:
             try:
-                callback(int(total))
+                callback({
+                    "total_tokens": int(total),
+                    "prompt_tokens": int(value("prompt_tokens") or 0),
+                    "completion_tokens": int(value("completion_tokens") or 0),
+                    "neurons": float(value("neurons") or 0.0),
+                })
             except Exception as exc:
                 print(f"[Translator] Usage callback failed: {exc}", flush=True)
 
@@ -200,6 +210,10 @@ class Translator:
 
             if self.base_url and "api.groq.com" in self.base_url and self.model.startswith("openai/gpt-oss-"):
                 request_options["reasoning_effort"] = "low"
+            if self.base_url and "api.cloudflare.com" in self.base_url and self.model == "@cf/zai-org/glm-4.7-flash":
+                request_options["extra_body"] = {
+                    "chat_template_kwargs": {"enable_thinking": False}
+                }
 
             completion_options = dict(
                 model=self.model,
@@ -212,7 +226,11 @@ class Translator:
             metered_stream = bool(
                 on_update is not None and self.base_url and any(
                     host in self.base_url
-                    for host in ("api.groq.com", "generativelanguage.googleapis.com")
+                    for host in (
+                        "api.groq.com",
+                        "generativelanguage.googleapis.com",
+                        "api.cloudflare.com",
+                    )
                 )
             )
             if metered_stream:
