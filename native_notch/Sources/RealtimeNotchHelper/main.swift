@@ -77,9 +77,9 @@ private struct SubtitleContent: View {
     @ObservedObject var state: SubtitleState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .center, spacing: 5) {
             ForEach(state.items.suffix(state.displayCount)) { item in
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .center, spacing: 2) {
                     Text(item.original)
                         .font(.system(
                             size: 11.5,
@@ -89,17 +89,22 @@ private struct SubtitleContent: View {
                             .white.opacity(item.finalized == true ? 0.96 : 0.78)
                         )
                         .lineLimit(1)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity, alignment: .center)
 
                     Text(item.translated.isEmpty ? "…" : item.translated)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity, alignment: .center)
                 }
+                .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .frame(
             width: state.contentWidth,
-            alignment: .leading
+            alignment: .center
         )
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
