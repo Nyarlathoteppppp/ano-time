@@ -121,6 +121,11 @@ The Apple draft is display-only: finalized remote requests translate the English
 source directly and stream their result over the draft. SiliconFlow
 `deepseek-ai/DeepSeek-V4-Flash` automatically sends `enable_thinking = false`;
 generic translation requests use `temperature = 0` and a 256-token output cap.
+Remote AI refinement has a three-second end-to-end deadline with retries disabled.
+Two requests may run concurrently and only the newest third request may wait;
+newer finalized speech replaces an older pending request. Generic models receive
+one previous finalized English segment as context, while Qwen-MT remains a
+single-turn translation request without context.
 
 Choose `glass` or `notch` under **Subtitle Mode** on the Dashboard. On MacBooks
 with a camera housing, `notch` uses the native SwiftUI/AppKit

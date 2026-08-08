@@ -32,6 +32,7 @@ class Config:
             "Postgraduate computer science coursework with computer science and mathematics terminology.",
         )
         self.translation_threads = self._getint("translation", "threads", 4)
+        self.ai_deadline_seconds = self._getfloat("translation", "ai_deadline_seconds", 3.0)
         self.fast_translation_backend = self._get("translation", "fast_backend", "off").lower()
         self.translation_provider = self._get("translation", "provider", "Custom")
         self.deepseek_api_key = self._get("providers", "deepseek_api_key", "")
@@ -130,6 +131,7 @@ class Config:
         print(f"  Model: {self.model}")
         print(f"  Target Language: {self.target_lang}")
         print(f"  Fast Translation: {self.fast_translation_backend}")
+        print(f"  AI Deadline: {self.ai_deadline_seconds:.1f}s")
         print(f"  ASR Backend: {self.asr_backend}")
         print(f"  Whisper Model: {self.whisper_model}")
         print(f"  FunASR Model: {self.funasr_model}")

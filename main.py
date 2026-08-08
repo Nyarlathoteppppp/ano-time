@@ -31,7 +31,10 @@ class Pipeline(QObject):
         self._partial_versions = {}
         self._last_partial_text = {}
         self._finalized_chunks = set()
-        self._refine_slots = threading.BoundedSemaphore(2)
+        self._context_lock = threading.Lock()
+        self._last_finalized_segment = ""
+        self._refine_queue_lock = threading.RLock()
+        self._refine_futures = {}
         
         # Print config for debugging
         config.print_config()
@@ -81,6 +84,7 @@ class Pipeline(QObject):
             api_key=config.api_key,
             model=config.model,
             domain_prompt=config.translation_domain,
+            deadline_seconds=config.ai_deadline_seconds,
         )
 
         self.fast_translator = None
@@ -158,7 +162,7 @@ class Pipeline(QObject):
         
         # Executors
         transcribe_executor = ThreadPoolExecutor(max_workers=1) # Serial transcription
-        translate_executor = ThreadPoolExecutor(max_workers=config.translation_threads)
+        translate_executor = ThreadPoolExecutor(max_workers=2)
         
         # State
         buffer = np.array([], dtype=np.float32)
@@ -301,12 +305,14 @@ class Pipeline(QObject):
                 print(f"[Apple Final {chunk_id}] {text}")
                 log_stage("asr_final", chunk_id=chunk_id, detail=text)
                 self.last_final_text = text
+                context_text = self._snapshot_finalized_context(text)
                 self.signals.update_text.emit(chunk_id, text, "(translating...)")
                 fast_executor.submit(
                     self._run_fast_final_translation,
                     text,
                     chunk_id,
                     refine_executor,
+                    context_text,
                 )
                 return
 
@@ -378,6 +384,7 @@ class Pipeline(QObject):
             text = self.transcriber.transcribe(audio_data, prompt=prompt)
             if text:
                 print(f"[Final {chunk_id}] Transcribed: {text}")
+                context_text = self._snapshot_finalized_context(text)
                 # Save for context (only if meaningful)
                 if len(text.split()) > 2:
                     self.last_final_text = text
@@ -387,7 +394,13 @@ class Pipeline(QObject):
                 
                 # Offload translation to separate thread so we don't block next transcription
                 if translate_executor:
-                    translate_executor.submit(self._run_translation, text, chunk_id)
+                    self._submit_latest_ai(
+                        translate_executor,
+                        self._run_translation,
+                        text,
+                        chunk_id,
+                        context_text,
+                    )
             else:
                 pass
         except Exception as e:
@@ -426,26 +439,59 @@ class Pipeline(QObject):
                     print(f"[Apple Partial Translation {chunk_id}] Failed: {exc}")
                     log_stage("apple_partial", chunk_id=chunk_id, status="error", detail=str(exc))
 
-            # Apple provides the live draft. Refining every volatile hypothesis
-            # saturates remote APIs and delays final sentences, so only finalized
-            # utterances are sent to the LLM.
-            if draft:
-                return
-
-            translated = self.translator.translate(
-                text,
-                use_context=True,
-                on_update=None if draft else emit_if_current,
-                remember_context=False,
-                draft_translation=draft,
-            )
-            if translated:
-                emit_if_current(translated)
+            # Remote AI never receives volatile ASR hypotheses. If Apple
+            # Translation is unavailable, wait for finalized ASR instead.
+            return
         except Exception as e:
             print(f"[Partial Translation {chunk_id}] Failed: {e}")
             log_stage("partial_translation", chunk_id=chunk_id, status="error", detail=str(e))
 
-    def _run_fast_final_translation(self, text, chunk_id, refine_executor):
+    def _snapshot_finalized_context(self, text):
+        """Return the previous finalized sentence and advance context atomically."""
+        with self._context_lock:
+            previous = self._last_finalized_segment
+            self._last_finalized_segment = text
+        return previous
+
+    def _forget_refinement(self, future):
+        with self._refine_queue_lock:
+            self._refine_futures.pop(future, None)
+
+    def _submit_latest_ai(self, executor, worker, text, chunk_id, context_text):
+        """Keep two active AI jobs and at most one latest pending job."""
+        deadline = time.monotonic() + config.ai_deadline_seconds
+        with self._refine_queue_lock:
+            finished = [future for future in self._refine_futures if future.done()]
+            for future in finished:
+                self._refine_futures.pop(future, None)
+
+            # ThreadPoolExecutor has two workers. Any non-running future is the
+            # single pending slot; replace it so the newest classroom sentence wins.
+            pending = [
+                (future, metadata)
+                for future, metadata in self._refine_futures.items()
+                if not future.running()
+            ]
+            for future, metadata in pending:
+                if future.cancel():
+                    self._refine_futures.pop(future, None)
+                    log_stage(
+                        "llm_refine",
+                        chunk_id=metadata["chunk_id"],
+                        status="dropped",
+                        detail="replaced by newer finalized segment",
+                    )
+
+            future = executor.submit(
+                worker, text, chunk_id, context_text, deadline
+            )
+            self._refine_futures[future] = {
+                "chunk_id": chunk_id,
+                "deadline": deadline,
+            }
+        future.add_done_callback(self._forget_refinement)
+
+    def _run_fast_final_translation(self, text, chunk_id, refine_executor, context_text):
         """Publish the local draft immediately, then schedule best-effort refinement."""
         if not self.running:
             return
@@ -461,42 +507,53 @@ class Pipeline(QObject):
                 print(f"[Apple Final Translation {chunk_id}] Failed: {exc}")
                 log_stage("apple_final", chunk_id=chunk_id, status="error", detail=str(exc))
 
-        if not self._refine_slots.acquire(blocking=False):
-            log_stage("llm_refine", chunk_id=chunk_id, status="skipped", detail="refinement slots busy")
-            return
         try:
-            refine_executor.submit(self._run_refinement, text, chunk_id)
-        except Exception:
-            self._refine_slots.release()
-            raise
+            self._submit_latest_ai(
+                refine_executor,
+                self._run_refinement,
+                text,
+                chunk_id,
+                context_text,
+            )
+        except RuntimeError as exc:
+            log_stage("llm_refine", chunk_id=chunk_id, status="skipped", detail=str(exc))
 
-    def _run_refinement(self, text, chunk_id):
+    def _run_refinement(self, text, chunk_id, context_text, deadline):
         try:
-            if not self.running:
+            if not self.running or time.monotonic() >= deadline:
+                log_stage("llm_refine", chunk_id=chunk_id, status="expired")
                 return
             started = time.perf_counter()
+
+            def emit_before_deadline(partial):
+                if self.running and time.monotonic() < deadline:
+                    self.signals.update_text.emit(chunk_id, text, partial)
+
             translated = self.translator.translate(
                 text,
-                on_update=lambda partial: self.signals.update_text.emit(
-                    chunk_id, text, partial
-                ),
+                use_context=False,
+                remember_context=False,
+                context_text=context_text,
+                deadline=deadline,
+                on_update=emit_before_deadline,
             )
             elapsed_ms = (time.perf_counter() - started) * 1000
-            if translated and self.running:
+            if translated and self.running and time.monotonic() < deadline:
                 self.signals.update_text.emit(chunk_id, text, translated)
                 log_stage("llm_refine", chunk_id=chunk_id, elapsed_ms=elapsed_ms, detail=translated)
+        except TimeoutError as exc:
+            print(f"[LLM Refinement {chunk_id}] Deadline exceeded: {exc}")
+            log_stage("llm_refine", chunk_id=chunk_id, status="timeout", detail=str(exc))
         except Exception as exc:
             # Keep the Apple draft visible on all remote API failures.
             print(f"[LLM Refinement {chunk_id}] Failed: {exc}")
             log_stage("llm_refine", chunk_id=chunk_id, status="error", detail=str(exc))
-        finally:
-            self._refine_slots.release()
 
-    def _run_translation(self, text, chunk_id):
+    def _run_translation(self, text, chunk_id, context_text, deadline):
         """Run translation in background and emit result"""
         draft = None
         try:
-            if not self.running:
+            if not self.running or time.monotonic() >= deadline:
                 return
             if self.fast_translator:
                 try:
@@ -505,14 +562,24 @@ class Pipeline(QObject):
                 except Exception as exc:
                     print(f"[Apple Final Translation {chunk_id}] Failed: {exc}")
 
+            def emit_before_deadline(partial):
+                if self.running and time.monotonic() < deadline:
+                    self.signals.update_text.emit(chunk_id, text, partial)
+
             translated = self.translator.translate(
                 text,
-                on_update=lambda partial: self.signals.update_text.emit(
-                    chunk_id, text, partial
-                ),
+                use_context=False,
+                remember_context=False,
+                context_text=context_text,
+                deadline=deadline,
+                on_update=emit_before_deadline,
             )
             print(f"[Final {chunk_id}] Translated: {translated}")
-            self.signals.update_text.emit(chunk_id, text, translated)
+            if self.running and time.monotonic() < deadline:
+                self.signals.update_text.emit(chunk_id, text, translated)
+        except TimeoutError as e:
+            print(f"[Translation {chunk_id}] Deadline exceeded: {e}")
+            log_stage("translation", chunk_id=chunk_id, status="timeout", detail=str(e))
         except Exception as e:
             print(f"[Translation {chunk_id}] Failed: {e}")
             log_stage("translation", chunk_id=chunk_id, status="error", detail=str(e))

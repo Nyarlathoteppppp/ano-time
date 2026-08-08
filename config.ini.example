@@ -7,6 +7,7 @@ model = qwen2.5:7b
 target_lang = Chinese
 domain = Postgraduate computer science coursework with computer science and mathematics terminology.
 threads = 4
+ai_deadline_seconds = 3.0
 fast_backend = apple
 provider = Custom
 

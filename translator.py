@@ -2,10 +2,11 @@ from openai import OpenAI, OpenAIError
 import httpx
 import os
 import re
+import time
 
 class Translator:
     def __init__(self, api_key=None, base_url=None, model="MBZUAI-IFM/K2-Think-nothink",
-                 target_lang="Chinese", domain_prompt=None):
+                 target_lang="Chinese", domain_prompt=None, deadline_seconds=3.0):
         """
         Translates text using an LLM.
         
@@ -17,6 +18,7 @@ class Translator:
         """
         self.target_lang = target_lang
         self.model = model
+        self.deadline_seconds = max(0.1, float(deadline_seconds))
         self.domain_prompt = domain_prompt or (
             "Postgraduate computer science coursework. Preserve computer science "
             "and mathematics terminology accurately, consistently, and in standard academic language."
@@ -34,7 +36,12 @@ class Translator:
         
         # Create HTTP client with SSL verification disabled (for self-signed certs)
         http_client = httpx.Client(verify=False)
-        self.client = OpenAI(api_key=api_key, base_url=base_url, http_client=http_client)
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            http_client=http_client,
+            max_retries=0,
+        )
         
         # Logging
         print(f"[Translator] Initialized:")
@@ -54,13 +61,19 @@ class Translator:
         return cleaned.strip()
 
     def translate(self, text, use_context=True, on_update=None, remember_context=True,
-                  draft_translation=None):
+                  draft_translation=None, context_text=None, deadline=None):
         """
         Translates the given text. Returns the translated string.
         Uses previous transcription as context for better continuity.
         """
         if not text or not text.strip():
             return ""
+
+        if deadline is None:
+            deadline = time.monotonic() + self.deadline_seconds
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("AI translation deadline expired before request start")
 
         is_qwen_mt = self.model.startswith("qwen-mt-")
 
@@ -80,6 +93,14 @@ class Translator:
                 f"Original:\n{text}\n\n"
                 f"Draft translation:\n{draft_translation}"
             )
+        elif context_text:
+            system_prompt = (
+                f"Translate CURRENT into {self.target_lang}. "
+                f"Domain: {self.domain_prompt} "
+                f"Use CONTEXT only to resolve references and terminology. "
+                f"Return the translation of CURRENT only."
+            )
+            user_message = f"CONTEXT:\n{context_text}\n\nCURRENT:\n{text}"
         elif use_context and self.previous_text:
             system_prompt = (
                 f"You are a professional real-time translator. "
@@ -131,7 +152,7 @@ class Translator:
                 model=self.model,
                 messages=messages,
                 max_tokens=256,
-                timeout=10.0,    # 10s timeout to prevent hanging
+                timeout=max(0.1, remaining),
                 stream=on_update is not None,
                 **request_options,
             )
@@ -139,20 +160,36 @@ class Translator:
                 completion_options["temperature"] = 0
             response = self.client.chat.completions.create(**completion_options)
 
+            if time.monotonic() >= deadline:
+                close = getattr(response, "close", None)
+                if close:
+                    close()
+                raise TimeoutError("AI translation exceeded its hard deadline")
+
             if on_update is not None:
                 parts = []
-                for chunk in response:
-                    if not chunk.choices:
-                        continue
-                    content = chunk.choices[0].delta.content
-                    if content:
-                        parts.append(content)
-                        partial = self._strip_thinking("".join(parts))
-                        if partial:
-                            on_update(partial)
+                try:
+                    for chunk in response:
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError("AI translation exceeded its hard deadline")
+                        if not chunk.choices:
+                            continue
+                        content = chunk.choices[0].delta.content
+                        if content:
+                            parts.append(content)
+                            partial = self._strip_thinking("".join(parts))
+                            if partial:
+                                on_update(partial)
+                finally:
+                    close = getattr(response, "close", None)
+                    if close:
+                        close()
                 raw_result = "".join(parts).strip()
             else:
                 raw_result = response.choices[0].message.content.strip()
+
+            if time.monotonic() >= deadline:
+                raise TimeoutError("AI translation exceeded its hard deadline")
             # Strip thinking tags if present
             result = self._strip_thinking(raw_result)
             
@@ -162,6 +199,9 @@ class Translator:
                 self.previous_translation = result
             
             return result
+        except TimeoutError as e:
+            print(f"Translation Timeout: {e}")
+            raise
         except OpenAIError as e:
             print(f"Translation Error: {e}")
             raise
