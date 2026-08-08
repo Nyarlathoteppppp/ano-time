@@ -8,6 +8,7 @@ class Config:
         if config_path is None:
             # Look for config.ini in the same directory as this script
             config_path = os.path.join(os.path.dirname(__file__), "config.ini")
+        self.config_path = config_path
         
         self.config = configparser.ConfigParser()
         
@@ -81,6 +82,11 @@ class Config:
         self.window_width = self._getint("display", "window_width", 800)
         self.window_height = self._getint("display", "window_height", 120)
         self.display_mode = self._get("display", "mode", "glass").lower()
+
+    def reload(self):
+        """Reload config.ini in place so existing module references stay valid."""
+        self.__init__(self.config_path)
+        return self
     
     def _get(self, section, key, fallback=""):
         try:

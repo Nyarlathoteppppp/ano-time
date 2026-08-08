@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QTextEdit, QVBoxLayout, QGraphicsDropShadowEffect, 
                              QSizeGrip, QHBoxLayout, QScrollArea, QLabel, QFrame)
-from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, QRect, QSettings, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QPalette, QPainter, QPainterPath
 
 from ctypes import c_void_p
@@ -83,6 +83,66 @@ class DragHandle(QLabel):
         self.start_pos = None
 
 
+class ResizeBorder(QWidget):
+    """Invisible resize target for one edge or corner of a frameless window."""
+
+    CURSORS = {
+        "left": Qt.CursorShape.SizeHorCursor,
+        "right": Qt.CursorShape.SizeHorCursor,
+        "top": Qt.CursorShape.SizeVerCursor,
+        "bottom": Qt.CursorShape.SizeVerCursor,
+        "top_left": Qt.CursorShape.SizeFDiagCursor,
+        "bottom_right": Qt.CursorShape.SizeFDiagCursor,
+        "top_right": Qt.CursorShape.SizeBDiagCursor,
+        "bottom_left": Qt.CursorShape.SizeBDiagCursor,
+    }
+
+    def __init__(self, parent, edges):
+        super().__init__(parent)
+        self.parent_window = parent
+        self.edges = edges
+        self._start_global = None
+        self._start_geometry = None
+        self.setCursor(self.CURSORS[edges])
+        self.setMouseTracking(True)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._start_global = event.globalPosition().toPoint()
+            self._start_geometry = self.parent_window.geometry()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._start_global is None or self._start_geometry is None:
+            return
+        self._resize_from_global(event.globalPosition().toPoint())
+        event.accept()
+
+    def _resize_from_global(self, current):
+        delta = current - self._start_global
+        start = self._start_geometry
+        minimum = self.parent_window.minimumSize()
+        left, top, right, bottom = (
+            start.left(), start.top(), start.right(), start.bottom()
+        )
+
+        if "left" in self.edges:
+            left = min(start.left() + delta.x(), right - minimum.width() + 1)
+        if "right" in self.edges:
+            right = max(start.right() + delta.x(), left + minimum.width() - 1)
+        if "top" in self.edges:
+            top = min(start.top() + delta.y(), bottom - minimum.height() + 1)
+        if "bottom" in self.edges:
+            bottom = max(start.bottom() + delta.y(), top + minimum.height() - 1)
+
+        self.parent_window.setGeometry(QRect(QPoint(left, top), QPoint(right, bottom)))
+
+    def mouseReleaseEvent(self, event):
+        self._start_global = None
+        self._start_geometry = None
+        event.accept()
+
+
 class NotchSurface(QFrame):
     """Transparent surface that grows downward from the physical display notch."""
     mode_switch_requested = pyqtSignal()
@@ -141,6 +201,10 @@ class OverlayWindow(QWidget):
         self.window_height = window_height if window_height else screen_geometry.height()
         self.display_mode = display_mode if display_mode in ("glass", "notch") else "glass"
         self._glass_geometry = None
+        self._settings = QSettings("RealtimeTon", "RealtimeTranslator")
+        self._geometry_save_timer = QTimer(self)
+        self._geometry_save_timer.setSingleShot(True)
+        self._geometry_save_timer.timeout.connect(self._save_glass_geometry)
         
         self.initUI()
         self.oldPos = self.pos()
@@ -178,6 +242,15 @@ class OverlayWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setMinimumSize(320, 140)
+
+        # Frameless Qt windows otherwise expose only the bottom-right QSizeGrip.
+        self.resize_borders = {
+            name: ResizeBorder(self, name)
+            for name in (
+                "left", "right", "top", "bottom",
+                "top_left", "top_right", "bottom_left", "bottom_right",
+            )
+        }
         
         # Layout
         self.root_layout = QVBoxLayout()
@@ -287,7 +360,7 @@ class OverlayWindow(QWidget):
         # Native corner grip works reliably with frameless Qt windows.
         self.size_grip = QSizeGrip(self)
         self.size_grip.setFixedSize(26, 26)
-        self.size_grip.setToolTip("Drag to resize subtitles")
+        self.size_grip.setToolTip("Resize here, or drag any window edge/corner")
         self.size_grip.setStyleSheet("background: rgba(255,255,255,35); border-radius: 6px;")
         grip_layout.addWidget(self.size_grip)
         
@@ -301,6 +374,9 @@ class OverlayWindow(QWidget):
         x = screen.x() + screen.width() - self.window_width - 20 # 20px padding from right
         y = screen.y()
         self.move(x, y)
+        saved_geometry = self._settings.value("glass/geometry")
+        if self.display_mode == "glass" and saved_geometry is not None:
+            self.restoreGeometry(saved_geometry)
         self._glass_geometry = self.geometry()
         
         # Data storage: list of (chunk_id, widget) inclusive
@@ -315,6 +391,43 @@ class OverlayWindow(QWidget):
         # Enable mouse tracking for cursor update without click
         self.setMouseTracking(True)
         self.set_display_mode(self.display_mode, initial=True)
+
+    def _layout_resize_borders(self):
+        edge = 8
+        corner = 16
+        width, height = self.width(), self.height()
+        geometries = {
+            "left": (0, corner, edge, max(0, height - 2 * corner)),
+            "right": (width - edge, corner, edge, max(0, height - 2 * corner)),
+            "top": (corner, 0, max(0, width - 2 * corner), edge),
+            "bottom": (corner, height - edge, max(0, width - 2 * corner), edge),
+            "top_left": (0, 0, corner, corner),
+            "top_right": (width - corner, 0, corner, corner),
+            "bottom_left": (0, height - corner, corner, corner),
+            "bottom_right": (width - corner, height - corner, corner, corner),
+        }
+        for name, handle in self.resize_borders.items():
+            handle.setGeometry(*geometries[name])
+            handle.raise_()
+
+    def _schedule_geometry_save(self):
+        if self.display_mode == "glass" and self.isVisible():
+            self._geometry_save_timer.start(350)
+
+    def _save_glass_geometry(self):
+        if self.display_mode == "glass":
+            self._settings.setValue("glass/geometry", self.saveGeometry())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "resize_borders"):
+            self._layout_resize_borders()
+            self._schedule_geometry_save()
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        if hasattr(self, "_geometry_save_timer"):
+            self._schedule_geometry_save()
 
     def _set_glass_style(self):
         self.container.set_notch_geometry(False)
@@ -384,6 +497,8 @@ class OverlayWindow(QWidget):
             height = max(148, notch_height + 108)
             self.resize(width, height)
             self.move(screen.x() + (screen.width() - width) // 2, screen.y())
+            for handle in self.resize_borders.values():
+                handle.hide()
         else:
             self._set_glass_style()
             self.drag_handle.show()
@@ -395,6 +510,9 @@ class OverlayWindow(QWidget):
             self.mode_btn.setVisible(self.allow_notch_switch)
             if not initial and self._glass_geometry is not None:
                 self.setGeometry(self._glass_geometry)
+            for handle in self.resize_borders.values():
+                handle.show()
+                handle.raise_()
 
         self._apply_item_visibility()
 
@@ -407,8 +525,6 @@ class OverlayWindow(QWidget):
 
     def update_text(self, chunk_id, original_text, translated_text):
         """Append new text or update existing text"""
-        print(f"[Overlay] Received update for #{chunk_id}: {original_text} -> {translated_text}")
-        
         # Update data store
         if chunk_id not in self.transcript_data:
             self.transcript_data[chunk_id] = {
@@ -417,6 +533,8 @@ class OverlayWindow(QWidget):
                 'translated': translated_text
             }
         else:
+            if original_text:
+                self.transcript_data[chunk_id]['original'] = original_text
             if translated_text:
                 self.transcript_data[chunk_id]['translated'] = translated_text
         
@@ -435,7 +553,6 @@ class OverlayWindow(QWidget):
             if translated_text:
                 existing_widget.update_translated(translated_text)
                 
-            print(f"[Overlay] Updated existing widget #{chunk_id}")
         else:
             # Insert new widget in order
             timestamp = self.transcript_data[chunk_id]['timestamp']
@@ -450,8 +567,13 @@ class OverlayWindow(QWidget):
             
             self.items.insert(insert_idx, (chunk_id, new_widget))
             self.container_layout.insertWidget(insert_idx, new_widget)
-            print(f"[Overlay] Inserted new widget #{chunk_id} at index {insert_idx}")
-            
+            # Bound the live widget tree during multi-hour classes. Full history
+            # remains in transcript_data and is still exported by Save.
+            while len(self.items) > 200:
+                _, stale_widget = self.items.pop(0)
+                self.container_layout.removeWidget(stale_widget)
+                stale_widget.deleteLater()
+
             # Scroll to bottom
             QTimer.singleShot(10, self._scroll_to_bottom)
 

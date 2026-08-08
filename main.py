@@ -20,6 +20,7 @@ from runtime_log import log_stage
 
 class WorkerSignals(QObject):
     update_text = pyqtSignal(int, str, str)  # (chunk_id, original, translated)
+    pipeline_error = pyqtSignal(str)
 
 class Pipeline(QObject):
     def __init__(self):
@@ -259,6 +260,8 @@ class Pipeline(QObject):
                     
         except Exception as e:
             print(f"[Pipeline] Error in loop: {e}")
+            log_stage("pipeline", status="error", detail=str(e))
+            self.signals.pipeline_error.emit(str(e))
         finally:
             transcribe_executor.shutdown(wait=False)
             translate_executor.shutdown(wait=False)
@@ -333,6 +336,8 @@ class Pipeline(QObject):
                 self.apple_transcriber.feed(audio_chunk)
         except Exception as exc:
             print(f"[Pipeline] Apple Speech error: {exc}")
+            log_stage("apple_speech", status="error", detail=str(exc))
+            self.signals.pipeline_error.emit(str(exc))
         finally:
             if self.apple_transcriber:
                 self.apple_transcriber.stop()
@@ -393,6 +398,12 @@ class Pipeline(QObject):
         try:
             if not self.running:
                 return
+            # Partial jobs can queue behind one another. Drop obsolete work before
+            # translation so finalized speech is never delayed by stale drafts.
+            with self._translation_state_lock:
+                if (self._partial_versions.get(chunk_id) != version or
+                        chunk_id in self._finalized_chunks):
+                    return
             def emit_if_current(partial):
                 with self._translation_state_lock:
                     current = self._partial_versions.get(chunk_id) == version

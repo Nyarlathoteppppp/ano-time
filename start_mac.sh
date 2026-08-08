@@ -12,5 +12,10 @@ fi
 echo "[Launcher] Activating environment..."
 source .venv/bin/activate
 
-echo "[Launcher] Starting App (Hot Reload Mode)..."
-python reloader.py
+if [ "${REALTIME_TON_DEV_RELOAD:-0}" = "1" ]; then
+    echo "[Launcher] Starting development hot-reload mode..."
+    exec python reloader.py
+fi
+
+echo "[Launcher] Starting dashboard..."
+exec python dashboard.py

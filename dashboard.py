@@ -14,7 +14,7 @@ STYLESHEET = """
 QMainWindow, QWidget {
     background-color: #1e1e2e;
     color: #cdd6f4;
-    font-family: 'Helvetica Neue', 'Segoe UI', Arial, sans-serif;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
 }
 QTabWidget::pane {
     border: 1px solid #313244;
@@ -217,8 +217,19 @@ class Dashboard(QWidget):
         self.silence_dur = QDoubleSpinBox()
         self.silence_dur.setValue(config.silence_duration)
         layout.addWidget(self.silence_dur, 3, 1)
-        
-        layout.setRowStretch(4, 1) # Push to top
+
+        layout.addWidget(QLabel("Live Refresh Interval (s):"), 4, 0)
+        self.update_interval = QDoubleSpinBox()
+        self.update_interval.setRange(0.2, 2.0)
+        self.update_interval.setSingleStep(0.1)
+        self.update_interval.setDecimals(1)
+        self.update_interval.setValue(config.update_interval)
+        self.update_interval.setToolTip(
+            "Lower values update partial subtitles faster. 0.5 s is recommended for class."
+        )
+        layout.addWidget(self.update_interval, 4, 1)
+
+        layout.setRowStretch(5, 1) # Push to top
         
         tab.setLayout(layout)
         self.tabs.addTab(tab, "🎤 Audio")
@@ -829,7 +840,7 @@ class Dashboard(QWidget):
         except Exception as e:
             self.device_combo.addItem(f"Error: {e}")
 
-    def save_config(self):
+    def save_config(self, checked=False, show_status=True):
         import configparser
         import os
         
@@ -853,6 +864,7 @@ class Dashboard(QWidget):
         cp.set("audio", "sample_rate", str(self.sample_rate.value()))
         cp.set("audio", "silence_threshold", str(self.silence_thresh.value()))
         cp.set("audio", "silence_duration", str(self.silence_dur.value()))
+        cp.set("audio", "update_interval", str(self.update_interval.value()))
         
         # Transcription
         cp.set("transcription", "backend", self.asr_backend.currentText())
@@ -880,10 +892,15 @@ class Dashboard(QWidget):
         
         with open(config_path, 'w') as f:
             cp.write(f)
-            
-        self.status_label.setText("Saved! Please restart.")
+
+        config.reload()
+        if show_status:
+            suffix = " Applies on next launch." if getattr(self, "pipeline", None) else ""
+            self.status_label.setText(f"Saved.{suffix}")
 
     def on_start(self):
+        # Launch exactly what is visible in the Dashboard; no separate Save click required.
+        self.save_config(show_status=False)
         # 1. Update UI to Loading State
         self.status_label.setText("Initializing Pipeline... (This may take a moment)")
         self.status_label.setStyleSheet("font-size: 18px; color: #fab387;") # Orange for loading
@@ -921,6 +938,7 @@ class Dashboard(QWidget):
 
         # Connect Signals
         self.pipeline.signals.update_text.connect(self.overlay_window.update_text)
+        self.pipeline.signals.pipeline_error.connect(self.on_pipeline_error)
         if hasattr(self.overlay_window, 'stop_requested'):
              self.overlay_window.stop_requested.connect(self.on_stop)
 
@@ -934,6 +952,14 @@ class Dashboard(QWidget):
         self.stop_btn.show()
         
         self.showMinimized()
+
+    def on_pipeline_error(self, message):
+        """Surface background capture/ASR failures instead of showing Running."""
+        self.on_stop()
+        concise = " ".join(str(message).split())[:180]
+        self.status_label.setText(f"Stopped — {concise}")
+        self.status_label.setStyleSheet("font-size: 16px; color: #f38ba8;")
+        self.showNormal()
 
     def on_stop(self):
         if hasattr(self, 'pipeline') and self.pipeline:

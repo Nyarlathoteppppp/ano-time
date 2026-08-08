@@ -126,8 +126,10 @@ Choose `glass` or `notch` under **Subtitle Mode** on the Dashboard. On MacBooks
 with a camera housing, `notch` uses the native SwiftUI/AppKit
 [DynamicNotchKit](https://github.com/MrKai77/DynamicNotchKit) component instead
 of the Qt overlay. New subtitles expand from the physical notch and compact after
-six seconds of inactivity. **Glass** switches to the resizable overlay and
-**Exit** stops the translator. The native helper builds during `install_mac.sh`.
+six seconds of inactivity. **Glass** switches to the resizable overlay. Drag any
+edge or corner to resize; its last position and size are restored on the next
+launch. **Exit** stops the translator. The native helper builds during
+`install_mac.sh`.
 
 #### `[transcription]` Section
 | Parameter | Description | Details |
@@ -142,11 +144,16 @@ The native helper uses Apple's on-device `SpeechAnalyzer`/`SpeechTranscriber`, e
 volatile and finalized results continuously, and builds automatically with the installed
 Xcode Command Line Tools. Run `./build_apple_speech.sh` manually to rebuild it.
 
+`./start_mac.sh` starts the Dashboard directly for fast, stable classroom use.
+Developers can opt into source-file hot reload with
+`REALTIME_TON_DEV_RELOAD=1 ./start_mac.sh`.
+
 #### `[audio]` Section
 | Parameter | Description | Details |
 | :--- | :--- | :--- |
 | `silence_threshold`| Sensitivity | `0.005` (Quiet) to `0.05` (Loud) |
 | `device_index` | Audio source | `system` for macOS app/video audio, `auto`, or mic index `0`, `1`... |
+| `update_interval` | Partial subtitle refresh | `0.5` seconds recommended for classroom use |
 
 Select **System Audio (ScreenCaptureKit — videos/apps)** in the Dashboard to
 translate audio played by browsers and media apps without BlackHole. The first

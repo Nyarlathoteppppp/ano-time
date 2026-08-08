@@ -20,7 +20,7 @@ private final class SubtitleState: ObservableObject {
     @Published var items = [
         SubtitleLine(id: 0, original: "Waiting for speech…", translated: "")
     ]
-    @Published var generation = 0
+    var compactTask: Task<Void, Never>?
     var onExpand: (() -> Void)?
     var onGlass: (() -> Void)?
     var onExit: (() -> Void)?
@@ -135,11 +135,13 @@ private struct RealtimeNotchHelper {
                             translated: message.translated ?? ""
                         )]
                     }
-                    state.generation += 1
-                    let currentGeneration = state.generation
                     await notch.expand()
-                    try? await Task.sleep(for: .seconds(6))
-                    if state.generation == currentGeneration { await notch.compact() }
+                    state.compactTask?.cancel()
+                    state.compactTask = Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(6))
+                        guard !Task.isCancelled else { return }
+                        await notch.compact()
+                    }
                 }
             }
             DispatchQueue.main.async {
