@@ -11,7 +11,7 @@ import time
 try:
     from AppKit import (
         NSScreen,
-        NSStatusWindowLevel,
+        NSScreenSaverWindowLevel,
         NSPanel,
         NSWindowCollectionBehaviorCanJoinAllApplications,
         NSWindowCollectionBehaviorCanJoinAllSpaces,
@@ -258,6 +258,7 @@ class OverlayWindow(QWidget):
         self._topmost_timer.timeout.connect(
             lambda: self._set_all_spaces(log_ready=False)
         )
+        self._last_native_visibility = None
         
         self.initUI()
         self.oldPos = self.pos()
@@ -303,16 +304,33 @@ class OverlayWindow(QWidget):
             if ns_window.isKindOfClass_(NSPanel):
                 ns_window.setFloatingPanel_(True)
                 ns_window.setBecomesKeyOnlyIfNeeded_(True)
-            # setFloatingPanel_ resets the level to NSFloatingWindowLevel (3),
-            # so apply our overlay level afterwards.
-            ns_window.setLevel_(NSStatusWindowLevel + 1)
+            # Browser video-fullscreen windows can sit above the status-window
+            # level even though ordinary macOS full-screen windows do not. Use
+            # the system-overlay level so subtitles remain visible there too.
+            # The window still opts out of login-window visibility.
+            ns_window.setCanBecomeVisibleWithoutLogin_(False)
+            ns_window.setLevel_(NSScreenSaverWindowLevel + 1)
             ns_window.orderFrontRegardless()
+            native_visibility = (
+                bool(ns_window.isVisible()),
+                bool(ns_window.isOnActiveSpace()),
+                int(ns_window.occlusionState()),
+            )
             if log_ready:
                 print(
                     "[Overlay] Full-screen auxiliary panel ready "
                     f"(class={ns_window.className()}, "
                     f"level={int(ns_window.level())}, "
                     f"behavior={int(ns_window.collectionBehavior())})",
+                    flush=True,
+                )
+            if native_visibility != self._last_native_visibility:
+                self._last_native_visibility = native_visibility
+                print(
+                    "[Overlay] Native visibility "
+                    f"(visible={native_visibility[0]}, "
+                    f"active_space={native_visibility[1]}, "
+                    f"occlusion={native_visibility[2]})",
                     flush=True,
                 )
         except Exception as e:
