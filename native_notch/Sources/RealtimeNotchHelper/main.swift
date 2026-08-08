@@ -58,10 +58,22 @@ private struct SubtitleContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             ForEach(state.items.suffix(state.displayCount)) { item in
-                Text(item.translated.isEmpty ? "…" : item.translated)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.original)
+                        .font(.system(
+                            size: 11.5,
+                            weight: item.finalized == true ? .medium : .regular
+                        ))
+                        .foregroundStyle(
+                            .white.opacity(item.finalized == true ? 0.96 : 0.78)
+                        )
+                        .lineLimit(1)
+
+                    Text(item.translated.isEmpty ? "…" : item.translated)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                }
             }
         }
         .frame(
