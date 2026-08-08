@@ -55,7 +55,12 @@ private final class SubtitleState: ObservableObject {
             ).width
             return max(longest, max(englishWidth, translatedWidth))
         }
-        return min(600, max(160, ceil(measured + 8)))
+        let minimumWidth: CGFloat = 360
+        let maximumWidth: CGFloat = 560
+        let widthStep: CGFloat = 40
+        let desired = max(minimumWidth, measured + 8)
+        let stepped = ceil(desired / widthStep) * widthStep
+        return min(maximumWidth, stepped)
     }
 
 }
