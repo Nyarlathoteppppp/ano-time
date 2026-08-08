@@ -57,6 +57,13 @@ class Pipeline(QObject):
             streaming_step_size=config.streaming_step_size,
             streaming_overlap=config.streaming_overlap
         )
+        log_stage(
+            "audio_backend",
+            detail=(
+                f"class={audio_capture_class.__name__} "
+                f"configured_device={config.device_index}"
+            ),
+        )
         
         # Initialize Transcriber
         print(f"[Pipeline] Initializing Transcriber with backend={config.asr_backend}, device={config.whisper_device}...")

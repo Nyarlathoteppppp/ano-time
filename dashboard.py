@@ -1091,6 +1091,15 @@ class Dashboard(QWidget):
             return
 
         self.pipeline = pipeline
+        actual_audio = type(self.pipeline.audio).__name__
+        if actual_audio == "SystemAudioCapture":
+            self.audio_summary.setText("System Audio · ScreenCaptureKit active")
+            self.audio_summary.setStyleSheet("color: #a6e3a1; font-weight: 600;")
+        else:
+            self.audio_summary.setText(
+                f"Microphone · {self.device_combo.currentText()}"
+            )
+            self.audio_summary.setStyleSheet("color: #f9e2af; font-weight: 600;")
         if self.overlay_window:
             self.overlay_window.close()
             self.overlay_window = None

@@ -26,6 +26,8 @@ class SystemAudioCapture:
         self.running = False
         self.process = None
         self._stderr_thread = None
+        self._stderr_messages = []
+        self._stderr_lock = threading.Lock()
 
         root = os.path.dirname(os.path.abspath(__file__))
         self.source_path = os.path.join(root, "apple_system_audio_helper.swift")
@@ -45,7 +47,15 @@ class SystemAudioCapture:
         for raw_line in iter(process.stderr.readline, b""):
             message = raw_line.decode("utf-8", errors="replace").rstrip()
             if message:
-                print(f"[System Audio] {message}")
+                with self._stderr_lock:
+                    self._stderr_messages.append(message)
+                    self._stderr_messages = self._stderr_messages[-20:]
+                print(f"[System Audio] {message}", flush=True)
+
+    def _failure_detail(self):
+        with self._stderr_lock:
+            messages = list(self._stderr_messages)
+        return " | ".join(messages[-4:]) or "helper exited without an error message"
 
     def generator(self):
         self._ensure_built()
@@ -64,6 +74,8 @@ class SystemAudioCapture:
         )
         process = self.process
         self.running = True
+        with self._stderr_lock:
+            self._stderr_messages.clear()
         self._stderr_thread = threading.Thread(
             target=self._read_stderr, args=(process,), daemon=True
         )
@@ -87,8 +99,8 @@ class SystemAudioCapture:
 
         if process.returncode not in (None, 0, -15):
             raise RuntimeError(
-                "System audio capture stopped. Grant Screen & System Audio Recording "
-                "permission in System Settings, then restart the app."
+                f"System audio helper exited with code {process.returncode}: "
+                f"{self._failure_detail()}"
             )
 
     def stop(self):
