@@ -71,6 +71,7 @@ class Config:
         self.display_duration = self._getfloat("display", "display_duration", 3.0)
         self.window_width = self._getint("display", "window_width", 800)
         self.window_height = self._getint("display", "window_height", 120)
+        self.display_mode = self._get("display", "mode", "glass").lower()
     
     def _get(self, section, key, fallback=""):
         try:

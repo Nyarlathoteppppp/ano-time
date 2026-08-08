@@ -531,7 +531,9 @@ def start_overlay_session():
     # Initialize Overlay Window
     window = OverlayWindow(
         display_duration=config.display_duration,
-        window_width=config.window_width
+        window_width=config.window_width,
+        window_height=config.window_height,
+        display_mode=config.display_mode,
     )
     window.show()
     

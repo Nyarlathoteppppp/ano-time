@@ -135,6 +135,14 @@ class Dashboard(QWidget):
         self.status_label = QLabel("Ready")
         self.status_label.setStyleSheet("font-size: 18px; color: #a6e3a1;")
         layout.addWidget(self.status_label)
+
+        display_row = QHBoxLayout()
+        display_row.addWidget(QLabel("Subtitle Mode:"))
+        self.display_mode = QComboBox()
+        self.display_mode.addItems(["glass", "notch"])
+        self.display_mode.setCurrentText(config.display_mode)
+        display_row.addWidget(self.display_mode)
+        layout.addLayout(display_row)
         
         btn_layout = QHBoxLayout()
         
@@ -800,6 +808,7 @@ class Dashboard(QWidget):
         if not cp.has_section("translation"): cp.add_section("translation")
         if not cp.has_section("transcription"): cp.add_section("transcription")
         if not cp.has_section("providers"): cp.add_section("providers")
+        if not cp.has_section("display"): cp.add_section("display")
         
         # Audio
         idx = self.device_combo.currentData()
@@ -826,6 +835,7 @@ class Dashboard(QWidget):
         self.provider_keys[self.provider.currentText()] = self.api_key.text()
         cp.set("providers", "deepseek_api_key", self.provider_keys.get("DeepSeek Official", ""))
         cp.set("providers", "siliconflow_api_key", self.provider_keys.get("SiliconFlow", ""))
+        cp.set("display", "mode", self.display_mode.currentText())
         
         with open(config_path, 'w') as f:
             cp.write(f)
@@ -859,7 +869,9 @@ class Dashboard(QWidget):
         self.pipeline = pipeline
         self.overlay_window = OverlayWindow(
             display_duration=config.display_duration,
-            window_width=config.window_width
+            window_width=config.window_width,
+            window_height=config.window_height,
+            display_mode=config.display_mode,
         )
         self.overlay_window.show()
 

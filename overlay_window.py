@@ -79,7 +79,8 @@ class DragHandle(QLabel):
 class OverlayWindow(QWidget):
     stop_requested = pyqtSignal()
 
-    def __init__(self, display_duration=None, window_width=400, window_height=None):
+    def __init__(self, display_duration=None, window_width=400, window_height=None,
+                 display_mode="glass"):
         super().__init__()
         # display_duration is not really used in log mode, but kept for compatibility
         self.window_width = window_width
@@ -87,6 +88,8 @@ class OverlayWindow(QWidget):
         # Default height to full screen height if not specified
         screen_geometry = QApplication.primaryScreen().availableGeometry()
         self.window_height = window_height if window_height else screen_geometry.height()
+        self.display_mode = display_mode if display_mode in ("glass", "notch") else "glass"
+        self._glass_geometry = None
         
         self.initUI()
         self.oldPos = self.pos()
@@ -146,13 +149,7 @@ class OverlayWindow(QWidget):
         # Container for LogItems
         self.container = QFrame()
         self.container.setObjectName("glassPanel")
-        self.container.setStyleSheet("""
-            QFrame#glassPanel {
-                background-color: rgba(15, 20, 30, 178);
-                border: 1px solid rgba(255, 255, 255, 55);
-                border-radius: 16px;
-            }
-        """)
+        self._set_glass_style()
         shadow = QGraphicsDropShadowEffect(self.container)
         shadow.setBlurRadius(30)
         shadow.setOffset(0, 8)
@@ -210,6 +207,23 @@ class OverlayWindow(QWidget):
         """)
         self.stop_btn.clicked.connect(self.stop_requested.emit)
         grip_layout.addWidget(self.stop_btn)
+
+        self.mode_btn = QPushButton()
+        self.mode_btn.setToolTip("Switch between glass and notch subtitle modes")
+        self.mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mode_btn.setFixedHeight(30)
+        self.mode_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(137, 180, 250, 90);
+                color: white;
+                border-radius: 7px;
+                padding: 4px 10px;
+                border: none;
+            }
+            QPushButton:hover { background-color: rgba(137, 180, 250, 150); }
+        """)
+        self.mode_btn.clicked.connect(self.toggle_display_mode)
+        grip_layout.addWidget(self.mode_btn)
         
         grip_layout.addStretch()
         
@@ -230,6 +244,7 @@ class OverlayWindow(QWidget):
         x = screen.x() + screen.width() - self.window_width - 20 # 20px padding from right
         y = screen.y()
         self.move(x, y)
+        self._glass_geometry = self.geometry()
         
         # Data storage: list of (chunk_id, widget) inclusive
         self.items = [] # Sorted by chunk_id
@@ -242,6 +257,63 @@ class OverlayWindow(QWidget):
         
         # Enable mouse tracking for cursor update without click
         self.setMouseTracking(True)
+        self.set_display_mode(self.display_mode, initial=True)
+
+    def _set_glass_style(self):
+        self.container.setStyleSheet("""
+            QFrame#glassPanel {
+                background-color: rgba(15, 20, 30, 178);
+                border: 1px solid rgba(255, 255, 255, 55);
+                border-radius: 16px;
+            }
+        """)
+
+    def _set_notch_style(self):
+        self.container.setStyleSheet("""
+            QFrame#glassPanel {
+                background-color: rgba(0, 0, 0, 235);
+                border: 1px solid rgba(255, 255, 255, 40);
+                border-radius: 30px;
+            }
+        """)
+
+    def toggle_display_mode(self):
+        self.set_display_mode("notch" if self.display_mode == "glass" else "glass")
+
+    def set_display_mode(self, mode, initial=False):
+        mode = mode if mode in ("glass", "notch") else "glass"
+        if not initial and self.display_mode == "glass":
+            self._glass_geometry = self.geometry()
+        self.display_mode = mode
+
+        if mode == "notch":
+            self._set_notch_style()
+            self.drag_handle.setText("⠿  Notch subtitles")
+            self.mode_btn.setText("▣ Glass")
+            self.save_btn.hide()
+            self.size_grip.hide()
+            screen = QApplication.primaryScreen().availableGeometry()
+            width = min(max(620, self.window_width), screen.width() - 40)
+            height = 170
+            self.resize(width, height)
+            self.move(screen.x() + (screen.width() - width) // 2, screen.y() + 8)
+        else:
+            self._set_glass_style()
+            self.drag_handle.setText("⠿  Drag subtitles")
+            self.mode_btn.setText("◒ Notch")
+            self.save_btn.show()
+            self.size_grip.show()
+            if not initial and self._glass_geometry is not None:
+                self.setGeometry(self._glass_geometry)
+
+        self._apply_item_visibility()
+
+    def _apply_item_visibility(self):
+        if not self.items:
+            return
+        latest_id = max(cid for cid, _ in self.items)
+        for cid, widget in self.items:
+            widget.setVisible(self.display_mode == "glass" or cid == latest_id)
 
     def update_text(self, chunk_id, original_text, translated_text):
         """Append new text or update existing text"""
@@ -292,6 +364,8 @@ class OverlayWindow(QWidget):
             
             # Scroll to bottom
             QTimer.singleShot(10, self._scroll_to_bottom)
+
+        self._apply_item_visibility()
 
     def _scroll_to_bottom(self):
         sb = self.scroll_area.verticalScrollBar()

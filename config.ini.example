@@ -17,6 +17,7 @@ siliconflow_api_key =
 display_duration = 10
 window_width = 800
 window_height = 120
+mode = glass
 
 [transcription]
 backend = whisper

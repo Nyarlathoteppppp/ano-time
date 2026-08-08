@@ -11,6 +11,7 @@ A high-performance real-time speech-to-text and translation application built fo
 - **⚙️ Hot Reloading**: Change code or config and the app restarts automatically.
 - **💾 Transcript Saving**: One-click save of your session history. Can be used as subtitle or LLM analyze.
 - **🪟 Resizable Glass Overlay**: Drag the overlay from its handle and resize it from the bottom-right corner.
+- **◒ Notch Mode**: Switch to a compact top-center subtitle that only shows the current utterance.
 - **⚡ Two-Stage Translation**: Show an Apple on-device draft first, then replace it with an LLM-refined translation.
 
 ## Demo
@@ -109,6 +110,9 @@ Live partial hypotheses use Apple Translation only. The remote LLM is called
 only for finalized utterances, so a slow or blocked API cannot delay the local
 draft. Stage timings and failures are written to `logs/runtime.log`; open it
 from the Dashboard with **Open Runtime Log**.
+
+Choose `glass` or `notch` under **Subtitle Mode** on the Dashboard. The overlay's
+own **Notch/Glass** button switches modes immediately without restarting.
 
 #### `[transcription]` Section
 | Parameter | Description | Details |
