@@ -85,6 +85,25 @@ class CourseGlossaryTests(unittest.TestCase):
                 [{"source": "Breadth-first search", "target": "广度优先搜索"}],
             )
             self.assertNotIn("state space", str(translation_options["terms"]).casefold())
+            self.assertIn("speech recognition", translation_options["domains"])
+
+    def test_generic_model_prompt_requests_conservative_asr_correction(self):
+        translator = Translator(
+            api_key="test-key",
+            base_url="https://example.invalid/v1",
+            model="generic-fast-model",
+        )
+        translator.client = _RecordingClient()
+        translator.translate(
+            "The bread first search is complete.",
+            use_context=False,
+            remember_context=False,
+        )
+
+        system_prompt = translator.client.chat.completions.options["messages"][0]["content"]
+        self.assertIn("misrecognized words", system_prompt)
+        self.assertIn("only obvious ASR errors", system_prompt)
+        self.assertIn("never invent missing content", system_prompt)
 
 
 if __name__ == "__main__":

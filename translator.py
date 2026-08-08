@@ -26,6 +26,12 @@ class Translator:
             "Postgraduate computer science coursework. Preserve computer science "
             "and mathematics terminology accurately, consistently, and in standard academic language."
         )
+        self.asr_correction_prompt = (
+            "The source text comes from live speech recognition and may contain "
+            "misrecognized words, homophones, or incorrect sentence boundaries. "
+            "Silently correct only obvious ASR errors using the sentence meaning, "
+            "course domain, and supplied terminology; never invent missing content."
+        )
         self.glossary = CourseGlossary.from_file(glossary_path)
         
         # If no key provided, check env. If still none, we might be in local mode (no auth) or fail.
@@ -96,6 +102,7 @@ class Translator:
             system_prompt = (
                 f"You are a professional real-time translator and editor. "
                 f"Domain context: {self.domain_prompt} "
+                f"{self.asr_correction_prompt} "
                 f"Improve the draft translation into {self.target_lang}. "
                 f"Correct mistranslations using the original text, preserve meaning and terminology, "
                 f"and output ONLY the improved translation.{terminology_prompt}"
@@ -108,6 +115,7 @@ class Translator:
             system_prompt = (
                 f"Translate CURRENT into {self.target_lang}. "
                 f"Domain: {self.domain_prompt} "
+                f"{self.asr_correction_prompt} "
                 f"Use CONTEXT only to resolve references and terminology. "
                 f"Return the translation of CURRENT only.{terminology_prompt}"
             )
@@ -116,6 +124,7 @@ class Translator:
             system_prompt = (
                 f"You are a professional real-time translator. "
                 f"Domain context: {self.domain_prompt} "
+                f"{self.asr_correction_prompt} "
                 f"Translate the following user input into {self.target_lang}.\\n\\n"
                 f"<context>\\n"
                 f"Previous Sentence: \"{self.previous_text}\"\\n"
@@ -133,6 +142,7 @@ class Translator:
             system_prompt = (
                 f"You are a professional real-time translator. "
                 f"Domain context: {self.domain_prompt} "
+                f"{self.asr_correction_prompt} "
                 f"Translate the following user input into {self.target_lang}. "
                 f"Do not add any explanations, just output the translation."
                 f"{terminology_prompt}"
@@ -151,7 +161,7 @@ class Translator:
                 translation_options = {
                     "source_lang": "auto",
                     "target_lang": self.target_lang,
-                    "domains": self.domain_prompt,
+                    "domains": f"{self.domain_prompt} {self.asr_correction_prompt}",
                 }
                 if matched_terms:
                     translation_options["terms"] = [
