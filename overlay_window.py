@@ -13,6 +13,7 @@ try:
         NSStatusWindowLevel,
         NSWindowCollectionBehaviorCanJoinAllSpaces,
         NSWindowCollectionBehaviorFullScreenAuxiliary,
+        NSWindowCollectionBehaviorIgnoresCycle,
         NSWindowCollectionBehaviorStationary,
     )
     import objc
@@ -233,6 +234,10 @@ class OverlayWindow(QWidget):
         super().showEvent(event)
         if HAS_APPKIT:
             self._set_all_spaces()
+            # Qt and macOS can both update the native window during a Space/full-
+            # screen transition. Reassert the panel behavior after those updates.
+            QTimer.singleShot(0, self._set_all_spaces)
+            QTimer.singleShot(300, self._set_all_spaces)
     
     def _set_all_spaces(self):
         """Make window appear on all macOS Spaces/Desktops"""
@@ -241,13 +246,24 @@ class OverlayWindow(QWidget):
             win_id = int(self.winId())
             ns_view = objc.objc_object(c_void_p=c_void_p(win_id))
             ns_window = ns_view.window()
+            current_behavior = int(ns_window.collectionBehavior())
+            current_behavior &= ~NSWindowCollectionBehaviorStationary
             ns_window.setCollectionBehavior_(
+                current_behavior |
                 NSWindowCollectionBehaviorCanJoinAllSpaces |
-                NSWindowCollectionBehaviorStationary |
-                NSWindowCollectionBehaviorFullScreenAuxiliary
+                NSWindowCollectionBehaviorFullScreenAuxiliary |
+                NSWindowCollectionBehaviorIgnoresCycle
             )
-            ns_window.setLevel_(NSStatusWindowLevel)
-            print("Window set to appear on all Spaces")
+            ns_window.setLevel_(NSStatusWindowLevel + 1)
+            ns_window.setHidesOnDeactivate_(False)
+            ns_window.setCanHide_(False)
+            ns_window.orderFrontRegardless()
+            print(
+                "[Overlay] Full-screen auxiliary panel ready "
+                f"(level={int(ns_window.level())}, "
+                f"behavior={int(ns_window.collectionBehavior())})",
+                flush=True,
+            )
         except Exception as e:
             print(f"Could not set all-spaces behavior: {e}")
 
@@ -256,10 +272,16 @@ class OverlayWindow(QWidget):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | 
             Qt.WindowType.WindowStaysOnTopHint | 
-            Qt.WindowType.WindowDoesNotAcceptFocus
+            Qt.WindowType.WindowDoesNotAcceptFocus |
+            Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        # Force creation of the native NSWindow before the first show so its
+        # collection behavior is in place when a browser is already full-screen.
+        if HAS_APPKIT:
+            self.winId()
+            self._set_all_spaces()
         self.setMinimumSize(320, 140)
 
         # Frameless Qt windows otherwise expose only the bottom-right QSizeGrip.
