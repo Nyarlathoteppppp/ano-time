@@ -873,7 +873,7 @@ class Dashboard(QWidget):
             display_duration=config.display_duration,
             window_width=config.window_width,
             window_height=config.window_height,
-            display_mode=config.display_mode,
+            display_mode=self.display_mode.currentData(),
         )
         self.overlay_window.show()
 
