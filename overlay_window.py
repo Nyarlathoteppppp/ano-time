@@ -10,15 +10,25 @@ import time
 # macOS: Make window visible on all desktops (Spaces)
 try:
     from AppKit import (
+        NSBackingStoreBuffered,
+        NSColor,
         NSScreen,
         NSScreenSaverWindowLevel,
         NSPanel,
+        NSViewHeightSizable,
+        NSViewWidthSizable,
+        NSVisualEffectBlendingModeBehindWindow,
+        NSVisualEffectMaterialHUDWindow,
+        NSVisualEffectStateActive,
+        NSVisualEffectView,
+        NSWindowBelow,
         NSWindowCollectionBehaviorCanJoinAllApplications,
         NSWindowCollectionBehaviorCanJoinAllSpaces,
         NSWindowCollectionBehaviorFullScreenAuxiliary,
         NSWindowCollectionBehaviorIgnoresCycle,
         NSWindowCollectionBehaviorMoveToActiveSpace,
         NSWindowCollectionBehaviorStationary,
+        NSWindowStyleMaskBorderless,
     )
     import objc
     HAS_APPKIT = True
@@ -86,13 +96,13 @@ class LogItem(QFrame):
 
     def _apply_original_style(self):
         if self.finalized:
-            color = "rgba(230, 235, 245, 215)"
+            color = "rgba(245, 247, 252, 245)"
             weight = 600
         else:
-            color = "rgba(205, 210, 220, 105)"
-            weight = 400
+            color = "rgba(225, 230, 240, 190)"
+            weight = 500
         self.original_label.setStyleSheet(
-            f"color: {color}; font-family: Arial; font-size: 14px; "
+            f"color: {color}; font-family: Arial; font-size: 15px; "
             f"font-weight: {weight};"
         )
 
@@ -259,6 +269,8 @@ class OverlayWindow(QWidget):
             lambda: self._set_all_spaces(log_ready=False)
         )
         self._last_native_visibility = None
+        self._native_blur_window = None
+        self._native_blur_view = None
         
         self.initUI()
         self.oldPos = self.pos()
@@ -280,7 +292,58 @@ class OverlayWindow(QWidget):
 
     def closeEvent(self, event):
         self._topmost_timer.stop()
+        if self._native_blur_window is not None:
+            self._native_blur_window.close()
+            self._native_blur_window = None
+            self._native_blur_view = None
         super().closeEvent(event)
+
+    def _install_native_blur(self, ns_window):
+        """Put an AppKit vibrancy panel behind the transparent Qt overlay."""
+        if self._native_blur_window is not None:
+            return
+        frame = ns_window.frame()
+        blur_window = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+            frame,
+            NSWindowStyleMaskBorderless,
+            NSBackingStoreBuffered,
+            False,
+        )
+        blur_window.setOpaque_(False)
+        blur_window.setBackgroundColor_(NSColor.clearColor())
+        blur_window.setHasShadow_(False)
+        blur_window.setIgnoresMouseEvents_(True)
+        blur_window.setHidesOnDeactivate_(False)
+        blur_window.setCanHide_(False)
+        blur_window.setCollectionBehavior_(ns_window.collectionBehavior())
+        blur_window.setLevel_(NSScreenSaverWindowLevel)
+
+        effect = NSVisualEffectView.alloc().initWithFrame_(
+            blur_window.contentView().bounds()
+        )
+        effect.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
+        effect.setMaterial_(NSVisualEffectMaterialHUDWindow)
+        effect.setBlendingMode_(NSVisualEffectBlendingModeBehindWindow)
+        effect.setState_(NSVisualEffectStateActive)
+        effect.setWantsLayer_(True)
+        effect.layer().setCornerRadius_(20.0)
+        effect.layer().setMasksToBounds_(True)
+        blur_window.contentView().addSubview_(effect)
+
+        ns_window.addChildWindow_ordered_(blur_window, NSWindowBelow)
+        self._native_blur_window = blur_window
+        self._native_blur_view = effect
+        print("[Overlay] Native macOS HUD blur installed", flush=True)
+
+    def _sync_native_blur(self, ns_window):
+        if self._native_blur_window is None:
+            return
+        self._native_blur_window.setFrame_display_(ns_window.frame(), True)
+        if self.display_mode == "glass" and self.isVisible():
+            self._native_blur_window.orderFrontRegardless()
+            ns_window.orderFrontRegardless()
+        else:
+            self._native_blur_window.orderOut_(None)
     
     def _set_all_spaces(self, log_ready=False):
         """Make window appear on all macOS Spaces/Desktops"""
@@ -310,6 +373,9 @@ class OverlayWindow(QWidget):
             # The window still opts out of login-window visibility.
             ns_window.setCanBecomeVisibleWithoutLogin_(False)
             ns_window.setLevel_(NSScreenSaverWindowLevel + 1)
+            if self.display_mode == "glass":
+                self._install_native_blur(ns_window)
+            self._sync_native_blur(ns_window)
             ns_window.orderFrontRegardless()
             native_visibility = (
                 bool(ns_window.isVisible()),
@@ -536,18 +602,22 @@ class OverlayWindow(QWidget):
             self._schedule_geometry_save()
         if hasattr(self, "_content_reflow_timer"):
             self._schedule_content_reflow()
+        if HAS_APPKIT and self._native_blur_window is not None:
+            self._set_all_spaces()
 
     def moveEvent(self, event):
         super().moveEvent(event)
         if hasattr(self, "_geometry_save_timer"):
             self._schedule_geometry_save()
+        if HAS_APPKIT and self._native_blur_window is not None:
+            self._set_all_spaces()
 
     def _set_glass_style(self):
         self.container.set_notch_geometry(False)
         self.container.setStyleSheet("""
             QFrame#glassPanel {
-                background-color: rgba(15, 20, 30, 178);
-                border: 1px solid rgba(255, 255, 255, 55);
+                background-color: rgba(12, 16, 24, 82);
+                border: 1px solid rgba(255, 255, 255, 72);
                 border-radius: 16px;
             }
         """)
@@ -629,6 +699,8 @@ class OverlayWindow(QWidget):
 
         self._apply_item_visibility()
         self._schedule_content_reflow()
+        if HAS_APPKIT and self.isVisible():
+            self._set_all_spaces()
 
     def _schedule_content_reflow(self):
         # Coalesce rapid ASR partials while still refreshing on the next event loop.
