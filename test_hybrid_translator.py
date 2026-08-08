@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 import unittest
 
 from hybrid_translator import HybridTranslator
@@ -95,6 +96,22 @@ class HybridTranslatorTests(unittest.TestCase):
             self.assertEqual(router.translate("two"), "gemini")
             self.assertEqual(router.translate("three"), "qwen")
             self.assertEqual((groq.calls, gemini.calls, qwen.calls), (1, 1, 1))
+
+    def test_expired_minute_cooldown_returns_provider_to_free_pool(self):
+        with tempfile.TemporaryDirectory() as directory:
+            groq = _FakeTranslator("groq")
+            qwen = _FakeTranslator("qwen")
+            router = self._router(
+                [
+                    {"name": "groq", "translator": groq, "priority": 0},
+                    {"name": "qwen", "translator": qwen, "priority": 1},
+                ],
+                directory,
+            )
+            router.providers[0]["cooldown_until"] = time.monotonic() + 60
+            self.assertEqual(router.translate("during cooldown"), "qwen")
+            router.providers[0]["cooldown_until"] = time.monotonic() - 1
+            self.assertEqual(router.translate("after reset"), "groq")
 
 
 if __name__ == "__main__":

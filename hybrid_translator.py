@@ -21,6 +21,7 @@ class HybridTranslator:
             item.setdefault("daily_limit", None)
             item.setdefault("priority", 0)
             item["cooldown_until"] = 0.0
+            item["daily_block_date"] = None
             item["recent_attempts"] = deque()
             item["recent_tokens"] = deque()
             self.providers.append(item)
@@ -111,8 +112,24 @@ class HybridTranslator:
                         continue
                     if provider["name"] in excluded:
                         continue
+                    blocked_date = provider.get("daily_block_date")
+                    today = date.today().isoformat()
+                    if blocked_date:
+                        if blocked_date == today:
+                            continue
+                        provider["daily_block_date"] = None
+                        print(
+                            f"[Hybrid] {provider['name']} daily quota reset; returning to free pool",
+                            flush=True,
+                        )
                     if now < provider["cooldown_until"]:
                         continue
+                    if provider["cooldown_until"]:
+                        provider["cooldown_until"] = 0.0
+                        print(
+                            f"[Hybrid] {provider['name']} minute quota reset; returning to free pool",
+                            flush=True,
+                        )
                     if not self._reserve_locked(provider, now, estimated_tokens):
                         continue
                     self._next_index = (index + 1) % count
@@ -154,20 +171,24 @@ class HybridTranslator:
         message = str(exc).casefold()
         if status == 429:
             if any(word in message for word in ("daily", "per day", "rpd")):
-                seconds = 24 * 60 * 60
+                seconds = 0
+                with self._lock:
+                    provider["daily_block_date"] = date.today().isoformat()
             else:
                 seconds = max(60.0, self._retry_after(exc))
         elif status in (400, 401, 403, 404):
             seconds = 15 * 60
         else:
             seconds = 60
-        with self._lock:
-            provider["cooldown_until"] = max(
-                provider["cooldown_until"], time.monotonic() + seconds
-            )
+        if seconds:
+            with self._lock:
+                provider["cooldown_until"] = max(
+                    provider["cooldown_until"], time.monotonic() + seconds
+                )
         print(
             f"[Hybrid] {provider['name']} unavailable "
-            f"(status={status or type(exc).__name__}); cooling down {seconds:.0f}s",
+            f"(status={status or type(exc).__name__}); "
+            f"{'blocked for today' if not seconds else f'cooling down {seconds:.0f}s'}",
             flush=True,
         )
 
