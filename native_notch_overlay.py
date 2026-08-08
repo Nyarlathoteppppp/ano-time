@@ -156,7 +156,7 @@ class NativeNotchOverlay(QObject):
                 "translated": self.transcript_data[chunk_id]["translated"],
                 "finalized": self.transcript_data[chunk_id]["finalized"],
             }
-            for chunk_id in sorted(self.transcript_data)[-2:]
+            for chunk_id in sorted(self.transcript_data)[-3:]
         ]
 
     def _send(self, payload):

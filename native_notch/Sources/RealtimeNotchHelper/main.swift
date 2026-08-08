@@ -18,13 +18,37 @@ private struct SubtitleLine: Codable, Identifiable {
 
 @MainActor
 private final class SubtitleState: ObservableObject {
+    private static let sizeDefaults = UserDefaults(
+        suiteName: "com.nyarlathotep.realtime-ton.notch"
+    )
+
     @Published var items = [
         SubtitleLine(id: 0, original: "Waiting for speech…", translated: "", finalized: false)
     ]
+    @Published var displayCount: Int
     var compactTask: Task<Void, Never>?
     var onExpand: (() -> Void)?
+    var onCycleSize: (() -> Void)?
     var onGlass: (() -> Void)?
     var onExit: (() -> Void)?
+
+    init() {
+        let saved = Self.sizeDefaults?.integer(forKey: "displayCount") ?? 0
+        displayCount = (1...3).contains(saved) ? saved : 2
+    }
+
+    func cycleSize() {
+        displayCount = displayCount == 3 ? 1 : displayCount + 1
+        Self.sizeDefaults?.set(displayCount, forKey: "displayCount")
+    }
+
+    var sizeTitle: String {
+        switch displayCount {
+        case 1: return "小 · 1条"
+        case 2: return "中 · 2条"
+        default: return "大 · 3条"
+        }
+    }
 }
 
 private func emitEvent(_ event: String) {
@@ -40,14 +64,27 @@ private struct SubtitleContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(state.items.suffix(2)) { item in
+            HStack {
+                Button(action: { state.onCycleSize?() }) {
+                    Label(state.sizeTitle, systemImage: "rectangle.3.group")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("点击切换小、中、大刘海字幕")
+                Spacer()
+            }
+            .font(.system(size: 11, weight: .medium))
+
+            ForEach(state.items.suffix(state.displayCount)) { item in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.original)
                         .font(.system(
-                            size: 10.5,
+                            size: 11.5,
                             weight: item.finalized == true ? .medium : .regular
                         ))
-                        .foregroundStyle(.secondary.opacity(item.finalized == true ? 0.9 : 0.45))
+                        .foregroundStyle(
+                            .white.opacity(item.finalized == true ? 0.96 : 0.78)
+                        )
                         .lineLimit(1)
                         .animation(.easeOut(duration: 0.12), value: item.finalized)
 
@@ -58,6 +95,8 @@ private struct SubtitleContent: View {
                             .lineLimit(2)
                     }
                 }
+                .contentShape(Rectangle())
+                .onTapGesture { state.onCycleSize?() }
             }
 
             HStack(spacing: 8) {
@@ -71,18 +110,29 @@ private struct SubtitleContent: View {
             }
             .font(.system(size: 12, weight: .medium))
         }
-        .frame(width: 560, alignment: .leading)
+        .frame(
+            width: state.displayCount == 1 ? 500 : (state.displayCount == 2 ? 580 : 660),
+            alignment: .leading
+        )
+        .animation(.easeInOut(duration: 0.18), value: state.displayCount)
     }
 }
 
 private struct CompactLeading: View {
     @ObservedObject var state: SubtitleState
     var body: some View {
-        Button(action: { state.onExpand?() }) {
-            Image(systemName: "captions.bubble.fill")
-                .foregroundStyle(.blue)
+        Button(action: {
+            state.onCycleSize?()
+        }) {
+            HStack(spacing: 4) {
+                Image(systemName: "captions.bubble.fill")
+                Text("\(state.displayCount)")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(.blue)
         }
         .buttonStyle(.plain)
+        .help("点击切换显示 1、2、3 条字幕")
     }
 }
 
@@ -122,6 +172,10 @@ private struct RealtimeNotchHelper {
         }
 
         state.onExpand = { Task { @MainActor in await notch.expand() } }
+        state.onCycleSize = {
+            state.cycleSize()
+            Task { @MainActor in await notch.expand() }
+        }
         state.onGlass = { terminate("glass") }
         state.onExit = { terminate("exit") }
 
@@ -132,7 +186,7 @@ private struct RealtimeNotchHelper {
                 if message.command == "quit" { break }
                 Task { @MainActor in
                     if let items = message.items, !items.isEmpty {
-                        state.items = Array(items.suffix(2))
+                        state.items = Array(items.suffix(3))
                     } else if let original = message.original {
                         state.items = [SubtitleLine(
                             id: 0,
