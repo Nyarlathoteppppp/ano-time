@@ -1,0 +1,104 @@
+# English source<TAB>Required Simplified Chinese translation
+# Derived from COMP90051 SML, COMP90054 AI Planning and SWEN90016 lecture transcripts.
+
+# Statistical Machine Learning
+statistical machine learning	统计机器学习
+parametric method	参数方法
+non-parametric method	非参数方法
+random variable	随机变量
+probability distribution	概率分布
+joint distribution	联合分布
+marginal distribution	边缘分布
+conditional distribution	条件分布
+normal distribution	正态分布
+Bernoulli distribution	伯努利分布
+independent and identically distributed	独立同分布
+probability density function	概率密度函数
+probability mass function	概率质量函数
+likelihood function	似然函数
+log-likelihood	对数似然
+maximum likelihood estimation	最大似然估计
+maximum a posteriori	最大后验估计
+prior distribution	先验分布
+posterior distribution	后验分布
+Bayes' rule	贝叶斯公式
+Bayes rule	贝叶斯公式
+expected value	期望值
+standard deviation	标准差
+empirical risk	经验风险
+zero-one loss	0-1 损失
+decision boundary	决策边界
+gradient descent	梯度下降
+analytical solution	解析解
+generative model	生成模型
+discriminative model	判别模型
+supervised learning	监督学习
+unsupervised learning	无监督学习
+training data	训练数据
+test data	测试数据
+ground truth	真实标签
+
+# AI Planning and Search
+planning for autonomy	自主规划
+uninformed search	无信息搜索
+blind search	无信息搜索
+search algorithm	搜索算法
+state space	状态空间
+initial state	初始状态
+goal state	目标状态
+goal test	目标测试
+search tree	搜索树
+search frontier	搜索边界
+breadth-first search	广度优先搜索
+depth-first search	深度优先搜索
+uniform-cost search	一致代价搜索
+Dijkstra's algorithm	Dijkstra 算法
+priority queue	优先队列
+first in, first out	先进先出
+path cost	路径代价
+branching factor	分支因子
+time complexity	时间复杂度
+space complexity	空间复杂度
+weighted graph	加权图
+completeness	完备性
+optimality	最优性
+heuristic function	启发式函数
+admissible heuristic	可采纳启发式
+consistent heuristic	一致启发式
+inference	推理
+
+# Software Processes and Architecture
+software development life cycle	软件开发生命周期
+SDLC	软件开发生命周期
+waterfall model	瀑布模型
+spiral model	螺旋模型
+incremental model	增量模型
+rapid prototyping	快速原型开发
+operational prototype	可运行原型
+risk analysis	风险分析
+risk management	风险管理
+requirements elicitation	需求获取
+requirements specification	需求规格说明
+functional requirement	功能需求
+non-functional requirement	非功能需求
+change control	变更控制
+feedback loop	反馈循环
+agile manifesto	敏捷宣言
+agile methodology	敏捷方法
+working software	可工作的软件
+customer collaboration	客户协作
+technical excellence	技术卓越
+user story map	用户故事地图
+paper prototype	纸面原型
+minimum viable product	最小可行产品
+Kanban	看板
+Scrum	Scrum
+sprint	冲刺
+stakeholder	利益相关者
+quality assurance	质量保证
+software architecture	软件架构
+quality attribute	质量属性
+architectural pattern	架构模式
+coupling	耦合
+cohesion	内聚
+

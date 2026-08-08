@@ -10,6 +10,7 @@ threads = 4
 ai_deadline_seconds = 3.0
 fast_backend = apple
 provider = Custom
+glossary_path = course_glossary.tsv
 
 [providers]
 deepseek_api_key =

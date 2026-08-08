@@ -4,9 +4,12 @@ import os
 import re
 import time
 
+from glossary import CourseGlossary
+
 class Translator:
     def __init__(self, api_key=None, base_url=None, model="MBZUAI-IFM/K2-Think-nothink",
-                 target_lang="Chinese", domain_prompt=None, deadline_seconds=3.0):
+                 target_lang="Chinese", domain_prompt=None, deadline_seconds=3.0,
+                 glossary_path=None):
         """
         Translates text using an LLM.
         
@@ -23,6 +26,7 @@ class Translator:
             "Postgraduate computer science coursework. Preserve computer science "
             "and mathematics terminology accurately, consistently, and in standard academic language."
         )
+        self.glossary = CourseGlossary.from_file(glossary_path)
         
         # If no key provided, check env. If still none, we might be in local mode (no auth) or fail.
         # Some local servers don't need a valid key, but the client requires a string.
@@ -76,6 +80,13 @@ class Translator:
             raise TimeoutError("AI translation deadline expired before request start")
 
         is_qwen_mt = self.model.startswith("qwen-mt-")
+        matched_terms = self.glossary.match(text)
+        terminology_prompt = ""
+        if matched_terms:
+            pairs = "; ".join(
+                f"{term.source} = {term.target}" for term in matched_terms
+            )
+            terminology_prompt = f" Required terminology: {pairs}."
 
         # Qwen-MT is a purpose-built, single-turn translation API. It rejects
         # system messages and receives language selection through extra_body.
@@ -87,7 +98,7 @@ class Translator:
                 f"Domain context: {self.domain_prompt} "
                 f"Improve the draft translation into {self.target_lang}. "
                 f"Correct mistranslations using the original text, preserve meaning and terminology, "
-                f"and output ONLY the improved translation."
+                f"and output ONLY the improved translation.{terminology_prompt}"
             )
             user_message = (
                 f"Original:\n{text}\n\n"
@@ -98,7 +109,7 @@ class Translator:
                 f"Translate CURRENT into {self.target_lang}. "
                 f"Domain: {self.domain_prompt} "
                 f"Use CONTEXT only to resolve references and terminology. "
-                f"Return the translation of CURRENT only."
+                f"Return the translation of CURRENT only.{terminology_prompt}"
             )
             user_message = f"CONTEXT:\n{context_text}\n\nCURRENT:\n{text}"
         elif use_context and self.previous_text:
@@ -115,6 +126,7 @@ class Translator:
                 f"2. Translate ONLY the text available in the user message.\\n"
                 f"3. Do NOT repeat or include the Previous Sentence/Translation in your output.\\n"
                 f"4. Output ONLY the translation of the user message."
+                f"{terminology_prompt}"
             )
             user_message = text
         else:
@@ -123,6 +135,7 @@ class Translator:
                 f"Domain context: {self.domain_prompt} "
                 f"Translate the following user input into {self.target_lang}. "
                 f"Do not add any explanations, just output the translation."
+                f"{terminology_prompt}"
             )
             user_message = text
 
@@ -135,12 +148,18 @@ class Translator:
         try:
             request_options = {}
             if is_qwen_mt:
+                translation_options = {
+                    "source_lang": "auto",
+                    "target_lang": self.target_lang,
+                    "domains": self.domain_prompt,
+                }
+                if matched_terms:
+                    translation_options["terms"] = [
+                        {"source": term.source, "target": term.target}
+                        for term in matched_terms
+                    ]
                 request_options["extra_body"] = {
-                    "translation_options": {
-                        "source_lang": "auto",
-                        "target_lang": self.target_lang,
-                        "domains": self.domain_prompt,
-                    }
+                    "translation_options": translation_options
                 }
             elif (self.base_url and "siliconflow" in self.base_url and
                   self.model == "deepseek-ai/DeepSeek-V4-Flash"):

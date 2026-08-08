@@ -87,6 +87,7 @@ class Pipeline(QObject):
             model=config.model,
             domain_prompt=config.translation_domain,
             deadline_seconds=config.ai_deadline_seconds,
+            glossary_path=config.glossary_path,
         )
 
         self.fast_translator = None

@@ -35,6 +35,12 @@ class Config:
         self.ai_deadline_seconds = self._getfloat("translation", "ai_deadline_seconds", 3.0)
         self.fast_translation_backend = self._get("translation", "fast_backend", "off").lower()
         self.translation_provider = self._get("translation", "provider", "Custom")
+        glossary_path = self._get("translation", "glossary_path", "course_glossary.tsv")
+        self.glossary_path = (
+            glossary_path
+            if os.path.isabs(glossary_path)
+            else os.path.join(os.path.dirname(self.config_path), glossary_path)
+        )
         self.deepseek_api_key = self._get("providers", "deepseek_api_key", "")
         self.siliconflow_api_key = self._get("providers", "siliconflow_api_key", "")
         self.qwen_mt_api_key = self._get("providers", "qwen_mt_api_key", "")
@@ -133,6 +139,7 @@ class Config:
         print(f"  Model: {self.model}")
         print(f"  Target Language: {self.target_lang}")
         print(f"  Fast Translation: {self.fast_translation_backend}")
+        print(f"  Glossary: {self.glossary_path}")
         print(f"  AI Deadline: {self.ai_deadline_seconds:.1f}s")
         print(f"  ASR Backend: {self.asr_backend}")
         print(f"  Whisper Model: {self.whisper_model}")
