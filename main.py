@@ -530,7 +530,11 @@ def start_overlay_session():
     global _pipeline, _app
     
     # Initialize Overlay Window
-    window = OverlayWindow(
+    if config.display_mode == "notch":
+        from native_notch_overlay import NativeNotchOverlay as OverlayClass
+    else:
+        OverlayClass = OverlayWindow
+    window = OverlayClass(
         display_duration=config.display_duration,
         window_width=config.window_width,
         window_height=config.window_height,

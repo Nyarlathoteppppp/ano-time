@@ -133,6 +133,15 @@ else
     echo ""
 fi
 
+if command -v swift &> /dev/null; then
+    echo "[Native UI] Building DynamicNotchKit subtitle helper..."
+    chmod +x build_native_notch.sh
+    ./build_native_notch.sh
+else
+    echo "[WARNING] Swift compiler not found; Physical MacBook Notch mode cannot be built."
+    echo "  -> Install Xcode Command Line Tools: xcode-select --install"
+fi
+
 echo ""
 echo "==================================================="
 echo "  Installation Complete!"

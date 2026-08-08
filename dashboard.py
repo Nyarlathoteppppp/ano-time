@@ -705,9 +705,9 @@ class Dashboard(QWidget):
 
         self.provider = QComboBox()
         self.provider.addItems([
+            "Alibaba Cloud Qwen-MT",
             "DeepSeek Official",
             "SiliconFlow",
-            "Alibaba Cloud Qwen-MT",
             "Custom",
         ])
         current_base = (config.api_base_url or "").lower()
@@ -895,7 +895,6 @@ class Dashboard(QWidget):
 
     def on_pipeline_ready(self, _, pipeline):
         # Create Window on Main Thread
-        from main import OverlayWindow
         from config import config
         
         if not pipeline:
@@ -905,7 +904,11 @@ class Dashboard(QWidget):
              return
 
         self.pipeline = pipeline
-        self.overlay_window = OverlayWindow(
+        if self.display_mode.currentData() == "notch":
+            from native_notch_overlay import NativeNotchOverlay as OverlayClass
+        else:
+            from overlay_window import OverlayWindow as OverlayClass
+        self.overlay_window = OverlayClass(
             display_duration=config.display_duration,
             window_width=config.window_width,
             window_height=config.window_height,

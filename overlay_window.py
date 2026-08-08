@@ -127,12 +127,14 @@ class NotchSurface(QFrame):
 
 class OverlayWindow(QWidget):
     stop_requested = pyqtSignal()
+    notch_requested = pyqtSignal()
 
     def __init__(self, display_duration=None, window_width=400, window_height=None,
-                 display_mode="glass"):
+                 display_mode="glass", allow_notch_switch=False):
         super().__init__()
         # display_duration is not really used in log mode, but kept for compatibility
         self.window_width = window_width
+        self.allow_notch_switch = allow_notch_switch
         
         # Default height to full screen height if not specified
         screen_geometry = QApplication.primaryScreen().availableGeometry()
@@ -277,7 +279,7 @@ class OverlayWindow(QWidget):
             }
             QPushButton:hover { background-color: rgba(137, 180, 250, 150); }
         """)
-        self.mode_btn.clicked.connect(self.toggle_display_mode)
+        self.mode_btn.clicked.connect(self.notch_requested.emit)
         grip_layout.addWidget(self.mode_btn)
         
         grip_layout.addStretch()
@@ -390,6 +392,7 @@ class OverlayWindow(QWidget):
             self.container_layout.setContentsMargins(10, 10, 10, 10)
             self.drag_handle.setText("⠿  Drag subtitles")
             self.mode_btn.setText("◒ Physical Notch")
+            self.mode_btn.setVisible(self.allow_notch_switch)
             if not initial and self._glass_geometry is not None:
                 self.setGeometry(self._glass_geometry)
 

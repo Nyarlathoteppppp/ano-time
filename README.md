@@ -98,8 +98,8 @@ Settings are managed via the Dashboard, but stored in `config.ini`.
 | `api_key` | Auth Key | `sk-...` (or `dummy` for local) |
 | `target_lang` | Output Language | `Chinese`, `English`, `Japanese` |
 
-The Translation tab includes provider presets for DeepSeek Official, SiliconFlow,
-Alibaba Cloud Qwen-MT, and custom OpenAI-compatible endpoints. Qwen-MT models use
+The Translation tab lists Alibaba Cloud Qwen-MT first, followed by DeepSeek Official,
+SiliconFlow, and custom OpenAI-compatible endpoints. Qwen-MT models use
 their required single-user-message format and `translation_options` automatically.
 API keys stay in the ignored local `config.ini`; model names remain editable and
 can also be fetched from `/models`.
@@ -118,10 +118,11 @@ draft. Stage timings and failures are written to `logs/runtime.log`; open it
 from the Dashboard with **Open Runtime Log**.
 
 Choose `glass` or `notch` under **Subtitle Mode** on the Dashboard. On MacBooks
-with a camera housing, `notch` reads the physical notch geometry through AppKit
-and expands the latest subtitle downward from it. Double-click the notch subtitle
-panel to return to resizable `glass` mode; the glass panel's **Physical Notch**
-button switches back without restarting.
+with a camera housing, `notch` uses the native SwiftUI/AppKit
+[DynamicNotchKit](https://github.com/MrKai77/DynamicNotchKit) component instead
+of the Qt overlay. New subtitles expand from the physical notch and compact after
+six seconds of inactivity. **Glass** switches to the resizable overlay and
+**Exit** stops the translator. The native helper builds during `install_mac.sh`.
 
 #### `[transcription]` Section
 | Parameter | Description | Details |
