@@ -15,6 +15,7 @@ from transcriber import Transcriber
 from translator import Translator
 from overlay_window import OverlayWindow
 from config import config
+from runtime_log import log_stage
 
 class WorkerSignals(QObject):
     update_text = pyqtSignal(int, str, str)  # (chunk_id, original, translated)
@@ -28,6 +29,7 @@ class Pipeline(QObject):
         self._partial_versions = {}
         self._last_partial_text = {}
         self._finalized_chunks = set()
+        self._refine_slots = threading.BoundedSemaphore(2)
         
         # Print config for debugging
         config.print_config()
@@ -260,7 +262,8 @@ class Pipeline(QObject):
         """Feed PCM audio to Apple's native streaming speech recognizer."""
         from apple_transcriber import AppleSpeechTranscriber
 
-        translate_executor = ThreadPoolExecutor(max_workers=config.translation_threads)
+        fast_executor = ThreadPoolExecutor(max_workers=1)
+        refine_executor = ThreadPoolExecutor(max_workers=2)
         state_lock = threading.Lock()
         state = {"chunk_id": 1, "last_partial_at": 0.0}
 
@@ -288,9 +291,15 @@ class Pipeline(QObject):
 
             if is_final:
                 print(f"[Apple Final {chunk_id}] {text}")
+                log_stage("asr_final", chunk_id=chunk_id, detail=text)
                 self.last_final_text = text
                 self.signals.update_text.emit(chunk_id, text, "(translating...)")
-                translate_executor.submit(self._run_translation, text, chunk_id)
+                fast_executor.submit(
+                    self._run_fast_final_translation,
+                    text,
+                    chunk_id,
+                    refine_executor,
+                )
                 return
 
             self.signals.update_text.emit(chunk_id, text, "")
@@ -301,7 +310,7 @@ class Pipeline(QObject):
                 self._last_partial_text[chunk_id] = text
                 version = self._partial_versions.get(chunk_id, 0) + 1
                 self._partial_versions[chunk_id] = version
-            translate_executor.submit(self._run_partial_translation, text, chunk_id, version)
+            fast_executor.submit(self._run_partial_translation, text, chunk_id, version)
 
         self.apple_transcriber = AppleSpeechTranscriber(
             language=config.source_language or "en",
@@ -322,7 +331,8 @@ class Pipeline(QObject):
         finally:
             if self.apple_transcriber:
                 self.apple_transcriber.stop()
-            translate_executor.shutdown(wait=False)
+            fast_executor.shutdown(wait=False, cancel_futures=True)
+            refine_executor.shutdown(wait=False, cancel_futures=True)
 
     def _process_partial_chunk(self, audio_data, chunk_id, prompt="", translate_executor=None):
         """Transcribe and translate an in-progress utterance."""
@@ -388,10 +398,23 @@ class Pipeline(QObject):
             draft = None
             if self.fast_translator:
                 try:
+                    started = time.perf_counter()
                     draft = self.fast_translator.translate(text)
+                    log_stage(
+                        "apple_partial",
+                        chunk_id=chunk_id,
+                        elapsed_ms=(time.perf_counter() - started) * 1000,
+                    )
                     emit_if_current(draft)
                 except Exception as exc:
                     print(f"[Apple Partial Translation {chunk_id}] Failed: {exc}")
+                    log_stage("apple_partial", chunk_id=chunk_id, status="error", detail=str(exc))
+
+            # Apple provides the live draft. Refining every volatile hypothesis
+            # saturates remote APIs and delays final sentences, so only finalized
+            # utterances are sent to the LLM.
+            if draft:
+                return
 
             translated = self.translator.translate(
                 text,
@@ -400,16 +423,60 @@ class Pipeline(QObject):
                 remember_context=False,
                 draft_translation=draft,
             )
-            emit_if_current(translated)
+            if translated:
+                emit_if_current(translated)
         except Exception as e:
             print(f"[Partial Translation {chunk_id}] Failed: {e}")
+            log_stage("partial_translation", chunk_id=chunk_id, status="error", detail=str(e))
 
-    def _run_translation(self, text, chunk_id):
-        """Run translation in background and emit result"""
+    def _run_fast_final_translation(self, text, chunk_id, refine_executor):
+        """Publish the local draft immediately, then schedule best-effort refinement."""
+        if not self.running:
+            return
+        draft = None
+        if self.fast_translator:
+            try:
+                started = time.perf_counter()
+                draft = self.fast_translator.translate(text)
+                elapsed_ms = (time.perf_counter() - started) * 1000
+                self.signals.update_text.emit(chunk_id, text, draft)
+                log_stage("apple_final", chunk_id=chunk_id, elapsed_ms=elapsed_ms, detail=draft)
+            except Exception as exc:
+                print(f"[Apple Final Translation {chunk_id}] Failed: {exc}")
+                log_stage("apple_final", chunk_id=chunk_id, status="error", detail=str(exc))
+
+        if not self._refine_slots.acquire(blocking=False):
+            log_stage("llm_refine", chunk_id=chunk_id, status="skipped", detail="refinement slots busy")
+            return
+        try:
+            refine_executor.submit(self._run_refinement, text, chunk_id, draft)
+        except Exception:
+            self._refine_slots.release()
+            raise
+
+    def _run_refinement(self, text, chunk_id, draft):
         try:
             if not self.running:
                 return
-            draft = None
+            started = time.perf_counter()
+            translated = self.translator.translate(text, draft_translation=draft)
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            if translated and self.running:
+                self.signals.update_text.emit(chunk_id, text, translated)
+                log_stage("llm_refine", chunk_id=chunk_id, elapsed_ms=elapsed_ms, detail=translated)
+        except Exception as exc:
+            # Keep the Apple draft visible on all remote API failures.
+            print(f"[LLM Refinement {chunk_id}] Failed: {exc}")
+            log_stage("llm_refine", chunk_id=chunk_id, status="error", detail=str(exc))
+        finally:
+            self._refine_slots.release()
+
+    def _run_translation(self, text, chunk_id):
+        """Run translation in background and emit result"""
+        draft = None
+        try:
+            if not self.running:
+                return
             if self.fast_translator:
                 try:
                     draft = self.fast_translator.translate(text)
@@ -428,7 +495,9 @@ class Pipeline(QObject):
             self.signals.update_text.emit(chunk_id, text, translated)
         except Exception as e:
             print(f"[Translation {chunk_id}] Failed: {e}")
-            self.signals.update_text.emit(chunk_id, text, "[Translation Failed]")
+            log_stage("translation", chunk_id=chunk_id, status="error", detail=str(e))
+            if not draft:
+                self.signals.update_text.emit(chunk_id, text, "[Translation Failed]")
     
     def _transcribe_chunk(self, transcriber, audio_chunk, chunk_id):
         """Transcribe a single chunk and log timing"""

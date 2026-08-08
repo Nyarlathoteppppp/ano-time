@@ -105,6 +105,11 @@ Set `fast_backend = apple` under `[translation]` to display an on-device draft
 before the configured LLM returns its refined translation. Apple Translation
 requires its source/target language assets to be installed on macOS.
 
+Live partial hypotheses use Apple Translation only. The remote LLM is called
+only for finalized utterances, so a slow or blocked API cannot delay the local
+draft. Stage timings and failures are written to `logs/runtime.log`; open it
+from the Dashboard with **Open Runtime Log**.
+
 #### `[transcription]` Section
 | Parameter | Description | Details |
 | :--- | :--- | :--- |

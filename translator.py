@@ -135,10 +135,10 @@ class Translator:
             return result
         except OpenAIError as e:
             print(f"Translation Error: {e}")
-            return f"[Error: {e}]"
+            raise
         except Exception as e:
             print(f"Unexpected Error: {e}")
-            return text
+            raise
 
 if __name__ == "__main__":
     # Test

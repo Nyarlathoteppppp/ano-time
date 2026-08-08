@@ -148,10 +148,15 @@ class Dashboard(QWidget):
         self.stop_btn.setStyleSheet("font-size: 16px; background-color: #f38ba8; border-radius: 10px;")
         self.stop_btn.clicked.connect(self.on_stop)
         self.stop_btn.hide()
+
+        self.log_btn = QPushButton("📄 Open Runtime Log")
+        self.log_btn.setFixedSize(200, 38)
+        self.log_btn.clicked.connect(self.open_runtime_log)
         
         layout.addLayout(btn_layout)
         layout.addWidget(self.start_btn)
         layout.addWidget(self.stop_btn)
+        layout.addWidget(self.log_btn)
         
         info = QLabel("The translator will open as an overlay window.\nYou can minimize this dashboard.")
         info.setStyleSheet("color: #6c7086; font-style: italic;")
@@ -159,6 +164,11 @@ class Dashboard(QWidget):
         
         tab.setLayout(layout)
         self.tabs.addTab(tab, "🏠 Home")
+
+    def open_runtime_log(self):
+        import subprocess
+        from runtime_log import LOG_PATH
+        subprocess.run(["open", LOG_PATH], check=False)
 
     def init_audio_tab(self):
         tab = QWidget()

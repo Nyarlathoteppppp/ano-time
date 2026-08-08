@@ -4,3 +4,4 @@ transcripts
 config.ini
 .venv
 .build/
+logs/
