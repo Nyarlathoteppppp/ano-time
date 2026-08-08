@@ -863,6 +863,7 @@ class Dashboard(QWidget):
 
         self.provider = QComboBox()
         self.provider.addItems([
+            "Groq + Gemini → Qwen-MT",
             "Alibaba Cloud Qwen-MT",
             "DeepSeek Official",
             "SiliconFlow",
@@ -877,11 +878,14 @@ class Dashboard(QWidget):
             self.provider.setCurrentText("Alibaba Cloud Qwen-MT")
         else:
             self.provider.setCurrentText("Custom")
+        if config.translation_provider == "Groq + Gemini → Qwen-MT":
+            self.provider.setCurrentText("Groq + Gemini → Qwen-MT")
         self._current_provider = self.provider.currentText()
         self.provider_keys = {
             "DeepSeek Official": config.deepseek_api_key or config.api_key,
             "SiliconFlow": config.siliconflow_api_key,
             "Alibaba Cloud Qwen-MT": config.qwen_mt_api_key,
+            "Groq + Gemini → Qwen-MT": "",
             "Custom": config.api_key,
         }
         self.provider_urls = {
@@ -897,6 +901,16 @@ class Dashboard(QWidget):
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key.setPlaceholderText("sk-...")
         layout.addRow("API Key:", self.api_key)
+
+        self.groq_api_key = QLineEdit(config.groq_api_key)
+        self.groq_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.groq_api_key.setPlaceholderText("gsk_...")
+        layout.addRow("Groq Key:", self.groq_api_key)
+
+        self.gemini_api_key = QLineEdit(config.gemini_api_key)
+        self.gemini_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.gemini_api_key.setPlaceholderText("Google AI Studio key")
+        layout.addRow("Gemini Key:", self.gemini_api_key)
         
         self.base_url = QLineEdit(config.api_base_url or "")
         self.base_url.setPlaceholderText("https://api.openai.com/v1")
@@ -940,6 +954,8 @@ class Dashboard(QWidget):
             "apple: show an immediate on-device draft, then replace it with the LLM-refined translation"
         )
         layout.addRow("Instant Draft:", self.fast_translation_backend)
+
+        self._on_translation_provider_changed(self.provider.currentText())
         
         tab.setLayout(layout)
         self.tabs.addTab(tab, "🈵 Translation")
@@ -950,7 +966,16 @@ class Dashboard(QWidget):
             self.provider_urls[self._current_provider] = self.base_url.text()
             self.api_key.setText(self.provider_keys.get(provider, ""))
         self._current_provider = provider
-        if provider == "DeepSeek Official":
+        hybrid = provider == "Groq + Gemini → Qwen-MT"
+        if hasattr(self, "base_url"):
+            self.api_key.setEnabled(not hybrid)
+            self.base_url.setEnabled(not hybrid)
+            self.model.setEnabled(not hybrid)
+            self.refresh_models_btn.setEnabled(not hybrid)
+        if hybrid:
+            self.base_url.setText("Automatic quota-aware rotation")
+            self.model.setCurrentText("GPT-OSS ↔ Gemini; Qwen-MT fallback")
+        elif provider == "DeepSeek Official":
             self.base_url.setText("https://api.deepseek.com")
             self.model.setCurrentText("deepseek-v4-flash")
         elif provider == "SiliconFlow":
@@ -1023,9 +1048,10 @@ class Dashboard(QWidget):
         cp.set("transcription", "source_language", self.source_language.currentText())
         
         # Translation
-        cp.set("api", "api_key", self.api_key.text())
-        cp.set("api", "base_url", self.base_url.text())
-        cp.set("translation", "model", self.model.currentText())
+        if self.provider.currentText() != "Groq + Gemini → Qwen-MT":
+            cp.set("api", "api_key", self.api_key.text())
+            cp.set("api", "base_url", self.base_url.text())
+            cp.set("translation", "model", self.model.currentText())
         cp.set("translation", "target_lang", self.target_lang.currentText())
         cp.set("translation", "domain", self.translation_domain.text())
         cp.set("translation", "fast_backend", self.fast_translation_backend.currentText())
@@ -1036,6 +1062,8 @@ class Dashboard(QWidget):
         cp.set("providers", "siliconflow_api_key", self.provider_keys.get("SiliconFlow", ""))
         cp.set("providers", "qwen_mt_api_key", self.provider_keys.get("Alibaba Cloud Qwen-MT", ""))
         cp.set("providers", "qwen_mt_base_url", self.provider_urls.get("Alibaba Cloud Qwen-MT", ""))
+        cp.set("providers", "groq_api_key", self.groq_api_key.text())
+        cp.set("providers", "gemini_api_key", self.gemini_api_key.text())
         cp.set("display", "mode", self.display_mode.currentData())
         
         with open(config_path, 'w') as f:

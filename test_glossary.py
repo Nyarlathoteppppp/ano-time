@@ -105,6 +105,27 @@ class CourseGlossaryTests(unittest.TestCase):
         self.assertIn("only obvious ASR errors", system_prompt)
         self.assertIn("never invent missing content", system_prompt)
 
+    def test_fast_pool_uses_provider_compatible_latency_options(self):
+        groq = Translator(
+            api_key="test-key",
+            base_url="https://api.groq.com/openai/v1",
+            model="openai/gpt-oss-20b",
+        )
+        groq.client = _RecordingClient()
+        groq.translate("Translate this.", use_context=False, remember_context=False)
+        self.assertEqual(
+            groq.client.chat.completions.options["reasoning_effort"], "low"
+        )
+
+        gemini = Translator(
+            api_key="test-key",
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            model="gemini-3.5-flash-lite",
+        )
+        gemini.client = _RecordingClient()
+        gemini.translate("Translate this.", use_context=False, remember_context=False)
+        self.assertNotIn("temperature", gemini.client.chat.completions.options)
+
 
 if __name__ == "__main__":
     unittest.main()

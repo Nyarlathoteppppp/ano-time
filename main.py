@@ -14,6 +14,7 @@ from audio_capture import AudioCapture
 from system_audio_capture import SystemAudioCapture
 from transcriber import Transcriber
 from translator import Translator
+from hybrid_translator import HybridTranslator
 from overlay_window import OverlayWindow
 from config import config
 from runtime_log import log_stage
@@ -87,15 +88,64 @@ class Pipeline(QObject):
         
         # Initialize Translator
         print(f"[Pipeline] Initializing Translator (target={config.target_lang})...")
-        self.translator = Translator(
+        translator_options = dict(
             target_lang=config.target_lang,
-            base_url=config.api_base_url,
-            api_key=config.api_key,
-            model=config.model,
             domain_prompt=config.translation_domain,
             deadline_seconds=config.ai_deadline_seconds,
             glossary_path=config.glossary_path,
         )
+        if config.translation_provider == "Groq + Gemini → Qwen-MT":
+            providers = []
+            if config.groq_api_key:
+                providers.append({
+                    "name": "Groq GPT-OSS 20B",
+                    "translator": Translator(
+                        base_url="https://api.groq.com/openai/v1",
+                        api_key=config.groq_api_key,
+                        model="openai/gpt-oss-20b",
+                        **translator_options,
+                    ),
+                    "rpm_limit": 30,
+                    "tpm_limit": 8000,
+                    "daily_limit": 1000,
+                    "priority": 0,
+                })
+            if config.gemini_api_key:
+                providers.append({
+                    "name": "Gemini 3.5 Flash-Lite",
+                    "translator": Translator(
+                        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                        api_key=config.gemini_api_key,
+                        model="gemini-3.5-flash-lite",
+                        **translator_options,
+                    ),
+                    "rpm_limit": 15,
+                    "tpm_limit": 250000,
+                    "daily_limit": 500,
+                    "priority": 0,
+                })
+            if config.qwen_mt_api_key and config.qwen_mt_base_url:
+                providers.append({
+                    "name": "Qwen-MT Flash fallback",
+                    "translator": Translator(
+                        base_url=config.qwen_mt_base_url,
+                        api_key=config.qwen_mt_api_key,
+                        model="qwen-mt-flash",
+                        **translator_options,
+                    ),
+                    "priority": 1,
+                })
+            self.translator = HybridTranslator(
+                providers,
+                usage_path=os.path.join(os.path.dirname(__file__), "logs", "provider_usage.json"),
+            )
+        else:
+            self.translator = Translator(
+                base_url=config.api_base_url,
+                api_key=config.api_key,
+                model=config.model,
+                **translator_options,
+            )
 
         self.fast_translator = None
         if config.fast_translation_backend == "apple":

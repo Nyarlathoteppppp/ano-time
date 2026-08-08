@@ -44,8 +44,15 @@ class Translator:
 
         self.base_url = base_url
         
-        # Create HTTP client with SSL verification disabled (for self-signed certs)
-        http_client = httpx.Client(verify=False)
+        # The local proxy is useful for some providers, but Groq/Gemini are
+        # directly reachable and a stale desktop proxy can break their TLS.
+        direct_provider = bool(
+            base_url and any(
+                host in base_url
+                for host in ("api.groq.com", "generativelanguage.googleapis.com")
+            )
+        )
+        http_client = httpx.Client(verify=False, trust_env=not direct_provider)
         self.client = OpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -58,7 +65,7 @@ class Translator:
         print(f"  - Base URL: {base_url or 'https://api.openai.com/v1 (default)'}")
         print(f"  - Model: {model}")
         print(f"  - Target Language: {target_lang}")
-        print(f"  - API Key: {api_key[:8]}...{api_key[-4:] if len(api_key) > 12 else '***'}")
+        print(f"  - API Key: {'configured' if api_key else 'missing'}")
         
         # Context carryover for sentence continuity
         self.previous_text = ""
@@ -177,6 +184,9 @@ class Translator:
             elif self.base_url and "api.deepseek.com" in self.base_url and self.model.startswith("deepseek-v4"):
                 request_options["extra_body"] = {"thinking": {"type": "disabled"}}
 
+            if self.base_url and "api.groq.com" in self.base_url and self.model.startswith("openai/gpt-oss-"):
+                request_options["reasoning_effort"] = "low"
+
             completion_options = dict(
                 model=self.model,
                 messages=messages,
@@ -185,7 +195,11 @@ class Translator:
                 stream=on_update is not None,
                 **request_options,
             )
-            if not is_qwen_mt:
+            is_gemini_35 = (
+                self.base_url and "generativelanguage.googleapis.com" in self.base_url
+                and self.model.startswith("gemini-3.5-")
+            )
+            if not is_qwen_mt and not is_gemini_35:
                 completion_options["temperature"] = 0
             response = self.client.chat.completions.create(**completion_options)
 

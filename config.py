@@ -45,6 +45,8 @@ class Config:
         self.siliconflow_api_key = self._get("providers", "siliconflow_api_key", "")
         self.qwen_mt_api_key = self._get("providers", "qwen_mt_api_key", "")
         self.qwen_mt_base_url = self._get("providers", "qwen_mt_base_url", "")
+        self.groq_api_key = self._get("providers", "groq_api_key", "")
+        self.gemini_api_key = self._get("providers", "gemini_api_key", "")
         
         # Transcription settings
         self.asr_backend = self._get("transcription", "backend", "whisper").lower()
