@@ -22,9 +22,11 @@ except ImportError:
 
 class LogItem(QFrame):
     """A widget representing a single chunk of transcription/translation"""
-    def __init__(self, chunk_id, timestamp, original_text, translated_text=""):
+    def __init__(self, chunk_id, timestamp, original_text, translated_text="",
+                 finalized=False):
         super().__init__()
         self.chunk_id = chunk_id
+        self.finalized = bool(finalized)
         
         # Style
         self.setStyleSheet("background-color: transparent;")
@@ -36,7 +38,7 @@ class LogItem(QFrame):
         # Original Text Label
         self.original_label = QLabel(f"[{timestamp}] {original_text}")
         self.original_label.setWordWrap(True)
-        self.original_label.setStyleSheet("color: #aaaaaa; font-family: Arial; font-size: 14px;")
+        self._apply_original_style()
         self.layout.addWidget(self.original_label)
         
         # Translated Text Label
@@ -50,6 +52,23 @@ class LogItem(QFrame):
 
     def update_original(self, text):
         self.original_label.setText(f"[{time.strftime('%H:%M:%S')}] {text}")
+
+    def set_finalized(self, finalized):
+        # ASR state is monotonic: remote/late updates cannot make final text provisional.
+        self.finalized = self.finalized or bool(finalized)
+        self._apply_original_style()
+
+    def _apply_original_style(self):
+        if self.finalized:
+            color = "rgba(230, 235, 245, 215)"
+            weight = 600
+        else:
+            color = "rgba(205, 210, 220, 105)"
+            weight = 400
+        self.original_label.setStyleSheet(
+            f"color: {color}; font-family: Arial; font-size: 14px; "
+            f"font-weight: {weight};"
+        )
 
 class DragHandle(QLabel):
     def __init__(self, parent):
@@ -523,16 +542,24 @@ class OverlayWindow(QWidget):
         for cid, widget in self.items:
             widget.setVisible(self.display_mode == "glass" or cid == latest_id)
 
-    def update_text(self, chunk_id, original_text, translated_text):
+    def update_text(self, chunk_id, original_text, translated_text, state="partial"):
         """Append new text or update existing text"""
+        finalized = state == "final"
+        existing_data = self.transcript_data.get(chunk_id)
+        if existing_data and existing_data.get('finalized', False) and not finalized:
+            return
         # Update data store
         if chunk_id not in self.transcript_data:
             self.transcript_data[chunk_id] = {
                 'timestamp': time.strftime("%H:%M:%S"),
                 'original': original_text,
-                'translated': translated_text
+                'translated': translated_text,
+                'finalized': finalized,
             }
         else:
+            self.transcript_data[chunk_id]['finalized'] = (
+                self.transcript_data[chunk_id].get('finalized', False) or finalized
+            )
             if original_text:
                 self.transcript_data[chunk_id]['original'] = original_text
             if translated_text:
@@ -552,11 +579,18 @@ class OverlayWindow(QWidget):
             
             if translated_text:
                 existing_widget.update_translated(translated_text)
+            existing_widget.set_finalized(finalized)
                 
         else:
             # Insert new widget in order
             timestamp = self.transcript_data[chunk_id]['timestamp']
-            new_widget = LogItem(chunk_id, timestamp, original_text, translated_text)
+            new_widget = LogItem(
+                chunk_id,
+                timestamp,
+                original_text,
+                translated_text,
+                finalized=self.transcript_data[chunk_id]['finalized'],
+            )
             
             # Find insertion point
             insert_idx = len(self.items)

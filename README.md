@@ -136,6 +136,11 @@ edge or corner to resize; its last position and size are restored on the next
 launch. **Exit** stops the translator. The native helper builds during
 `install_mac.sh`.
 
+English subtitle opacity communicates ASR stability in both display modes:
+volatile/partial text is dim and regular-weight, while finalized text becomes
+brighter and medium-weight. Finalized subtitle objects reject any delayed partial
+updates, so their text and visual state cannot regress.
+
 #### `[transcription]` Section
 | Parameter | Description | Details |
 | :--- | :--- | :--- |

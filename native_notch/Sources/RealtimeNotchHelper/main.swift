@@ -13,12 +13,13 @@ private struct SubtitleLine: Codable, Identifiable {
     let id: Int
     let original: String
     let translated: String
+    let finalized: Bool?
 }
 
 @MainActor
 private final class SubtitleState: ObservableObject {
     @Published var items = [
-        SubtitleLine(id: 0, original: "Waiting for speech…", translated: "")
+        SubtitleLine(id: 0, original: "Waiting for speech…", translated: "", finalized: false)
     ]
     var compactTask: Task<Void, Never>?
     var onExpand: (() -> Void)?
@@ -42,9 +43,13 @@ private struct SubtitleContent: View {
             ForEach(state.items.suffix(2)) { item in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.original)
-                        .font(.system(size: 10.5, weight: .regular))
-                        .foregroundStyle(.secondary)
+                        .font(.system(
+                            size: 10.5,
+                            weight: item.finalized == true ? .medium : .regular
+                        ))
+                        .foregroundStyle(.secondary.opacity(item.finalized == true ? 0.9 : 0.45))
                         .lineLimit(1)
+                        .animation(.easeOut(duration: 0.12), value: item.finalized)
 
                     if !item.translated.isEmpty {
                         Text(item.translated)
@@ -132,7 +137,8 @@ private struct RealtimeNotchHelper {
                         state.items = [SubtitleLine(
                             id: 0,
                             original: original,
-                            translated: message.translated ?? ""
+                            translated: message.translated ?? "",
+                            finalized: true
                         )]
                     }
                     await notch.expand()

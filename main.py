@@ -19,7 +19,8 @@ from config import config
 from runtime_log import log_stage
 
 class WorkerSignals(QObject):
-    update_text = pyqtSignal(int, str, str)  # (chunk_id, original, translated)
+    # (chunk_id, original, translated, ASR state: "partial" | "final")
+    update_text = pyqtSignal(int, str, str, str)
     pipeline_error = pyqtSignal(str)
 
 class Pipeline(QObject):
@@ -296,7 +297,7 @@ class Pipeline(QObject):
                     state["chunk_id"] += 1
                     state["last_partial_at"] = 0.0
                 elif now - state["last_partial_at"] < config.update_interval:
-                    self.signals.update_text.emit(chunk_id, text, "")
+                    self.signals.update_text.emit(chunk_id, text, "", "partial")
                     return
                 else:
                     state["last_partial_at"] = now
@@ -306,7 +307,7 @@ class Pipeline(QObject):
                 log_stage("asr_final", chunk_id=chunk_id, detail=text)
                 self.last_final_text = text
                 context_text = self._snapshot_finalized_context(text)
-                self.signals.update_text.emit(chunk_id, text, "(translating...)")
+                self.signals.update_text.emit(chunk_id, text, "(translating...)", "final")
                 fast_executor.submit(
                     self._run_fast_final_translation,
                     text,
@@ -316,7 +317,7 @@ class Pipeline(QObject):
                 )
                 return
 
-            self.signals.update_text.emit(chunk_id, text, "")
+            self.signals.update_text.emit(chunk_id, text, "", "partial")
             with self._translation_state_lock:
                 previous = self._last_partial_text.get(chunk_id)
                 if previous == text or len(text) < 6:
@@ -356,7 +357,6 @@ class Pipeline(QObject):
             # Use accumulated context as prompt
             text = self.transcriber.transcribe(audio_data, prompt=prompt)
             if text:
-                self.signals.update_text.emit(chunk_id, text, "")
                 normalized = " ".join(text.split())
                 with self._translation_state_lock:
                     if chunk_id in self._finalized_chunks:
@@ -368,6 +368,7 @@ class Pipeline(QObject):
                     self._last_partial_text[chunk_id] = normalized
                     version = self._partial_versions.get(chunk_id, 0) + 1
                     self._partial_versions[chunk_id] = version
+                self.signals.update_text.emit(chunk_id, text, "", "partial")
                 if translate_executor:
                     translate_executor.submit(
                         self._run_partial_translation,
@@ -390,7 +391,7 @@ class Pipeline(QObject):
                     self.last_final_text = text
                 
                 # Emit final transcription first (confirms text)
-                self.signals.update_text.emit(chunk_id, text, "(translating...)")
+                self.signals.update_text.emit(chunk_id, text, "(translating...)", "final")
                 
                 # Offload translation to separate thread so we don't block next transcription
                 if translate_executor:
@@ -422,7 +423,7 @@ class Pipeline(QObject):
                     current = self._partial_versions.get(chunk_id) == version
                     current = current and chunk_id not in self._finalized_chunks
                 if current:
-                    self.signals.update_text.emit(chunk_id, text, partial)
+                    self.signals.update_text.emit(chunk_id, text, partial, "partial")
 
             draft = None
             if self.fast_translator:
@@ -501,7 +502,7 @@ class Pipeline(QObject):
                 started = time.perf_counter()
                 draft = self.fast_translator.translate(text)
                 elapsed_ms = (time.perf_counter() - started) * 1000
-                self.signals.update_text.emit(chunk_id, text, draft)
+                self.signals.update_text.emit(chunk_id, text, draft, "final")
                 log_stage("apple_final", chunk_id=chunk_id, elapsed_ms=elapsed_ms, detail=draft)
             except Exception as exc:
                 print(f"[Apple Final Translation {chunk_id}] Failed: {exc}")
@@ -527,7 +528,7 @@ class Pipeline(QObject):
 
             def emit_before_deadline(partial):
                 if self.running and time.monotonic() < deadline:
-                    self.signals.update_text.emit(chunk_id, text, partial)
+                    self.signals.update_text.emit(chunk_id, text, partial, "final")
 
             translated = self.translator.translate(
                 text,
@@ -539,7 +540,7 @@ class Pipeline(QObject):
             )
             elapsed_ms = (time.perf_counter() - started) * 1000
             if translated and self.running and time.monotonic() < deadline:
-                self.signals.update_text.emit(chunk_id, text, translated)
+                self.signals.update_text.emit(chunk_id, text, translated, "final")
                 log_stage("llm_refine", chunk_id=chunk_id, elapsed_ms=elapsed_ms, detail=translated)
         except TimeoutError as exc:
             print(f"[LLM Refinement {chunk_id}] Deadline exceeded: {exc}")
@@ -558,13 +559,13 @@ class Pipeline(QObject):
             if self.fast_translator:
                 try:
                     draft = self.fast_translator.translate(text)
-                    self.signals.update_text.emit(chunk_id, text, draft)
+                    self.signals.update_text.emit(chunk_id, text, draft, "final")
                 except Exception as exc:
                     print(f"[Apple Final Translation {chunk_id}] Failed: {exc}")
 
             def emit_before_deadline(partial):
                 if self.running and time.monotonic() < deadline:
-                    self.signals.update_text.emit(chunk_id, text, partial)
+                    self.signals.update_text.emit(chunk_id, text, partial, "final")
 
             translated = self.translator.translate(
                 text,
@@ -576,7 +577,7 @@ class Pipeline(QObject):
             )
             print(f"[Final {chunk_id}] Translated: {translated}")
             if self.running and time.monotonic() < deadline:
-                self.signals.update_text.emit(chunk_id, text, translated)
+                self.signals.update_text.emit(chunk_id, text, translated, "final")
         except TimeoutError as e:
             print(f"[Translation {chunk_id}] Deadline exceeded: {e}")
             log_stage("translation", chunk_id=chunk_id, status="timeout", detail=str(e))
@@ -584,7 +585,7 @@ class Pipeline(QObject):
             print(f"[Translation {chunk_id}] Failed: {e}")
             log_stage("translation", chunk_id=chunk_id, status="error", detail=str(e))
             if not draft:
-                self.signals.update_text.emit(chunk_id, text, "[Translation Failed]")
+                self.signals.update_text.emit(chunk_id, text, "[Translation Failed]", "final")
     
     def _transcribe_chunk(self, transcriber, audio_chunk, chunk_id):
         """Transcribe a single chunk and log timing"""

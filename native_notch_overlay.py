@@ -102,7 +102,12 @@ class NativeNotchOverlay(QObject):
         )
         for chunk_id in sorted(self.transcript_data):
             item = self.transcript_data[chunk_id]
-            self.delegate.update_text(chunk_id, item["original"], item["translated"])
+            self.delegate.update_text(
+                chunk_id,
+                item["original"],
+                item["translated"],
+                "final" if item["finalized"] else "partial",
+            )
         self.delegate.show()
 
     def _show_native_overlay(self):
@@ -113,18 +118,32 @@ class NativeNotchOverlay(QObject):
         if self.transcript_data:
             self._send({"items": self._latest_items()})
 
-    def update_text(self, chunk_id, original_text, translated_text):
+    def update_text(self, chunk_id, original_text, translated_text, state="partial"):
+        current = self.transcript_data.get(chunk_id)
+        if current and current["finalized"] and state != "final":
+            return
         existing = self.transcript_data.setdefault(
             chunk_id,
-            {"timestamp": time.strftime("%H:%M:%S"), "original": "", "translated": ""},
+            {
+                "timestamp": time.strftime("%H:%M:%S"),
+                "original": "",
+                "translated": "",
+                "finalized": False,
+            },
         )
+        existing["finalized"] = existing["finalized"] or state == "final"
         if original_text:
             existing["original"] = original_text
         if translated_text:
             existing["translated"] = translated_text
 
         if self.delegate:
-            self.delegate.update_text(chunk_id, original_text, translated_text)
+            self.delegate.update_text(
+                chunk_id,
+                original_text,
+                translated_text,
+                "final" if existing["finalized"] else "partial",
+            )
             return
 
         self._send({"items": self._latest_items()})
@@ -135,6 +154,7 @@ class NativeNotchOverlay(QObject):
                 "id": chunk_id,
                 "original": self.transcript_data[chunk_id]["original"],
                 "translated": self.transcript_data[chunk_id]["translated"],
+                "finalized": self.transcript_data[chunk_id]["finalized"],
             }
             for chunk_id in sorted(self.transcript_data)[-2:]
         ]
