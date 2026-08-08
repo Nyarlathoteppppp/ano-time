@@ -192,7 +192,13 @@ class HybridTranslator:
                 provider["last_daily_neurons"] = record["neurons"]
             self._save_usage_locked()
 
-    def _select_provider(self, excluded, estimated_tokens, estimated_neurons_by_name):
+    def _select_provider(
+        self,
+        excluded,
+        estimated_tokens,
+        estimated_neurons_by_name,
+        allowed_names=None,
+    ):
         now = time.monotonic()
         with self._lock:
             count = len(self.providers)
@@ -201,6 +207,8 @@ class HybridTranslator:
                 for offset in range(count):
                     index = (self._next_index + offset) % count
                     provider = self.providers[index]
+                    if allowed_names is not None and provider["name"] not in allowed_names:
+                        continue
                     if provider["priority"] != priority:
                         continue
                     if provider["name"] in excluded:
@@ -304,7 +312,7 @@ class HybridTranslator:
             flush=True,
         )
 
-    def translate(self, *args, **kwargs):
+    def _translate(self, args, kwargs, allowed_names=None):
         excluded = set()
         last_error = None
         estimated_tokens = self._estimate_tokens(args, kwargs)
@@ -312,9 +320,16 @@ class HybridTranslator:
             provider["name"]: self._estimate_neurons(provider, args, kwargs)
             for provider in self.providers
         }
-        while len(excluded) < len(self.providers):
+        eligible_count = sum(
+            allowed_names is None or provider["name"] in allowed_names
+            for provider in self.providers
+        )
+        while len(excluded) < eligible_count:
             selection = self._select_provider(
-                excluded, estimated_tokens, estimated_neurons_by_name
+                excluded,
+                estimated_tokens,
+                estimated_neurons_by_name,
+                allowed_names=allowed_names,
             )
             if selection is None:
                 break
@@ -371,3 +386,20 @@ class HybridTranslator:
         if last_error:
             raise last_error
         raise RuntimeError("All hybrid translation providers are cooling down or quota-limited")
+
+    def translate(self, *args, **kwargs):
+        return self._translate(args, kwargs)
+
+    def translate_only(self, provider_names, *args, **kwargs):
+        """Translate using only the named providers while sharing quota state."""
+        return self._translate(args, kwargs, allowed_names=set(provider_names))
+
+    def translate_excluding(self, provider_names, *args, **kwargs):
+        """Translate without selected providers while sharing quota state."""
+        excluded = set(provider_names)
+        allowed = {
+            provider["name"]
+            for provider in self.providers
+            if provider["name"] not in excluded
+        }
+        return self._translate(args, kwargs, allowed_names=allowed)

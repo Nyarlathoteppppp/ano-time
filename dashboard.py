@@ -983,7 +983,7 @@ class Dashboard(QWidget):
             self.refresh_models_btn.setEnabled(not hybrid)
         if hybrid:
             self.base_url.setText("Automatic quota-aware rotation")
-            self.model.setCurrentText("Gemini → GLM → Groq → Qwen-MT")
+            self.model.setCurrentText("Apple → Groq bridge → Gemini/GLM → Qwen-MT")
         elif provider == "DeepSeek Official":
             self.base_url.setText("https://api.deepseek.com")
             self.model.setCurrentText("deepseek-v4-flash")

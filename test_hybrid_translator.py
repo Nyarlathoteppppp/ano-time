@@ -211,6 +211,32 @@ class HybridTranslatorTests(unittest.TestCase):
             self.assertEqual(router.translate("two"), "glm")
             self.assertEqual(router.translate("three"), "groq")
 
+    def test_provider_filtering_shares_quota_and_separates_bridge_from_final(self):
+        with tempfile.TemporaryDirectory() as directory:
+            gemini = _FakeTranslator("gemini")
+            groq = _FakeTranslator("groq")
+            qwen = _FakeTranslator("qwen")
+            router = self._router(
+                [
+                    {"name": "gemini", "translator": gemini, "priority": 0},
+                    {
+                        "name": "groq",
+                        "translator": groq,
+                        "daily_limit": 1,
+                        "priority": 1,
+                    },
+                    {"name": "qwen", "translator": qwen, "priority": 2},
+                ],
+                directory,
+            )
+            self.assertEqual(router.translate_only({"groq"}, "bridge"), "groq")
+            self.assertEqual(
+                router.translate_excluding({"groq"}, "final"), "gemini"
+            )
+            with self.assertRaises(RuntimeError):
+                router.translate_only({"groq"}, "bridge quota exhausted")
+            self.assertEqual((groq.calls, gemini.calls, qwen.calls), (1, 1, 0))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -34,6 +34,7 @@ class Pipeline(QObject):
         self._partial_versions = {}
         self._last_partial_text = {}
         self._finalized_chunks = set()
+        self._translation_ranks = {}
         self._context_lock = threading.Lock()
         self._last_finalized_segment = ""
         self._refine_queue_lock = threading.RLock()
@@ -109,7 +110,7 @@ class Pipeline(QObject):
                     "tpm_limit": 8000,
                     "daily_limit": 1000,
                     "daily_timezone": "UTC",
-                    "priority": 2,
+                    "priority": 3,
                 })
             if config.cloudflare_account_id and config.cloudflare_api_token:
                 providers.append({
@@ -181,6 +182,16 @@ class Pipeline(QObject):
         # Warmup Transcriber (Critical for MLX/GPU)
         if self.transcriber:
             self.transcriber.warmup()
+
+    def _emit_ranked_translation(self, chunk_id, text, translated, state, rank):
+        """Prevent a late draft from replacing a newer translation stage."""
+        with self._translation_state_lock:
+            current_rank = self._translation_ranks.get(chunk_id, 0)
+            if rank < current_rank:
+                return False
+            self._translation_ranks[chunk_id] = rank
+        self.signals.update_text.emit(chunk_id, text, translated, state)
+        return True
 
     def start(self):
         """Start the processing pipeline in a dedicated thread"""
@@ -663,7 +674,7 @@ class Pipeline(QObject):
                 started = time.perf_counter()
                 draft = self.fast_translator.translate(text)
                 elapsed_ms = (time.perf_counter() - started) * 1000
-                self.signals.update_text.emit(chunk_id, text, draft, "final")
+                self._emit_ranked_translation(chunk_id, text, draft, "final", 1)
                 log_stage(
                     "apple_final",
                     chunk_id=chunk_id,
@@ -694,6 +705,38 @@ class Pipeline(QObject):
         except RuntimeError as exc:
             log_stage("llm_refine", chunk_id=chunk_id, status="skipped", detail=str(exc))
 
+        # Groq is the low-latency bridge between the local Apple draft and the
+        # higher-quality final model. It never blocks refinement and cannot
+        # overwrite a final-model result that arrived first.
+        if isinstance(self.translator, HybridTranslator) and config.groq_api_key:
+            try:
+                started = time.perf_counter()
+                bridge_deadline = min(
+                    time.monotonic() + 1.0,
+                    time.monotonic() + config.ai_deadline_seconds,
+                )
+                translated = self.translator.translate_only(
+                    {"Groq GPT-OSS 20B"},
+                    text,
+                    use_context=False,
+                    remember_context=False,
+                    draft_translation=draft,
+                    deadline=bridge_deadline,
+                )
+                if translated and self.running and time.monotonic() < bridge_deadline:
+                    emitted = self._emit_ranked_translation(
+                        chunk_id, text, translated, "final", 2
+                    )
+                    log_stage(
+                        "groq_bridge",
+                        chunk_id=chunk_id,
+                        elapsed_ms=(time.perf_counter() - started) * 1000,
+                        status="shown" if emitted else "superseded",
+                        detail=translated,
+                    )
+            except Exception as exc:
+                log_stage("groq_bridge", chunk_id=chunk_id, status="skipped", detail=str(exc))
+
     def _run_refinement(self, text, chunk_id, context_text, deadline):
         try:
             if not self.running or time.monotonic() >= deadline:
@@ -703,19 +746,21 @@ class Pipeline(QObject):
 
             def emit_before_deadline(partial):
                 if self.running and time.monotonic() < deadline:
-                    self.signals.update_text.emit(chunk_id, text, partial, "final")
+                    self._emit_ranked_translation(chunk_id, text, partial, "final", 3)
 
-            translated = self.translator.translate(
-                text,
-                use_context=False,
-                remember_context=False,
-                context_text=context_text,
-                deadline=deadline,
+            translate = self.translator.translate
+            translate_args = ()
+            if isinstance(self.translator, HybridTranslator):
+                translate = self.translator.translate_excluding
+                translate_args = ({"Groq GPT-OSS 20B"},)
+            translated = translate(
+                *translate_args, text, use_context=False, remember_context=False,
+                context_text=context_text, deadline=deadline,
                 on_update=emit_before_deadline,
             )
             elapsed_ms = (time.perf_counter() - started) * 1000
             if translated and self.running and time.monotonic() < deadline:
-                self.signals.update_text.emit(chunk_id, text, translated, "final")
+                self._emit_ranked_translation(chunk_id, text, translated, "final", 3)
                 log_stage("llm_refine", chunk_id=chunk_id, elapsed_ms=elapsed_ms, detail=translated)
         except TimeoutError as exc:
             print(f"[LLM Refinement {chunk_id}] Deadline exceeded: {exc}")
@@ -742,12 +787,14 @@ class Pipeline(QObject):
                 if self.running and time.monotonic() < deadline:
                     self.signals.update_text.emit(chunk_id, text, partial, "final")
 
-            translated = self.translator.translate(
-                text,
-                use_context=False,
-                remember_context=False,
-                context_text=context_text,
-                deadline=deadline,
+            translate = self.translator.translate
+            translate_args = ()
+            if isinstance(self.translator, HybridTranslator):
+                translate = self.translator.translate_excluding
+                translate_args = ({"Groq GPT-OSS 20B"},)
+            translated = translate(
+                *translate_args, text, use_context=False, remember_context=False,
+                context_text=context_text, deadline=deadline,
                 on_update=emit_before_deadline,
             )
             print(f"[Final {chunk_id}] Translated: {translated}")
