@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QTextEdit, QVBoxLayout, QGraphicsDropShadowEffect, 
-                             QSizeGrip, QHBoxLayout, QScrollArea, QLabel, QFrame)
+                             QSizeGrip, QHBoxLayout, QScrollArea, QLabel, QFrame,
+                             QSizePolicy, QLayout)
 from PyQt6.QtCore import Qt, QPoint, QRect, QSettings, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QPalette, QPainter, QPainterPath
 
@@ -39,20 +40,41 @@ class LogItem(QFrame):
         # Original Text Label
         self.original_label = QLabel(f"[{timestamp}] {original_text}")
         self.original_label.setWordWrap(True)
+        self.original_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
+        self.original_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
         self._apply_original_style()
         self.layout.addWidget(self.original_label)
         
         # Translated Text Label
         self.translated_label = QLabel(translated_text if translated_text else "...")
         self.translated_label.setWordWrap(True)
+        self.translated_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
+        self.translated_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
         self.translated_label.setStyleSheet("color: #ffffff; font-family: Arial; font-size: 20px; font-weight: bold;")
         self.layout.addWidget(self.translated_label)
         
     def update_translated(self, text):
         self.translated_label.setText(text)
+        self.refresh_layout()
 
     def update_original(self, text):
         self.original_label.setText(f"[{time.strftime('%H:%M:%S')}] {text}")
+        self.refresh_layout()
+
+    def refresh_layout(self):
+        """Recompute wrapped-label heights after text or width changes."""
+        self.original_label.updateGeometry()
+        self.translated_label.updateGeometry()
+        self.layout.invalidate()
+        self.updateGeometry()
 
     def set_finalized(self, finalized):
         # ASR state is monotonic: remote/late updates cannot make final text provisional.
@@ -225,6 +247,9 @@ class OverlayWindow(QWidget):
         self._geometry_save_timer = QTimer(self)
         self._geometry_save_timer.setSingleShot(True)
         self._geometry_save_timer.timeout.connect(self._save_glass_geometry)
+        self._content_reflow_timer = QTimer(self)
+        self._content_reflow_timer.setSingleShot(True)
+        self._content_reflow_timer.timeout.connect(self._reflow_content)
         
         self.initUI()
         self.oldPos = self.pos()
@@ -326,6 +351,7 @@ class OverlayWindow(QWidget):
         self.container.setGraphicsEffect(shadow)
         self.container_layout = QVBoxLayout()
         self.container_layout.setContentsMargins(10, 10, 10, 10)
+        self.container_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         # Allocate alignment to top so items stack from top
         self.container_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.container.setLayout(self.container_layout)
@@ -464,6 +490,8 @@ class OverlayWindow(QWidget):
         if hasattr(self, "resize_borders"):
             self._layout_resize_borders()
             self._schedule_geometry_save()
+        if hasattr(self, "_content_reflow_timer"):
+            self._schedule_content_reflow()
 
     def moveEvent(self, event):
         super().moveEvent(event)
@@ -556,6 +584,23 @@ class OverlayWindow(QWidget):
                 handle.raise_()
 
         self._apply_item_visibility()
+        self._schedule_content_reflow()
+
+    def _schedule_content_reflow(self):
+        # Coalesce rapid ASR partials while still refreshing on the next event loop.
+        self._content_reflow_timer.start(0)
+
+    def _reflow_content(self):
+        for _, widget in self.items:
+            if widget.isVisible():
+                widget.refresh_layout()
+        self.container_layout.invalidate()
+        self.container_layout.activate()
+        self.container.updateGeometry()
+        self.scroll_area.widget().updateGeometry()
+        self._scroll_to_bottom()
+        # The scroll range is finalized one layout pass later on macOS/Qt.
+        QTimer.singleShot(0, self._scroll_to_bottom)
 
     def _apply_item_visibility(self):
         if not self.items:
@@ -563,6 +608,7 @@ class OverlayWindow(QWidget):
         latest_id = max(cid for cid, _ in self.items)
         for cid, widget in self.items:
             widget.setVisible(self.display_mode == "glass" or cid == latest_id)
+        self._schedule_content_reflow()
 
     def update_text(self, chunk_id, original_text, translated_text, state="partial"):
         """Append new text or update existing text"""
