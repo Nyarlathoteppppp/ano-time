@@ -45,3 +45,6 @@ streaming_interval = 3
 streaming_step_size = 0.2
 update_interval = 0.5
 streaming_overlap = 0.3
+; Stable Prefix is observational: Apple still translates every new partial immediately.
+stable_prefix_window = 0.25
+stable_prefix_min_words = 3

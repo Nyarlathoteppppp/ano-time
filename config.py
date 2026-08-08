@@ -77,6 +77,8 @@ class Config:
         self.streaming_step_size = self._getfloat("audio", "streaming_step_size", 0.2)
         self.update_interval = self._getfloat("audio", "update_interval", 0.5)
         self.streaming_overlap = self._getfloat("audio", "streaming_overlap", 0.3)
+        self.stable_prefix_window = self._getfloat("audio", "stable_prefix_window", 0.25)
+        self.stable_prefix_min_words = self._getint("audio", "stable_prefix_min_words", 3)
         
         # Display settings
         self.display_duration = self._getfloat("display", "display_duration", 3.0)
@@ -136,6 +138,10 @@ class Config:
         print(f"  Whisper Model: {self.whisper_model}")
         print(f"  FunASR Model: {self.funasr_model}")
         print(f"  Sample Rate: {self.sample_rate}")
+        print(
+            "  Stable Prefix: "
+            f"{self.stable_prefix_window:.2f}s / {self.stable_prefix_min_words} words"
+        )
 
 # Global config instance
 config = Config()

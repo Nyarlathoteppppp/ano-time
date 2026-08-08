@@ -23,12 +23,21 @@ if not logger.handlers:
     logger.addHandler(handler)
 
 
-def log_stage(stage, chunk_id=None, status="ok", elapsed_ms=None, detail=""):
+def log_stage(stage, chunk_id=None, status="ok", elapsed_ms=None, detail="", **metrics):
     fields = [f"stage={stage}", f"status={status}"]
     if chunk_id is not None:
         fields.append(f"chunk={chunk_id}")
     if elapsed_ms is not None:
         fields.append(f"elapsed_ms={elapsed_ms:.0f}")
+    for key, value in metrics.items():
+        if value is None:
+            continue
+        safe_key = "".join(ch for ch in str(key) if ch.isalnum() or ch == "_")
+        if not safe_key:
+            continue
+        if isinstance(value, float):
+            value = f"{value:.0f}"
+        fields.append(f"{safe_key}={value}")
     if detail:
         fields.append(f"detail={detail.replace(chr(10), ' ')[:300]}")
     logger.info(" | ".join(fields))

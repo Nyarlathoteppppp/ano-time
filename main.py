@@ -17,6 +17,7 @@ from translator import Translator
 from overlay_window import OverlayWindow
 from config import config
 from runtime_log import log_stage
+from stable_prefix import StablePrefixTracker
 
 class WorkerSignals(QObject):
     # (chunk_id, original, translated, ASR state: "partial" | "final")
@@ -278,7 +279,15 @@ class Pipeline(QObject):
         fast_executor = ThreadPoolExecutor(max_workers=1)
         refine_executor = ThreadPoolExecutor(max_workers=2)
         state_lock = threading.Lock()
-        state = {"chunk_id": 1, "last_partial_at": 0.0}
+        state = {
+            "chunk_id": 1,
+            "audio_started_at": None,
+            "first_partial_at": None,
+            "stable_tracker": StablePrefixTracker(
+                agreement_window=config.stable_prefix_window,
+                min_growth_words=config.stable_prefix_min_words,
+            ),
+        }
 
         def on_result(text, is_final):
             if not self.running:
@@ -286,34 +295,68 @@ class Pipeline(QObject):
             text = " ".join(text.split())
             if not text:
                 return
-            now = time.time()
+            now = time.monotonic()
             with state_lock:
                 chunk_id = state["chunk_id"]
+                segment_started_at = state["audio_started_at"] or now
+                first_partial_at = state["first_partial_at"]
 
                 if is_final:
                     with self._translation_state_lock:
                         self._finalized_chunks.add(chunk_id)
                         self._partial_versions[chunk_id] = self._partial_versions.get(chunk_id, 0) + 1
                     state["chunk_id"] += 1
-                    state["last_partial_at"] = 0.0
-                elif now - state["last_partial_at"] < config.update_interval:
-                    self.signals.update_text.emit(chunk_id, text, "", "partial")
-                    return
+                    state["audio_started_at"] = None
+                    state["first_partial_at"] = None
+                    state["stable_tracker"] = StablePrefixTracker(
+                        agreement_window=config.stable_prefix_window,
+                        min_growth_words=config.stable_prefix_min_words,
+                    )
                 else:
-                    state["last_partial_at"] = now
+                    if first_partial_at is None:
+                        first_partial_at = now
+                        state["first_partial_at"] = now
+                        log_stage(
+                            "asr_first_partial",
+                            chunk_id=chunk_id,
+                            elapsed_ms=(now - segment_started_at) * 1000,
+                            words=len(text.split()),
+                        )
+                    stable_text = state["stable_tracker"].observe(text, now=now)
+                    if stable_text:
+                        log_stage(
+                            "asr_stable",
+                            chunk_id=chunk_id,
+                            elapsed_ms=(now - segment_started_at) * 1000,
+                            since_first_partial_ms=(now - first_partial_at) * 1000,
+                            words=len(stable_text.split()),
+                            detail=stable_text,
+                        )
 
             if is_final:
                 print(f"[Apple Final {chunk_id}] {text}")
-                log_stage("asr_final", chunk_id=chunk_id, detail=text)
+                log_stage(
+                    "asr_final",
+                    chunk_id=chunk_id,
+                    elapsed_ms=(now - segment_started_at) * 1000,
+                    since_first_partial_ms=(
+                        (now - first_partial_at) * 1000 if first_partial_at else None
+                    ),
+                    words=len(text.split()),
+                    detail=text,
+                )
                 self.last_final_text = text
                 context_text = self._snapshot_finalized_context(text)
-                self.signals.update_text.emit(chunk_id, text, "(translating...)", "final")
+                # Preserve the already-visible Apple draft while final translation runs.
+                self.signals.update_text.emit(chunk_id, text, "", "final")
                 fast_executor.submit(
                     self._run_fast_final_translation,
                     text,
                     chunk_id,
                     refine_executor,
                     context_text,
+                    segment_started_at,
+                    first_partial_at,
                 )
                 return
 
@@ -325,7 +368,16 @@ class Pipeline(QObject):
                 self._last_partial_text[chunk_id] = text
                 version = self._partial_versions.get(chunk_id, 0) + 1
                 self._partial_versions[chunk_id] = version
-            fast_executor.submit(self._run_partial_translation, text, chunk_id, version)
+            # Speed-first path: every distinct Apple partial is translated. Stable
+            # Prefix is measured in parallel and never gates the local draft.
+            fast_executor.submit(
+                self._run_partial_translation,
+                text,
+                chunk_id,
+                version,
+                segment_started_at,
+                first_partial_at,
+            )
 
         self.apple_transcriber = AppleSpeechTranscriber(
             language=config.source_language or "en",
@@ -340,6 +392,13 @@ class Pipeline(QObject):
             for audio_chunk in self.audio.generator():
                 if not self.running:
                     break
+                audio_marker = None
+                with state_lock:
+                    if state["audio_started_at"] is None:
+                        state["audio_started_at"] = time.monotonic()
+                        audio_marker = (state["chunk_id"], state["audio_started_at"])
+                if audio_marker:
+                    log_stage("audio_received", chunk_id=audio_marker[0], elapsed_ms=0)
                 self.apple_transcriber.feed(audio_chunk)
         except Exception as exc:
             print(f"[Pipeline] Apple Speech error: {exc}")
@@ -407,7 +466,14 @@ class Pipeline(QObject):
         except Exception as e:
             print(f"[Final {chunk_id}] Error: {e}")
 
-    def _run_partial_translation(self, text, chunk_id, version):
+    def _run_partial_translation(
+        self,
+        text,
+        chunk_id,
+        version,
+        segment_started_at=None,
+        first_partial_at=None,
+    ):
         """Stream a partial translation while ignoring superseded hypotheses."""
         try:
             if not self.running:
@@ -434,6 +500,15 @@ class Pipeline(QObject):
                         "apple_partial",
                         chunk_id=chunk_id,
                         elapsed_ms=(time.perf_counter() - started) * 1000,
+                        e2e_ms=(
+                            (time.monotonic() - segment_started_at) * 1000
+                            if segment_started_at else None
+                        ),
+                        since_first_partial_ms=(
+                            (time.monotonic() - first_partial_at) * 1000
+                            if first_partial_at else None
+                        ),
+                        words=len(text.split()),
                     )
                     emit_if_current(draft)
                 except Exception as exc:
@@ -492,7 +567,15 @@ class Pipeline(QObject):
             }
         future.add_done_callback(self._forget_refinement)
 
-    def _run_fast_final_translation(self, text, chunk_id, refine_executor, context_text):
+    def _run_fast_final_translation(
+        self,
+        text,
+        chunk_id,
+        refine_executor,
+        context_text,
+        segment_started_at=None,
+        first_partial_at=None,
+    ):
         """Publish the local draft immediately, then schedule best-effort refinement."""
         if not self.running:
             return
@@ -503,7 +586,21 @@ class Pipeline(QObject):
                 draft = self.fast_translator.translate(text)
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 self.signals.update_text.emit(chunk_id, text, draft, "final")
-                log_stage("apple_final", chunk_id=chunk_id, elapsed_ms=elapsed_ms, detail=draft)
+                log_stage(
+                    "apple_final",
+                    chunk_id=chunk_id,
+                    elapsed_ms=elapsed_ms,
+                    e2e_ms=(
+                        (time.monotonic() - segment_started_at) * 1000
+                        if segment_started_at else None
+                    ),
+                    since_first_partial_ms=(
+                        (time.monotonic() - first_partial_at) * 1000
+                        if first_partial_at else None
+                    ),
+                    words=len(text.split()),
+                    detail=draft,
+                )
             except Exception as exc:
                 print(f"[Apple Final Translation {chunk_id}] Failed: {exc}")
                 log_stage("apple_final", chunk_id=chunk_id, status="error", detail=str(exc))
