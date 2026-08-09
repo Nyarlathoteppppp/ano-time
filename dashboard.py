@@ -22,7 +22,10 @@ try:
         NSViewHeightSizable, NSViewWidthSizable,
         NSVisualEffectBlendingModeBehindWindow,
         NSVisualEffectMaterialHUDWindow, NSVisualEffectStateActive,
-        NSVisualEffectView, NSWindowBelow, NSWindowStyleMaskBorderless,
+        NSVisualEffectView, NSWindowBelow,
+        NSWindowCollectionBehaviorIgnoresCycle,
+        NSWindowCollectionBehaviorTransient,
+        NSWindowStyleMaskBorderless,
     )
     import objc
     HAS_NATIVE_GLASS = True
@@ -156,6 +159,7 @@ class Dashboard(QWidget):
         if shortcut_controller:
             shortcut_controller.stop()
         if self._native_blur_window is not None:
+            self._detach_native_glass()
             self._native_blur_window.close()
             self._native_blur_window = None
             self._native_blur_view = None
@@ -171,14 +175,22 @@ class Dashboard(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._install_native_glass()
+        self._sync_native_glass()
         # Qt's QNSWindow can be attached one event-loop turn after showEvent.
-        QTimer.singleShot(0, self._install_native_glass)
-        QTimer.singleShot(200, self._install_native_glass)
+        QTimer.singleShot(0, self._refresh_native_glass)
+        QTimer.singleShot(200, self._refresh_native_glass)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if getattr(self, "_native_blur_window", None) is not None:
+            QTimer.singleShot(0, self._sync_native_glass)
+
+    def _refresh_native_glass(self):
+        self._install_native_glass()
+        self._sync_native_glass()
 
     def hideEvent(self, event):
-        blur_window = getattr(self, "_native_blur_window", None)
-        if blur_window is not None:
-            blur_window.orderOut_(None)
+        self._detach_native_glass()
         super().hideEvent(event)
 
     def moveEvent(self, event):
@@ -218,6 +230,13 @@ class Dashboard(QWidget):
         blur_window.setHasShadow_(False)
         blur_window.setIgnoresMouseEvents_(True)
         blur_window.setHidesOnDeactivate_(False)
+        blur_window.setCanHide_(True)
+        blur_window.setCollectionBehavior_(
+            NSWindowCollectionBehaviorTransient
+            | NSWindowCollectionBehaviorIgnoresCycle
+        )
+        if hasattr(blur_window, "setExcludedFromWindowsMenu_"):
+            blur_window.setExcludedFromWindowsMenu_(True)
 
         effect = NSVisualEffectView.alloc().initWithFrame_(
             blur_window.contentView().bounds()
@@ -235,7 +254,6 @@ class Dashboard(QWidget):
             ).CGColor()
         )
         blur_window.contentView().addSubview_(effect)
-        ns_window.addChildWindow_ordered_(blur_window, NSWindowBelow)
         self._native_blur_window = blur_window
         self._native_blur_view = effect
         self._sync_native_glass()
@@ -248,12 +266,28 @@ class Dashboard(QWidget):
         ns_window = self._native_window()
         if ns_window is None:
             return
+        if not self.isVisible() or self.isMinimized():
+            self._detach_native_glass(ns_window)
+            return
         blur_window.setFrame_display_(ns_window.frame(), True)
-        if self.isVisible() and not self.isMinimized():
-            blur_window.orderFrontRegardless()
-            ns_window.orderFrontRegardless()
-        else:
-            blur_window.orderOut_(None)
+        children = list(ns_window.childWindows() or [])
+        if blur_window not in children:
+            ns_window.addChildWindow_ordered_(blur_window, NSWindowBelow)
+
+    def _detach_native_glass(self, ns_window=None):
+        """Remove the backing panel from Mission Control/window composition."""
+        blur_window = getattr(self, "_native_blur_window", None)
+        if blur_window is None:
+            return
+        ns_window = ns_window or self._native_window()
+        if ns_window is not None:
+            try:
+                children = list(ns_window.childWindows() or [])
+                if blur_window in children:
+                    ns_window.removeChildWindow_(blur_window)
+            except Exception:
+                pass
+        blur_window.orderOut_(None)
 
     def __init__(self):
         super().__init__()
