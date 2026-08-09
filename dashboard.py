@@ -325,6 +325,21 @@ class Dashboard(QWidget):
         summary_layout.addWidget(self.translation_summary, 2, 1)
         layout.addWidget(summary)
 
+        input_row = QHBoxLayout()
+        input_row.addWidget(QLabel("Input Device（音频来源）:"))
+        self.home_device_combo = ReadableComboBox()
+        self.home_device_combo.setMinimumWidth(360)
+        self.home_device_combo.currentIndexChanged.connect(
+            lambda: self._on_input_device_changed(self.home_device_combo)
+        )
+        input_row.addWidget(self.home_device_combo, 1)
+        home_refresh = QPushButton("🔄")
+        home_refresh.setFixedWidth(40)
+        home_refresh.setToolTip("Refresh input devices")
+        home_refresh.clicked.connect(self.populate_devices)
+        input_row.addWidget(home_refresh)
+        layout.addLayout(input_row)
+
         runtime = QFrame()
         runtime.setObjectName("RuntimeStatus")
         runtime.setMinimumHeight(164)
@@ -632,7 +647,9 @@ class Dashboard(QWidget):
         layout.addWidget(QLabel("Input Device（音频来源）:"), 0, 0)
         self.device_combo = ReadableComboBox()
         self.populate_devices()
-        self.device_combo.currentIndexChanged.connect(self.update_home_summary)
+        self.device_combo.currentIndexChanged.connect(
+            lambda: self._on_input_device_changed(self.device_combo)
+        )
         layout.addWidget(self.device_combo, 0, 1)
         
         # Refresh Button
@@ -1348,26 +1365,58 @@ class Dashboard(QWidget):
             self.base_url.setText(self.provider_urls.get(provider, self.base_url.text()))
 
     def populate_devices(self):
-        self.device_combo.clear()
-        self.device_combo.addItem("Auto (Default)", "auto")
-        self.device_combo.addItem(
-            "System Audio (ScreenCaptureKit — videos/apps)", "system"
-        )
-        
+        items = [
+            ("Auto (Default)", "auto"),
+            ("System Audio (ScreenCaptureKit — videos/apps)", "system"),
+        ]
         try:
             devices = sd.query_devices()
             for i, d in enumerate(devices):
                 if d['max_input_channels'] > 0:
                     name = f"[{i}] {d['name']}"
-                    self.device_combo.addItem(name, i) # Store index as data
-            
-            # Select current
-            if config.device_index is not None:
-                index = self.device_combo.findData(config.device_index)
-                if index >= 0:
-                    self.device_combo.setCurrentIndex(index)
+                    items.append((name, i))
         except Exception as e:
-            self.device_combo.addItem(f"Error: {e}")
+            items.append((f"Error: {e}", None))
+
+        selected = (
+            self.device_combo.currentData()
+            if hasattr(self, "device_combo") and self.device_combo.count()
+            else config.device_index
+        )
+        if selected is None:
+            selected = "auto"
+        for combo in (
+            getattr(self, "device_combo", None),
+            getattr(self, "home_device_combo", None),
+        ):
+            if combo is None:
+                continue
+            combo.blockSignals(True)
+            combo.clear()
+            for name, data in items:
+                combo.addItem(name, data)
+            index = combo.findData(selected)
+            combo.setCurrentIndex(index if index >= 0 else 0)
+            combo.blockSignals(False)
+        self.update_home_summary()
+
+    def _on_input_device_changed(self, source_combo):
+        selected = source_combo.currentData()
+        other = (
+            self.home_device_combo
+            if source_combo is self.device_combo
+            else self.device_combo
+        )
+        index = other.findData(selected)
+        if index >= 0 and other.currentIndex() != index:
+            other.blockSignals(True)
+            other.setCurrentIndex(index)
+            other.blockSignals(False)
+        self.update_home_summary()
+        if self._session_state == "running":
+            self.status_label.setText(
+                "Input device changed · Stop and Launch again to apply"
+            )
 
     def save_config(self, checked=False, show_status=True):
         import configparser
