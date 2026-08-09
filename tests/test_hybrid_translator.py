@@ -22,6 +22,16 @@ class _FakeTranslator:
         return self.name
 
 
+class _DeadlineTranslator(_FakeTranslator):
+    def __init__(self, name, error=None):
+        super().__init__(name, error=error)
+        self.deadlines = []
+
+    def translate(self, *_args, **kwargs):
+        self.deadlines.append(kwargs.get("deadline"))
+        return super().translate(*_args, **kwargs)
+
+
 class _StatusError(Exception):
     def __init__(self, status_code):
         super().__init__(f"HTTP {status_code}")
@@ -95,6 +105,74 @@ class HybridTranslatorTests(unittest.TestCase):
                 "gemini",
             )
             self.assertEqual((groq.calls, gemini.calls), (1, 1))
+
+    def test_paid_fallback_receives_reserved_tail_of_global_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            free = _DeadlineTranslator("free", TimeoutError("provider timeout"))
+            qwen = _DeadlineTranslator("qwen")
+            router = self._router(
+                [
+                    {"name": "free", "translator": free, "priority": 0},
+                    {
+                        "name": "qwen",
+                        "translator": qwen,
+                        "priority": 99,
+                        "terminal_fallback": True,
+                        "fallback_reserve_seconds": 1.5,
+                        "failure_cooldown_seconds": 3,
+                    },
+                ],
+                directory,
+            )
+            deadline = time.monotonic() + 3
+            self.assertEqual(router.translate("sentence", deadline=deadline), "qwen")
+            self.assertAlmostEqual(free.deadlines[0], deadline - 1.5, delta=0.05)
+            self.assertEqual(qwen.deadlines[0], deadline)
+
+    def test_short_remaining_budget_skips_free_pool_for_paid_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            free = _DeadlineTranslator("free")
+            qwen = _DeadlineTranslator("qwen")
+            router = self._router(
+                [
+                    {"name": "free", "translator": free, "priority": 0},
+                    {
+                        "name": "qwen",
+                        "translator": qwen,
+                        "priority": 99,
+                        "terminal_fallback": True,
+                        "fallback_reserve_seconds": 1.5,
+                    },
+                ],
+                directory,
+            )
+            self.assertEqual(
+                router.translate("sentence", deadline=time.monotonic() + 1),
+                "qwen",
+            )
+            self.assertEqual(free.calls, 0)
+            self.assertEqual(qwen.calls, 1)
+
+    def test_paid_fallback_timeout_only_uses_short_cooldown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            qwen = _FakeTranslator("qwen", TimeoutError("provider timeout"))
+            router = self._router(
+                [
+                    {
+                        "name": "qwen",
+                        "translator": qwen,
+                        "terminal_fallback": True,
+                        "failure_cooldown_seconds": 3,
+                    }
+                ],
+                directory,
+            )
+            started = time.monotonic()
+            with self.assertRaises(TimeoutError):
+                router.translate("sentence", deadline=started + 3)
+            remaining = router.providers[0]["cooldown_until"] - time.monotonic()
+            self.assertGreater(remaining, 2.8)
+            self.assertLessEqual(remaining, 3.0)
 
     def test_persisted_daily_limit_skips_exhausted_provider(self):
         with tempfile.TemporaryDirectory() as directory:

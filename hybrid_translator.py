@@ -25,6 +25,9 @@ class HybridTranslator:
             item.setdefault("neuron_output_per_million", 0)
             item.setdefault("daily_timezone", None)
             item.setdefault("priority", 0)
+            item.setdefault("terminal_fallback", False)
+            item.setdefault("fallback_reserve_seconds", 0.0)
+            item.setdefault("failure_cooldown_seconds", None)
             item["cooldown_until"] = 0.0
             item["daily_block_date"] = None
             item["recent_attempts"] = deque()
@@ -308,7 +311,8 @@ class HybridTranslator:
         elif status in (400, 401, 403, 404):
             seconds = 15 * 60
         else:
-            seconds = 60
+            configured = provider.get("failure_cooldown_seconds")
+            seconds = 60 if configured is None else max(0.0, float(configured))
         if seconds:
             with self._lock:
                 provider["cooldown_until"] = max(
@@ -333,7 +337,39 @@ class HybridTranslator:
             allowed_names is None or provider["name"] in allowed_names
             for provider in self.providers
         )
+        global_deadline = kwargs.get("deadline")
+        terminal_names = {
+            provider["name"]
+            for provider in self.providers
+            if provider.get("terminal_fallback")
+            and (allowed_names is None or provider["name"] in allowed_names)
+        }
+        fallback_reserve = max(
+            (
+                float(provider.get("fallback_reserve_seconds") or 0.0)
+                for provider in self.providers
+                if provider["name"] in terminal_names
+            ),
+            default=0.0,
+        )
+        free_pool_deadline = (
+            global_deadline - fallback_reserve
+            if global_deadline is not None and terminal_names
+            else None
+        )
         while len(excluded) < eligible_count:
+            # The paid terminal fallback owns the tail of the hard deadline.
+            # Once the shared free-pool budget expires, skip every remaining
+            # free provider instead of letting them consume Qwen-MT's reserve.
+            if (
+                free_pool_deadline is not None
+                and time.monotonic() >= free_pool_deadline
+            ):
+                excluded.update(
+                    provider["name"]
+                    for provider in self.providers
+                    if provider["name"] not in terminal_names
+                )
             selection = self._select_provider(
                 excluded,
                 estimated_tokens,
@@ -365,8 +401,13 @@ class HybridTranslator:
             quota = f" ({', '.join(quota_parts)})" if quota_parts else ""
             print(f"[Hybrid] Using {provider['name']}{quota}", flush=True)
             attempt_kwargs = dict(kwargs)
-            global_deadline = kwargs.get("deadline")
-            if (
+            if provider["name"] in terminal_names:
+                # Terminal fallback may use the complete remaining hard budget.
+                attempt_kwargs["deadline"] = global_deadline
+            elif free_pool_deadline is not None:
+                # All free providers share one budget; this is not per-provider.
+                attempt_kwargs["deadline"] = free_pool_deadline
+            elif (
                 global_deadline is not None
                 and len(excluded) == 1
                 and len(self.providers) > 1

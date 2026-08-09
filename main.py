@@ -195,7 +195,15 @@ class Pipeline(QObject):
                         model="qwen-mt-flash",
                         **translator_options,
                     ),
-                    "priority": 3,
+                    "priority": 99,
+                    # Paid Qwen-MT is the terminal fallback, not another member
+                    # of the quota-limited free pool. Preserve 1.8s of the 3s
+                    # hard deadline for it and only briefly back off on network
+                    # timeouts. Authentication/rate-limit errors retain their
+                    # existing longer protection.
+                    "terminal_fallback": True,
+                    "fallback_reserve_seconds": 1.8,
+                    "failure_cooldown_seconds": 3.0,
                 })
             self.translator = HybridTranslator(
                 providers,
