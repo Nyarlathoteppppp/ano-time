@@ -590,7 +590,25 @@ class Dashboard(QWidget):
         self.asr_summary.setText(
             "Apple on-device (live)" if backend == "apple" else backend
         )
-        model = self.model.currentText() if hasattr(self, "model") else config.model
+        if hasattr(self, "translation_workflow"):
+            workflow = self.translation_workflow.currentData()
+            bridge = (
+                self.bridge_provider.currentData()
+                if hasattr(self, "bridge_provider") else "off"
+            )
+            if workflow == "apple_only":
+                model = "Apple on-device only"
+            elif workflow == "smart_hybrid":
+                model = (
+                    "Apple → Groq → Gemini/GLM → Qwen-MT"
+                    if bridge == "groq"
+                    else "Apple → Gemini/GLM → Qwen-MT"
+                )
+            else:
+                prefix = "Apple → Groq → " if bridge == "groq" else "Apple → "
+                model = prefix + self.model.currentText()
+        else:
+            model = config.model
         self.translation_summary.setText(model)
 
     def use_system_audio(self):
@@ -1222,32 +1240,47 @@ class Dashboard(QWidget):
     def init_translation_tab(self):
         tab = QWidget()
         layout = QFormLayout()
+        self.translation_layout = layout
+
+        self.translation_workflow = ReadableComboBox()
+        self.translation_workflow.addItem(
+            "Smart Hybrid（智能混合 · 推荐）", "smart_hybrid"
+        )
+        self.translation_workflow.addItem("Single Model（单模型）", "single_model")
+        self.translation_workflow.addItem("Apple Only（仅 Apple 本地）", "apple_only")
+        workflow_index = self.translation_workflow.findData(
+            config.translation_workflow
+        )
+        self.translation_workflow.setCurrentIndex(max(0, workflow_index))
+        layout.addRow("Workflow（翻译流程）:", self.translation_workflow)
+
+        self.workflow_preview = QLabel()
+        self.workflow_preview.setWordWrap(True)
+        self.workflow_preview.setStyleSheet(
+            "color: #a6e3a1; font-weight: 600; padding: 8px;"
+        )
+        layout.addRow("Active Chain（当前链路）:", self.workflow_preview)
+
+        self.bridge_provider = ReadableComboBox()
+        self.bridge_provider.addItem("Off（关闭）", "off")
+        self.bridge_provider.addItem("Groq GPT-OSS 20B（快速过渡）", "groq")
+        bridge_index = self.bridge_provider.findData(config.bridge_provider)
+        self.bridge_provider.setCurrentIndex(max(0, bridge_index))
+        layout.addRow("Bridge（桥接翻译，可选）:", self.bridge_provider)
 
         self.provider = ReadableComboBox()
         self.provider.addItems([
-            "Fast Free Pool → Qwen-MT",
             "Alibaba Cloud Qwen-MT",
             "DeepSeek Official",
             "SiliconFlow",
             "Custom",
         ])
-        current_base = (config.api_base_url or "").lower()
-        if "api.deepseek.com" in current_base:
-            self.provider.setCurrentText("DeepSeek Official")
-        elif "siliconflow" in current_base:
-            self.provider.setCurrentText("SiliconFlow")
-        elif "maas.aliyuncs.com" in current_base or "dashscope" in current_base:
-            self.provider.setCurrentText("Alibaba Cloud Qwen-MT")
-        else:
-            self.provider.setCurrentText("Custom")
-        if config.translation_provider == "Fast Free Pool → Qwen-MT":
-            self.provider.setCurrentText("Fast Free Pool → Qwen-MT")
+        self.provider.setCurrentText(config.single_provider)
         self._current_provider = self.provider.currentText()
         self.provider_keys = {
             "DeepSeek Official": config.deepseek_api_key or config.api_key,
             "SiliconFlow": config.siliconflow_api_key,
             "Alibaba Cloud Qwen-MT": config.qwen_mt_api_key,
-            "Fast Free Pool → Qwen-MT": "",
             "Custom": config.api_key,
         }
         self.provider_urls = {
@@ -1257,9 +1290,11 @@ class Dashboard(QWidget):
             "Custom": config.api_base_url or "",
         }
         self.provider.currentTextChanged.connect(self._on_translation_provider_changed)
-        layout.addRow("Provider（翻译服务商）:", self.provider)
+        layout.addRow("Final Provider（最终翻译服务）:", self.provider)
         
-        self.api_key = QLineEdit(config.api_key)
+        self.api_key = QLineEdit(
+            self.provider_keys.get(self.provider.currentText(), config.api_key)
+        )
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key.setPlaceholderText("sk-...")
         layout.addRow("API Key（主翻译服务密钥）:", self.api_key)
@@ -1283,7 +1318,20 @@ class Dashboard(QWidget):
         self.cloudflare_api_token.setPlaceholderText("Cloudflare API token")
         layout.addRow("Cloudflare Token（Workers AI 访问令牌）:", self.cloudflare_api_token)
         
-        self.base_url = QLineEdit(config.api_base_url or "")
+        self.qwen_fallback_key = QLineEdit(config.qwen_mt_api_key)
+        self.qwen_fallback_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.qwen_fallback_key.setPlaceholderText("Alibaba Cloud Qwen-MT key")
+        layout.addRow("Qwen-MT Key（付费兜底密钥）:", self.qwen_fallback_key)
+
+        self.qwen_fallback_url = QLineEdit(config.qwen_mt_base_url)
+        self.qwen_fallback_url.setPlaceholderText(
+            "https://{WorkspaceId}.maas.aliyuncs.com/compatible-mode/v1"
+        )
+        layout.addRow("Qwen-MT URL（付费兜底接口）:", self.qwen_fallback_url)
+
+        self.base_url = QLineEdit(
+            self.provider_urls.get(self.provider.currentText(), config.api_base_url or "")
+        )
         self.base_url.setPlaceholderText("https://api.openai.com/v1")
         layout.addRow("Base URL（API 接口地址）:", self.base_url)
         
@@ -1300,8 +1348,9 @@ class Dashboard(QWidget):
         self.refresh_models_btn.setToolTip("Refresh model list from API")
         self.refresh_models_btn.clicked.connect(self.refresh_model_list)
         model_layout.addWidget(self.refresh_models_btn)
-        
-        layout.addRow("Model（翻译模型）:", model_layout)
+        self.model_container = QWidget()
+        self.model_container.setLayout(model_layout)
+        layout.addRow("Model（翻译模型）:", self.model_container)
         
         self.target_lang = ReadableComboBox()
         for label, value in (
@@ -1339,9 +1388,35 @@ class Dashboard(QWidget):
         )
         layout.addRow("Instant Draft（即时草稿翻译）:", self.fast_translation_backend)
 
+        self.translation_workflow.currentIndexChanged.connect(
+            self._on_translation_workflow_changed
+        )
+        self.bridge_provider.currentIndexChanged.connect(
+            self._on_translation_workflow_changed
+        )
+        for field in (
+            self.api_key,
+            self.base_url,
+            self.groq_api_key,
+            self.gemini_api_key,
+            self.cloudflare_account_id,
+            self.cloudflare_api_token,
+            self.qwen_fallback_key,
+            self.qwen_fallback_url,
+        ):
+            field.textChanged.connect(self._on_translation_workflow_changed)
         self._on_translation_provider_changed(self.provider.currentText())
+        self._on_translation_workflow_changed()
         
-        tab.setLayout(layout)
+        content = QWidget()
+        content.setLayout(layout)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(content)
+        tab_layout = QVBoxLayout(tab)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.addWidget(scroll)
         self.tabs.addTab(tab, "🌐 AI · 翻译")
 
     def _on_translation_provider_changed(self, provider):
@@ -1350,21 +1425,20 @@ class Dashboard(QWidget):
             self.provider_urls[self._current_provider] = self.base_url.text()
             self.api_key.setText(self.provider_keys.get(provider, ""))
         self._current_provider = provider
-        hybrid = provider == "Fast Free Pool → Qwen-MT"
         if hasattr(self, "base_url"):
-            self.api_key.setEnabled(not hybrid)
-            self.base_url.setEnabled(not hybrid)
-            self.model.setEnabled(not hybrid)
-            self.refresh_models_btn.setEnabled(not hybrid)
-        if hybrid:
-            self.base_url.setText("Automatic quota-aware rotation")
-            self.model.setCurrentText("Apple → Groq bridge → Gemini/GLM → Qwen-MT")
-        elif provider == "DeepSeek Official":
+            self.api_key.setEnabled(True)
+            self.base_url.setEnabled(True)
+            self.model.setEnabled(True)
+            self.refresh_models_btn.setEnabled(True)
+        if provider == "DeepSeek Official":
             self.base_url.setText("https://api.deepseek.com")
             self.model.setCurrentText("deepseek-v4-flash")
         elif provider == "SiliconFlow":
             self.base_url.setText("https://api.siliconflow.cn/v1")
-            if self.model.currentText().startswith("deepseek-v4-"):
+            if (
+                self.model.currentText() == "qwen-mt-flash"
+                or self.model.currentText().startswith("deepseek-v4-")
+            ):
                 self.model.setCurrentText("deepseek-ai/DeepSeek-V4-Flash")
         elif provider == "Alibaba Cloud Qwen-MT":
             self.base_url.setText(self.provider_urls.get(provider, ""))
@@ -1374,6 +1448,78 @@ class Dashboard(QWidget):
             self.model.setCurrentText("qwen-mt-flash")
         else:
             self.base_url.setText(self.provider_urls.get(provider, self.base_url.text()))
+        self._on_translation_workflow_changed()
+
+    def _on_translation_workflow_changed(self, *_):
+        if not hasattr(self, "translation_workflow"):
+            return
+        workflow = self.translation_workflow.currentData() or "smart_hybrid"
+        bridge = self.bridge_provider.currentData() or "off"
+        apple_only = workflow == "apple_only"
+        single = workflow == "single_model"
+        smart = workflow == "smart_hybrid"
+
+        self.bridge_provider.setEnabled(not apple_only)
+        for widget in (self.provider, self.api_key, self.base_url, self.model_container):
+            self._set_translation_row_visible(widget, single)
+        self._set_translation_row_visible(
+            self.groq_api_key, not apple_only and bridge == "groq"
+        )
+        for widget in (
+            self.gemini_api_key,
+            self.cloudflare_account_id,
+            self.cloudflare_api_token,
+            self.qwen_fallback_key,
+            self.qwen_fallback_url,
+        ):
+            self._set_translation_row_visible(widget, smart)
+        self.fast_translation_backend.setEnabled(not apple_only)
+        if apple_only:
+            self.fast_translation_backend.setCurrentText("apple")
+            preview = "Apple ASR → Apple Translation（完全本地）"
+        elif smart:
+            middle = "Groq → " if bridge == "groq" else ""
+            preview = f"Apple → {middle}Gemini/GLM → Qwen-MT"
+        else:
+            middle = "Groq → " if bridge == "groq" else ""
+            preview = f"Apple → {middle}{self.provider.currentText()}"
+        missing = []
+        if not apple_only and bridge == "groq" and not self.groq_api_key.text().strip():
+            missing.append("Groq Key")
+        if smart:
+            has_gemini = bool(self.gemini_api_key.text().strip())
+            has_glm = bool(
+                self.cloudflare_account_id.text().strip()
+                and self.cloudflare_api_token.text().strip()
+            )
+            if not (has_gemini or has_glm):
+                missing.append("Gemini 或 GLM")
+            if not (
+                self.qwen_fallback_key.text().strip()
+                and self.qwen_fallback_url.text().strip()
+            ):
+                missing.append("Qwen-MT 兜底")
+        elif single and not (
+            self.api_key.text().strip() and self.base_url.text().strip()
+        ):
+            missing.append("最终模型 API")
+        if missing:
+            preview += "\n⚠ Missing: " + "、".join(missing)
+            color = "#f9e2af"
+        else:
+            preview += "\n✓ Configuration ready"
+            color = "#a6e3a1"
+        self.workflow_preview.setStyleSheet(
+            f"color: {color}; font-weight: 600; padding: 8px;"
+        )
+        self.workflow_preview.setText(preview)
+        self.update_home_summary()
+
+    def _set_translation_row_visible(self, widget, visible):
+        widget.setVisible(bool(visible))
+        label = self.translation_layout.labelForField(widget)
+        if label:
+            label.setVisible(bool(visible))
 
     def populate_devices(self):
         items = [
@@ -1470,7 +1616,12 @@ class Dashboard(QWidget):
         )
         
         # Translation
-        if self.provider.currentText() != "Fast Free Pool → Qwen-MT":
+        workflow = self.translation_workflow.currentData() or "smart_hybrid"
+        bridge_provider = (
+            "off" if workflow == "apple_only"
+            else self.bridge_provider.currentData() or "off"
+        )
+        if workflow == "single_model":
             cp.set(
                 "api", "api_key",
                 keychain.store_for_config(
@@ -1484,10 +1635,22 @@ class Dashboard(QWidget):
             str(self.target_lang.currentData() or self.target_lang.currentText()),
         )
         cp.set("translation", "domain", self.translation_domain.text())
-        cp.set("translation", "fast_backend", self.fast_translation_backend.currentText())
-        cp.set("translation", "provider", self.provider.currentText())
-        self.provider_keys[self.provider.currentText()] = self.api_key.text()
-        self.provider_urls[self.provider.currentText()] = self.base_url.text()
+        cp.set(
+            "translation", "fast_backend",
+            "apple" if workflow == "apple_only"
+            else self.fast_translation_backend.currentText(),
+        )
+        cp.set("translation", "workflow", workflow)
+        cp.set("translation", "bridge_provider", bridge_provider)
+        cp.set("translation", "single_provider", self.provider.currentText())
+        cp.set(
+            "translation", "provider",
+            "Fast Free Pool → Qwen-MT"
+            if workflow == "smart_hybrid" else self.provider.currentText(),
+        )
+        if workflow == "single_model":
+            self.provider_keys[self.provider.currentText()] = self.api_key.text()
+            self.provider_urls[self.provider.currentText()] = self.base_url.text()
         cp.set("providers", "deepseek_api_key", keychain.store_for_config(
             SECRET_FIELDS[("providers", "deepseek_api_key")],
             self.provider_keys.get("DeepSeek Official", ""),
@@ -1496,11 +1659,23 @@ class Dashboard(QWidget):
             SECRET_FIELDS[("providers", "siliconflow_api_key")],
             self.provider_keys.get("SiliconFlow", ""),
         ))
+        qwen_key = (
+            self.api_key.text()
+            if workflow == "single_model"
+            and self.provider.currentText() == "Alibaba Cloud Qwen-MT"
+            else self.qwen_fallback_key.text()
+        )
+        qwen_url = (
+            self.base_url.text()
+            if workflow == "single_model"
+            and self.provider.currentText() == "Alibaba Cloud Qwen-MT"
+            else self.qwen_fallback_url.text()
+        )
         cp.set("providers", "qwen_mt_api_key", keychain.store_for_config(
             SECRET_FIELDS[("providers", "qwen_mt_api_key")],
-            self.provider_keys.get("Alibaba Cloud Qwen-MT", ""),
+            qwen_key,
         ))
-        cp.set("providers", "qwen_mt_base_url", self.provider_urls.get("Alibaba Cloud Qwen-MT", ""))
+        cp.set("providers", "qwen_mt_base_url", qwen_url)
         cp.set("providers", "groq_api_key", keychain.store_for_config(
             SECRET_FIELDS[("providers", "groq_api_key")], self.groq_api_key.text()
         ))

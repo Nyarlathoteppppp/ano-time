@@ -34,6 +34,40 @@ class ConfigContractTests(unittest.TestCase):
             self.assertIsNone(loaded.source_language)
             self.assertFalse(loaded.diagnostics_enabled)
             self.assertTrue(loaded.split_fast_path)
+            self.assertEqual(loaded.translation_workflow, "smart_hybrid")
+            self.assertEqual(loaded.bridge_provider, "groq")
+
+    def test_legacy_single_provider_migrates_without_enabling_bridge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.ini")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "[translation]\n"
+                    "provider = DeepSeek Official\n"
+                    "model = deepseek-v4-flash\n"
+                )
+            with patch.object(config_module.keychain, "resolve", return_value=""):
+                loaded = config_module.Config(path)
+            self.assertEqual(loaded.translation_workflow, "single_model")
+            self.assertEqual(loaded.bridge_provider, "off")
+            self.assertEqual(loaded.single_provider, "DeepSeek Official")
+
+    def test_explicit_workflow_controls_bridge_independently(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.ini")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "[translation]\n"
+                    "provider = Fast Free Pool → Qwen-MT\n"
+                    "workflow = single_model\n"
+                    "bridge_provider = groq\n"
+                    "single_provider = Alibaba Cloud Qwen-MT\n"
+                )
+            with patch.object(config_module.keychain, "resolve", return_value=""):
+                loaded = config_module.Config(path)
+            self.assertEqual(loaded.translation_workflow, "single_model")
+            self.assertEqual(loaded.bridge_provider, "groq")
+            self.assertEqual(loaded.single_provider, "Alibaba Cloud Qwen-MT")
 
     def test_diagnostics_require_explicit_opt_in(self):
         with tempfile.TemporaryDirectory() as directory:

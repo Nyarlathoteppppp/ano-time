@@ -123,7 +123,7 @@ In the control center:
 
 1. **Audio** → select `System Audio` for videos/apps or a microphone for an in-person class.
 2. **Transcription** → select `Apple` for the lowest native latency, or `MLX` as the Apple Silicon Whisper path.
-3. **Translation** → choose a provider/model and enter its API key.
+3. **Translation** → choose a workflow, optional bridge, and enter the keys used by that workflow.
 4. **Subtitle Mode** → choose `Physical MacBook Notch` or `Glass`.
 5. Click **Launch Translator**.
 
@@ -210,6 +210,15 @@ A successful startup includes:
 
 ## Translation pipeline
 
+The control center exposes three independent workflows:
+
+- **Smart Hybrid (recommended)** — preserves Anotime's quota-aware Apple → optional Groq → Gemini/GLM → Qwen-MT pipeline.
+- **Single Model** — Apple drafts followed by an optional Groq bridge and one explicitly selected final provider (Qwen-MT, DeepSeek, SiliconFlow, or a custom OpenAI-compatible endpoint).
+- **Apple Only** — fully local Apple ASR and Apple Translation with no remote requests.
+
+The bridge is configured separately from the final translator. Changing a
+single-model provider cannot alter the Smart Hybrid routing or quota state.
+
 ```text
 Audio
   → provisional Apple ASR
@@ -268,7 +277,10 @@ mode = notch
 
 | Setting | Purpose |
 | --- | --- |
-| `translation.provider` | Translation provider or quota-aware provider pool |
+| `translation.workflow` | `smart_hybrid`, `single_model`, or `apple_only` |
+| `translation.bridge_provider` | Optional low-latency bridge (`groq` or `off`) |
+| `translation.single_provider` | Final provider used only by `single_model` |
+| `translation.provider` | Legacy compatibility value for older configurations |
 | `translation.model` | Remote translation model |
 | `translation.fast_backend` | Immediate local draft backend (`apple`) |
 | `translation.ai_deadline_seconds` | Maximum useful lifetime of a remote refinement |

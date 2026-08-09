@@ -10,6 +10,9 @@ threads = 4
 ai_deadline_seconds = 3.0
 fast_backend = apple
 provider = Fast Free Pool → Qwen-MT
+workflow = smart_hybrid
+bridge_provider = groq
+single_provider = Alibaba Cloud Qwen-MT
 # Optional per-course files. Empty by default so cloned installations do not
 # inherit the maintainer's degree-specific terminology or ASR corrections.
 glossary_path =

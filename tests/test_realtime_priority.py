@@ -22,6 +22,9 @@ class RealtimePriorityTests(unittest.TestCase):
         pipeline = Pipeline.__new__(Pipeline)
         pipeline.running = True
         pipeline.fast_translator = _AppleDraft()
+        # The bridge is now an explicit workflow dependency instead of being
+        # inferred from the final translator's provider pool.
+        pipeline.bridge_translator = object()
         pipeline.signals = SimpleNamespace(runtime_status=_Signal())
         pipeline._emit_ranked_translation = lambda *args: True
         pipeline._submit_latest_ai = lambda *args: None

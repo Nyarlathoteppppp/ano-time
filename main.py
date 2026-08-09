@@ -13,8 +13,6 @@ from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 from audio_capture import AudioCapture
 from system_audio_capture import SystemAudioCapture
 from transcriber import Transcriber
-from translator import Translator
-from hybrid_translator import HybridTranslator
 from overlay_window import OverlayWindow
 from config import config
 from runtime_log import diagnostics_enabled, log_stage
@@ -27,6 +25,7 @@ from subtitle_event import SubtitleStage
 from runtime_performance import RuntimePerformanceSampler
 from segment_store import SegmentStore
 from fast_path import FastPath
+from translation_workflows import build_translation_workflow
 
 class WorkerSignals(QObject):
     subtitle_event = pyqtSignal(object)
@@ -128,98 +127,27 @@ class Pipeline(QObject):
                 language=config.source_language
             )
         
-        # Initialize Translator
-        print(f"[Pipeline] Initializing Translator (target={config.target_lang})...")
-        translator_options = dict(
-            target_lang=config.target_lang,
-            domain_prompt=config.translation_domain,
-            deadline_seconds=config.ai_deadline_seconds,
-            glossary_path=config.glossary_path,
+        print(
+            "[Pipeline] Initializing translation workflow "
+            f"({config.translation_workflow}, target={config.target_lang})..."
         )
-        if config.translation_provider == "Fast Free Pool → Qwen-MT":
-            providers = []
-            if config.groq_api_key:
-                providers.append({
-                    "name": "Groq GPT-OSS 20B",
-                    "translator": Translator(
-                        base_url="https://api.groq.com/openai/v1",
-                        api_key=config.groq_api_key,
-                        model="openai/gpt-oss-20b",
-                        **translator_options,
-                    ),
-                    "rpm_limit": 30,
-                    "tpm_limit": 8000,
-                    "daily_limit": 1000,
-                    "daily_timezone": "UTC",
-                    "priority": 3,
-                })
-            if config.cloudflare_account_id and config.cloudflare_api_token:
-                providers.append({
-                    "name": "Cloudflare GLM-4.7-Flash",
-                    "translator": Translator(
-                        base_url=(
-                            "https://api.cloudflare.com/client/v4/accounts/"
-                            f"{config.cloudflare_account_id}/ai/v1"
-                        ),
-                        api_key=config.cloudflare_api_token,
-                        model="@cf/zai-org/glm-4.7-flash",
-                        **translator_options,
-                    ),
-                    "daily_neuron_limit": 10000,
-                    "neuron_input_per_million": 5500,
-                    "neuron_output_per_million": 36400,
-                    "daily_timezone": "UTC",
-                    "priority": 1,
-                })
-            if config.gemini_api_key:
-                providers.append({
-                    "name": "Gemini 3.5 Flash-Lite",
-                    "translator": Translator(
-                        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                        api_key=config.gemini_api_key,
-                        model="gemini-3.5-flash-lite",
-                        **translator_options,
-                    ),
-                    "rpm_limit": 15,
-                    "tpm_limit": 250000,
-                    "daily_limit": 500,
-                    "daily_timezone": "America/Los_Angeles",
-                    "priority": 0,
-                })
-            if config.qwen_mt_api_key and config.qwen_mt_base_url:
-                providers.append({
-                    "name": "Qwen-MT Flash fallback",
-                    "translator": Translator(
-                        base_url=config.qwen_mt_base_url,
-                        api_key=config.qwen_mt_api_key,
-                        model="qwen-mt-flash",
-                        **translator_options,
-                    ),
-                    "priority": 99,
-                    # Paid Qwen-MT is the terminal fallback, not another member
-                    # of the quota-limited free pool. Preserve 1.8s of the 3s
-                    # hard deadline for it and only briefly back off on network
-                    # timeouts. Authentication/rate-limit errors retain their
-                    # existing longer protection.
-                    "terminal_fallback": True,
-                    "fallback_reserve_seconds": 1.8,
-                    "failure_cooldown_seconds": 3.0,
-                })
-            self.translator = HybridTranslator(
-                providers,
-                usage_path=os.path.join(os.path.dirname(__file__), "logs", "provider_usage.json"),
-            )
-            self.translator.status_callback = self._on_provider_status
-        else:
-            self.translator = Translator(
-                base_url=config.api_base_url,
-                api_key=config.api_key,
-                model=config.model,
-                **translator_options,
-            )
+        self.translation_workflow = build_translation_workflow(
+            config,
+            usage_path=os.path.join(
+                os.path.dirname(__file__), "logs", "provider_usage.json"
+            ),
+            status_callback=self._on_provider_status,
+        )
+        self.final_translator = self.translation_workflow.final_translator
+        self.bridge_translator = self.translation_workflow.bridge_translator
+        # Compatibility for tests and third-party code using Pipeline.translator.
+        self.translator = self.final_translator
 
         self.fast_translator = None
-        if config.fast_translation_backend == "apple":
+        if (
+            config.fast_translation_backend == "apple"
+            or config.translation_workflow == "apple_only"
+        ):
             try:
                 from apple_translation import AppleTranslator
                 self.fast_translator = AppleTranslator(
@@ -248,6 +176,22 @@ class Pipeline(QObject):
         network_status = "ok" if status in ("active", "ok") else status
         network_message = "Online" if network_status == "ok" else detail or status
         self.signals.runtime_status.emit("Network", network_status, network_message)
+
+    def _final_translation_client(self):
+        return self.__dict__.get(
+            "final_translator", self.__dict__.get("translator")
+        )
+
+    def _bridge_translation_client(self):
+        return self.__dict__.get("bridge_translator")
+
+    def _final_status_managed(self):
+        workflow = self.__dict__.get("translation_workflow")
+        return bool(workflow and workflow.final_status_managed)
+
+    def _final_translation_label(self):
+        workflow = self.__dict__.get("translation_workflow")
+        return workflow.final_label if workflow else config.model
 
     def _emit_ranked_translation(
         self, chunk_id, text, translated, state, rank, stage=None
@@ -1055,13 +999,16 @@ class Pipeline(QObject):
         if paused is not None and paused.is_set():
             return
 
+        if not should_request_remote(text):
+            log_stage(
+                "remote_refine", chunk_id=chunk_id, status="skipped",
+                words=len(text.split()), detail="short or low-value final",
+            )
+            return
+
         try:
-            if not should_request_remote(text):
-                log_stage(
-                    "remote_refine", chunk_id=chunk_id, status="skipped",
-                    words=len(text.split()), detail="short or low-value final",
-                )
-                return
+            if self._final_translation_client() is None:
+                raise RuntimeError("final model is off")
             self._submit_latest_ai(
                 refine_executor,
                 self._run_refinement,
@@ -1076,6 +1023,8 @@ class Pipeline(QObject):
         # executor. A dedicated executor also prevents Groq from delaying the
         # next utterance's provisional translation.
         try:
+            if self._bridge_translation_client() is None:
+                raise RuntimeError("bridge is off")
             self._submit_latest_bridge(bridge_executor, text, chunk_id, draft)
         except RuntimeError as exc:
             log_stage("groq_bridge", chunk_id=chunk_id, status="skipped", detail=str(exc))
@@ -1086,9 +1035,8 @@ class Pipeline(QObject):
             log_stage("groq_bridge", chunk_id=chunk_id, status="expired")
             return
         # Groq cannot overwrite a final-model result that arrived first.
-        groq_available = (
-            isinstance(self.translator, HybridTranslator) and config.groq_api_key
-        )
+        bridge_translator = self._bridge_translation_client()
+        groq_available = bridge_translator is not None
         use_groq, skip_reason = (
             self._groq_bridge_gate.allow(text)
             if groq_available
@@ -1106,8 +1054,7 @@ class Pipeline(QObject):
             try:
                 started = time.perf_counter()
                 bridge_deadline = min(deadline, time.monotonic() + config.ai_deadline_seconds)
-                translated = self.translator.translate_only(
-                    {"Groq GPT-OSS 20B"},
+                translated = bridge_translator.translate(
                     text,
                     use_context=False,
                     remember_context=False,
@@ -1146,33 +1093,36 @@ class Pipeline(QObject):
                         SubtitleStage.AI_STREAM,
                     )
 
-            translate = self.translator.translate
-            translate_args = ()
-            if isinstance(self.translator, HybridTranslator):
-                translate = self.translator.translate_excluding
-                translate_args = ({"Groq GPT-OSS 20B"},)
-            else:
-                self._on_provider_status("active", config.model)
-            translated = translate(
-                *translate_args, text, use_context=False, remember_context=False,
+            final_translator = self._final_translation_client()
+            if final_translator is None:
+                log_stage("llm_refine", chunk_id=chunk_id, status="skipped", detail="final model is off")
+                return
+            managed_status = self._final_status_managed()
+            final_label = self._final_translation_label()
+            if not managed_status:
+                self._on_provider_status("active", final_label)
+            translated = final_translator.translate(
+                text, use_context=False, remember_context=False,
                 context_text=context_text, deadline=deadline,
                 on_update=emit_before_deadline,
             )
             elapsed_ms = (time.perf_counter() - started) * 1000
-            if not isinstance(self.translator, HybridTranslator):
-                self._on_provider_status("ok", config.model, elapsed_ms)
+            if not managed_status:
+                self._on_provider_status("ok", final_label, elapsed_ms)
             if translated and self.running and time.monotonic() < deadline:
                 self._emit_ranked_translation(chunk_id, text, translated, "final", 3)
                 log_stage("llm_refine", chunk_id=chunk_id, elapsed_ms=elapsed_ms, detail=translated)
         except TimeoutError as exc:
-            if not isinstance(self.translator, HybridTranslator):
-                self._on_provider_status("warning", config.model, detail="timeout")
+            if not self._final_status_managed():
+                self._on_provider_status(
+                    "warning", self._final_translation_label(), detail="timeout"
+                )
             print(f"[LLM Refinement {chunk_id}] Deadline exceeded: {exc}")
             log_stage("llm_refine", chunk_id=chunk_id, status="timeout", detail=str(exc))
         except Exception as exc:
-            if not isinstance(self.translator, HybridTranslator):
+            if not self._final_status_managed():
                 self._on_provider_status(
-                    "error", config.model, detail=type(exc).__name__
+                    "error", self._final_translation_label(), detail=type(exc).__name__
                 )
             # Keep the Apple draft visible on all remote API failures.
             print(f"[LLM Refinement {chunk_id}] Failed: {exc}")
@@ -1215,13 +1165,11 @@ class Pipeline(QObject):
                         SubtitleStage.AI_STREAM,
                     )
 
-            translate = self.translator.translate
-            translate_args = ()
-            if isinstance(self.translator, HybridTranslator):
-                translate = self.translator.translate_excluding
-                translate_args = ({"Groq GPT-OSS 20B"},)
-            translated = translate(
-                *translate_args, text, use_context=False, remember_context=False,
+            final_translator = self._final_translation_client()
+            if final_translator is None:
+                return
+            translated = final_translator.translate(
+                text, use_context=False, remember_context=False,
                 context_text=context_text, deadline=deadline,
                 on_update=emit_before_deadline,
             )
@@ -1260,7 +1208,10 @@ class Pipeline(QObject):
     def _translate_and_log(self, text, chunk_id=0):
         """Translate text and log result"""
         t0 = time.time()
-        translated_text = self.translator.translate(text)
+        translator = self._final_translation_client()
+        if translator is None:
+            return (text, "")
+        translated_text = translator.translate(text)
         t1 = time.time()
         print(f"[Chunk {chunk_id}] Translated in {t1-t0:.2f}s: {translated_text}")
         return (text, translated_text)

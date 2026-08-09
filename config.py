@@ -45,6 +45,25 @@ class Config:
         self.translation_provider = self._get(
             "translation", "provider", "Fast Free Pool → Qwen-MT"
         )
+        configured_workflow = self._get("translation", "workflow", "").strip().lower()
+        if configured_workflow not in ("smart_hybrid", "single_model", "apple_only"):
+            configured_workflow = (
+                "smart_hybrid"
+                if self.translation_provider == "Fast Free Pool → Qwen-MT"
+                else "single_model"
+            )
+        self.translation_workflow = configured_workflow
+        configured_bridge = self._get("translation", "bridge_provider", "").strip().lower()
+        if configured_bridge not in ("off", "groq"):
+            configured_bridge = "groq" if configured_workflow == "smart_hybrid" else "off"
+        self.bridge_provider = configured_bridge
+        self.single_provider = self._get(
+            "translation", "single_provider", ""
+        ).strip() or (
+            self.translation_provider
+            if self.translation_provider != "Fast Free Pool → Qwen-MT"
+            else "Alibaba Cloud Qwen-MT"
+        )
         def optional_project_path(setting):
             path = self._get("translation", setting, "").strip()
             if not path:
@@ -179,6 +198,8 @@ class Config:
         print(f"  API Base URL: {self.api_base_url or '(default OpenAI)'}")
         print(f"  API Key: {'configured' if self.api_key else 'missing'}")
         print(f"  Model: {self.model}")
+        print(f"  Translation Workflow: {self.translation_workflow}")
+        print(f"  Bridge Provider: {self.bridge_provider}")
         print(f"  Target Language: {self.target_lang}")
         print(f"  Fast Translation: {self.fast_translation_backend}")
         print(f"  Glossary: {self.glossary_path}")
