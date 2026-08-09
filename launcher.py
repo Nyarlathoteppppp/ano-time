@@ -149,6 +149,8 @@ class LauncherWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    from app_identity import apply_app_identity
+    apply_app_identity(app)
     
     # Modern Styling for Launcher
     app.setStyle("Fusion")

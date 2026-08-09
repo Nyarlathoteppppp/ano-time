@@ -1659,6 +1659,8 @@ if __name__ == "__main__":
     sys.excepthook = exception_hook
 
     app = QApplication(sys.argv)
+    from app_identity import apply_app_identity
+    apply_app_identity(app)
     app.setQuitOnLastWindowClosed(False)
 
     if "--quit-existing" in sys.argv:

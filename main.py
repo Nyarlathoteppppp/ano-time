@@ -1230,6 +1230,8 @@ def main():
     _app = QApplication.instance()
     if not _app:
         _app = QApplication(sys.argv)
+    from app_identity import apply_app_identity
+    apply_app_identity(_app)
     
     # Start session
     win, pipe = start_overlay_session()
