@@ -2,9 +2,9 @@
 
 <p align="center"><strong>这款应用帮助大家度过一开始的语言难关，避免大家像 Ano 一样过了雅思却听不懂课（早知道不如去花咲川）。</strong></p>
 
-**Native, low-latency English → Chinese live subtitles for macOS lectures, meetings, and fullscreen video.**
+**Speed-first English → Chinese live subtitles for macOS classes, meetings, and fullscreen video.**
 
-Anotime combines Apple on-device speech recognition and translation with optional AI refinement. Provisional subtitles remain instant, stable sentences receive terminology-aware refinement, and every remote request is deadline-limited so a slow model can never block the live path.
+Anotime combines Apple on-device speech recognition and instant translation with an optional Groq bridge and deadline-limited AI refinement. Apple drafts stay responsive even when a remote model is slow, unavailable, or out of free quota.
 
 It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHole setup required—and render subtitles either as a resizable glass overlay or as an adaptive window attached to the physical MacBook notch.
 
@@ -37,11 +37,14 @@ It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHo
 - **Live Apple Speech transcription** with visibly distinct provisional and finalized English.
 - **Direct system-audio capture** through ScreenCaptureKit for browser videos, lectures, Zoom, and media apps—BlackHole is optional.
 - **Speed-first translation pipeline**: Apple drafts appear immediately while remote AI refinement runs under a strict deadline.
+- **Three selectable workflows**: Smart Hybrid, Single Model, or fully local Apple Only; bridge and final translators remain independent.
+- **Built-in API speed test** sends five fixed technical sentences and reports first-token and average per-request latency before class.
 - **Physical MacBook notch subtitles** with 1/2/3-message modes, centered adaptive width, long-translation segmentation, pause/resume, glass-mode switch, and exit controls.
 - **Resizable glass overlay** that stays above fullscreen video and supports edge/corner resizing.
 - **Optional terminology profiles** through editable TSV glossaries and finalized-ASR correction files; no maintainer-specific course vocabulary is enabled for new users.
 - **OpenAI-compatible providers**, including Qwen-MT, DeepSeek, SiliconFlow, Groq, Gemini, Cloudflare Workers AI, and custom endpoints.
 - **Quota-aware free-provider pool** with minute/day/token accounting, automatic fallback, cooldown recovery, and Qwen-MT fallback.
+- **Failure-safe model routing**: rate limits and timeouts fall through without removing the Apple draft or blocking newer sentences.
 - **Latest-wins refinement queue**: stale work is dropped so subtitles cannot accumulate seconds behind the speaker.
 - **Runtime latency log** for audio, ASR, local draft, bridge model, and final refinement stages.
 - **Native `Control + S` global shortcut** backed by a resident macOS agent: launch the notch, pause, and resume without Accessibility or Input Monitoring permission.
