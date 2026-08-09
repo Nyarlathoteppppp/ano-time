@@ -38,6 +38,19 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn("if state.displayCount > 1", self.source)
         self.assertIn("let englishWidth = displayCount == 1 ? 0", self.source)
 
+    def test_launch_and_exit_use_directional_notch_transitions(self):
+        self.assertIn("openingAnimation: .easeOut(duration: 0.55)", self.source)
+        self.assertIn("closingAnimation: .easeIn(duration: 0.28)", self.source)
+        self.assertIn("skipIntermediateHides: true", self.source)
+        self.assertIn("await expandActiveNotch()", self.source)
+        self.assertIn(
+            "hoverBehavior: [.hapticFeedback, .increaseShadow]", self.source
+        )
+        self.assertLess(
+            self.source.index("await hideNotch()", self.source.index("func terminate")),
+            self.source.index("emitEvent(event)", self.source.index("func terminate")),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

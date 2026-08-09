@@ -283,7 +283,10 @@ private struct RealtimeNotchHelper {
         func makeNotch(style: DynamicNotchStyle) -> DynamicNotch<
             SubtitleContent, CompactLeading, CompactTrailing
         > {
-            DynamicNotch(style: style) {
+            DynamicNotch(
+                hoverBehavior: [.hapticFeedback, .increaseShadow],
+                style: style
+            ) {
                 SubtitleContent(state: state)
             } compactLeading: {
                 CompactLeading(state: state)
@@ -299,6 +302,12 @@ private struct RealtimeNotchHelper {
         // One native surface morphs between all display counts. Swapping two
         // independent DynamicNotch instances caused a visible hide/expand warp.
         let notch = makeNotch(style: physicalNotchStyle)
+        notch.transitionConfiguration = .init(
+            openingAnimation: .easeOut(duration: 0.55),
+            closingAnimation: .easeIn(duration: 0.28),
+            conversionAnimation: .snappy(duration: 0.32),
+            skipIntermediateHides: true
+        )
 
         func expandActiveNotch() async {
             await notch.expand()
@@ -312,10 +321,15 @@ private struct RealtimeNotchHelper {
             await notch.hide()
         }
 
+        var terminationInProgress = false
         func terminate(_ event: String) {
-            emitEvent(event)
+            guard !terminationInProgress else { return }
+            terminationInProgress = true
             Task { @MainActor in
                 await hideNotch()
+                // Notify Python only after the reverse contraction finishes;
+                // otherwise session shutdown can tear down the helper early.
+                emitEvent(event)
                 NSApp.terminate(nil)
             }
         }
@@ -372,7 +386,16 @@ private struct RealtimeNotchHelper {
             }
         }
 
-        Task { @MainActor in await compactActiveNotch() }
+        // Present from the true hidden state so launch visibly grows out of
+        // the physical notch instead of popping directly into compact mode.
+        state.compactTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(0.06))
+            guard !Task.isCancelled else { return }
+            await expandActiveNotch()
+            try? await Task.sleep(for: .seconds(2.4))
+            guard !Task.isCancelled else { return }
+            await compactActiveNotch()
+        }
         app.run()
     }
 }
