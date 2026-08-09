@@ -366,19 +366,15 @@ class Dashboard(QWidget):
         header = QLabel("· AnoTime ·")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setStyleSheet("font-size: 28px; font-weight: bold; color: #f5a9c7;")
-        build_label = QLabel(f"Build {current_version()}")
-        build_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        build_label.setStyleSheet("font-size: 10px; color: #7f849c;")
         header_row.addWidget(
             mascot,
             0,
             0,
-            2,
+            1,
             1,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
         )
         header_row.addWidget(header, 0, 1)
-        header_row.addWidget(build_label, 1, 1)
         trailing_mascot = QLabel()
         trailing_mascot.setFixedSize(90, 101)
         trailing_mascot.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -393,7 +389,7 @@ class Dashboard(QWidget):
             trailing_mascot,
             0,
             2,
-            2,
+            1,
             1,
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
         )
@@ -434,6 +430,9 @@ class Dashboard(QWidget):
         
         # Footer Actions
         footer = QHBoxLayout()
+        self.build_label = QLabel(f"Build {current_version()}")
+        self.build_label.setStyleSheet("font-size: 10px; color: #7f849c;")
+        footer.addWidget(self.build_label)
         self.save_btn = QPushButton("Save Settings")
         self.save_btn.clicked.connect(self.save_config)
         self.save_btn.setStyleSheet("""
@@ -545,6 +544,19 @@ class Dashboard(QWidget):
         self.display_mode.setCurrentIndex(max(0, mode_index))
         display_row.addWidget(self.display_mode)
         layout.addLayout(display_row)
+
+        self.notch_help = QLabel(
+            "刘海操作：点击刘海可按 小 → 中 → 大 循环切换；"
+            "小模式显示 1 条，中模式显示 2 条，大模式显示 3 条字幕。"
+        )
+        self.notch_help.setWordWrap(True)
+        self.notch_help.setStyleSheet(
+            "font-size: 13px; color: #bac2de; "
+            "background-color: rgba(255, 255, 255, 10); "
+            "border: 1px solid rgba(255, 255, 255, 25); "
+            "border-radius: 8px; padding: 9px 12px;"
+        )
+        layout.addWidget(self.notch_help)
         
         btn_layout = QHBoxLayout()
         

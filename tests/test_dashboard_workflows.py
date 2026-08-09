@@ -64,6 +64,13 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertTrue(self.dashboard._should_quit_for_close_event(programmatic))
         self.dashboard._force_quit = False
 
+    def test_home_explains_notch_size_cycle(self):
+        text = self.dashboard.notch_help.text()
+        self.assertIn("小 → 中 → 大", text)
+        self.assertIn("1 条", text)
+        self.assertIn("2 条", text)
+        self.assertIn("3 条", text)
+
     def test_existing_install_opens_on_frozen_smart_hybrid_chain(self):
         self.assertEqual(
             self.dashboard.translation_workflow.currentData(), "smart_hybrid"
