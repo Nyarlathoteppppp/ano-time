@@ -346,8 +346,12 @@ class Dashboard(QWidget):
         self.setLayout(self.layout)
         
         # Header
-        header_row = QHBoxLayout()
-        header_row.setSpacing(10)
+        header_row = QGridLayout()
+        header_row.setHorizontalSpacing(10)
+        header_row.setVerticalSpacing(0)
+        header_row.setColumnMinimumWidth(0, 100)
+        header_row.setColumnStretch(1, 1)
+        header_row.setColumnMinimumWidth(2, 100)
         mascot = QLabel()
         mascot.setFixedSize(78, 101)
         mascot.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -359,11 +363,22 @@ class Dashboard(QWidget):
             # visibly blurs the mascot.
             mascot.setPixmap(mascot_pixmap)
             mascot.setScaledContents(True)
-        header = QLabel(f"Anotime  ·  {current_version()}")
-        header.setStyleSheet("font-size: 24px; font-weight: bold; color: #f5a9c7;")
-        header_row.addWidget(mascot)
-        header_row.addWidget(header)
-        header_row.addStretch()
+        header = QLabel("· AnoTime ·")
+        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.setStyleSheet("font-size: 28px; font-weight: bold; color: #f5a9c7;")
+        build_label = QLabel(f"Build {current_version()}")
+        build_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        build_label.setStyleSheet("font-size: 10px; color: #7f849c;")
+        header_row.addWidget(
+            mascot,
+            0,
+            0,
+            2,
+            1,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        header_row.addWidget(header, 0, 1)
+        header_row.addWidget(build_label, 1, 1)
         trailing_mascot = QLabel()
         trailing_mascot.setFixedSize(90, 101)
         trailing_mascot.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -374,7 +389,14 @@ class Dashboard(QWidget):
         if not trailing_pixmap.isNull():
             trailing_mascot.setPixmap(trailing_pixmap)
             trailing_mascot.setScaledContents(True)
-        header_row.addWidget(trailing_mascot)
+        header_row.addWidget(
+            trailing_mascot,
+            0,
+            2,
+            2,
+            1,
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
         self.layout.addLayout(header_row)
         
         # Tabs
