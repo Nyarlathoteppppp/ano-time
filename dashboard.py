@@ -273,7 +273,7 @@ class Dashboard(QWidget):
         header_row = QHBoxLayout()
         header_row.setSpacing(10)
         mascot = QLabel()
-        mascot.setFixedSize(58, 74)
+        mascot.setFixedSize(68, 87)
         mascot.setAlignment(Qt.AlignmentFlag.AlignCenter)
         mascot_path = os.path.join(os.path.dirname(__file__), "assets", "ano-mascot.png")
         mascot_pixmap = QPixmap(mascot_path)
