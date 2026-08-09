@@ -34,6 +34,16 @@ It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHo
 - **Latest-wins refinement queue**: stale work is dropped so subtitles cannot accumulate seconds behind the speaker.
 - **Runtime latency log** for audio, ASR, local draft, bridge model, and final refinement stages.
 
+### Free model options
+
+- **Apple Speech + Apple Translation** — on-device and included with macOS.
+- **GPT-OSS 20B** — GroqCloud free API tier: [Groq Console](https://console.groq.com/).
+- **Gemini 3.5 Flash-Lite** — free tier: [Google AI Studio](https://aistudio.google.com/).
+- **GLM-4.7-Flash** — Workers AI daily free allocation: [Cloudflare Dashboard](https://dash.cloudflare.com/).
+- **Qwen-MT Flash** — Model Studio trial/new-user quota and fallback: [Alibaba Cloud Model Studio](https://bailian.console.aliyun.com/).
+
+Free quotas and model availability can change; check each provider's console before relying on them for a full class.
+
 ## Requirements
 
 Recommended configuration:
