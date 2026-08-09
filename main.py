@@ -565,7 +565,8 @@ class Pipeline(QObject):
             now = time.monotonic()
             finalized_segments = []
             with state_lock:
-                segment_started_at = state["audio_started_at"] or now
+                audio_anchor = state["audio_started_at"]
+                segment_started_at = audio_anchor or now
                 first_partial_at = state["first_partial_at"]
                 stable_text = text if is_final else ""
                 if not is_final:
@@ -578,7 +579,11 @@ class Pipeline(QObject):
                         log_stage(
                             "asr_first_partial",
                             chunk_id=state["chunk_id"],
-                            elapsed_ms=(now - segment_started_at) * 1000,
+                            status="ok" if audio_anchor else "unanchored",
+                            elapsed_ms=(
+                                (now - segment_started_at) * 1000
+                                if audio_anchor else None
+                            ),
                             words=len(text.split()),
                         )
                     stable_text = state["stable_tracker"].observe(text, now=now)

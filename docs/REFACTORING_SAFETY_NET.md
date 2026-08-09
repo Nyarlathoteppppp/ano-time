@@ -65,6 +65,11 @@ resident memory, thread count and subtitle event rate every two seconds. The
 sampler uses process counters only; it does not execute `ps`, inspect other
 applications or run on the latency-critical audio callback.
 
+ASR first-partial latency is reported only when it can be anchored to a
+detected non-silent PCM block. A callback that belongs to audio already queued
+across a native segment boundary is marked `unanchored` instead of recording a
+misleading zero-millisecond sample.
+
 ## Manual release gate
 
 After automated tests, verify on a real Mac:

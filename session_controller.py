@@ -93,9 +93,12 @@ class SessionController:
         view.status_label.setStyleSheet("font-size: 18px; color: #a6e3a1;")
         view.start_btn.hide()
         view.stop_btn.show()
-        # A hidden control center needs no continuous AppKit vibrancy
-        # composition while subtitles are running. Stop restores it.
-        view.hide()
+        # Keep the control center available from the Dock, but explicitly
+        # remove its AppKit vibrancy child from composition while minimized.
+        view.showMinimized()
+        sync_glass = getattr(view, "_sync_native_glass", None)
+        if sync_glass:
+            sync_glass()
 
     def pipeline_error(self, message):
         view = self.view
