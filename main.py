@@ -402,7 +402,11 @@ class Pipeline(QObject):
         """Feed PCM audio to Apple's native streaming speech recognizer."""
         from apple_transcriber import AppleSpeechTranscriber
 
+        # Apple drafts are the latency-critical path. Never run network work on
+        # this executor: a slow bridge request would otherwise delay every new
+        # provisional subtitle behind it.
         fast_executor = ThreadPoolExecutor(max_workers=1)
+        bridge_executor = ThreadPoolExecutor(max_workers=1)
         refine_executor = ThreadPoolExecutor(max_workers=2)
         state_lock = threading.Lock()
         state = {
@@ -438,7 +442,7 @@ class Pipeline(QObject):
             self.signals.update_text.emit(chunk_id, text, "", "final")
             fast_executor.submit(
                 self._run_fast_final_translation,
-                text, chunk_id, refine_executor, context_text,
+                text, chunk_id, bridge_executor, refine_executor, context_text,
                 segment_started_at, first_partial_at,
             )
 
@@ -558,6 +562,7 @@ class Pipeline(QObject):
             if self.apple_transcriber:
                 self.apple_transcriber.stop()
             fast_executor.shutdown(wait=False, cancel_futures=True)
+            bridge_executor.shutdown(wait=False, cancel_futures=True)
             refine_executor.shutdown(wait=False, cancel_futures=True)
 
     def _process_partial_chunk(self, audio_data, chunk_id, prompt="", translate_executor=None):
@@ -730,6 +735,7 @@ class Pipeline(QObject):
         self,
         text,
         chunk_id,
+        bridge_executor,
         refine_executor,
         context_text,
         segment_started_at=None,
@@ -778,9 +784,17 @@ class Pipeline(QObject):
         except RuntimeError as exc:
             log_stage("llm_refine", chunk_id=chunk_id, status="skipped", detail=str(exc))
 
-        # Groq is the low-latency bridge between the local Apple draft and the
-        # higher-quality final model. It never blocks refinement and cannot
-        # overwrite a final-model result that arrived first.
+        # Network enhancement must not occupy the latency-critical Apple draft
+        # executor. A dedicated executor also prevents Groq from delaying the
+        # next utterance's provisional translation.
+        try:
+            bridge_executor.submit(self._run_groq_bridge, text, chunk_id, draft)
+        except RuntimeError as exc:
+            log_stage("groq_bridge", chunk_id=chunk_id, status="skipped", detail=str(exc))
+
+    def _run_groq_bridge(self, text, chunk_id, draft):
+        """Best-effort bridge isolated from Apple drafts and final refinement."""
+        # Groq cannot overwrite a final-model result that arrived first.
         groq_available = (
             isinstance(self.translator, HybridTranslator) and config.groq_api_key
         )
