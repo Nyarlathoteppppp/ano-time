@@ -7,6 +7,7 @@ private struct InputMessage: Decodable {
     let original: String?
     let translated: String?
     let items: [SubtitleLine]?
+    let paused: Bool?
 }
 
 private struct SubtitleLine: Codable, Identifiable {
@@ -273,6 +274,9 @@ private struct RealtimeNotchHelper {
                       let message = try? JSONDecoder().decode(InputMessage.self, from: data) else { continue }
                 if message.command == "quit" { break }
                 Task { @MainActor in
+                    if let paused = message.paused {
+                        state.isPaused = paused
+                    }
                     if let items = message.items, !items.isEmpty {
                         state.items = Array(items.suffix(3))
                     } else if let original = message.original {

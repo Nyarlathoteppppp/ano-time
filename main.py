@@ -244,6 +244,10 @@ class Pipeline(QObject):
             self._paused.clear()
             print("[Pipeline] Resumed.")
 
+    @property
+    def is_paused(self):
+        return self._paused.is_set()
+
     def processing_loop(self):
         """Fully parallel pipeline: multiple concurrent transcription + translation"""
         if config.asr_backend == "apple":

@@ -28,6 +28,10 @@ window_width = 800
 window_height = 120
 mode = glass
 
+[shortcut]
+enabled = true
+double_tap_interval = 0.32
+
 [transcription]
 backend = whisper
 whisper_model = base

@@ -26,6 +26,7 @@ class NativeNotchOverlay(QObject):
         self.delegate = None
         self.transcript_data = {}
         self._last_native_items = None
+        self._paused = False
         self._write_lock = threading.Lock()
         self._write_queue = queue.Queue(maxsize=1)
         self._writer_stop = threading.Event()
@@ -117,8 +118,10 @@ class NativeNotchOverlay(QObject):
         if event == "exit":
             QTimer.singleShot(0, self.stop_requested.emit)
         elif event == "pause":
+            self._paused = True
             QTimer.singleShot(0, lambda: self.pause_requested.emit(True))
         elif event == "resume":
+            self._paused = False
             QTimer.singleShot(0, lambda: self.pause_requested.emit(False))
         elif event == "glass":
             QTimer.singleShot(0, self._show_glass_overlay)
@@ -274,6 +277,8 @@ class NativeNotchOverlay(QObject):
         process = self.process
         if not process or process.poll() is not None or not process.stdin:
             return
+        payload = dict(payload)
+        payload.setdefault("paused", self._paused)
         line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
         # The UI thread never writes to the subprocess. Keep only the newest
         # complete frame so a slow SwiftUI helper cannot create visual backlog.
@@ -288,6 +293,13 @@ class NativeNotchOverlay(QObject):
                 self._write_queue.put_nowait(line)
             except queue.Full:
                 pass
+
+    def set_paused(self, paused):
+        self._paused = bool(paused)
+        payload = {"paused": self._paused}
+        if self.transcript_data:
+            payload["items"] = self._latest_items()
+        self._send(payload)
 
     def close(self):
         if self.delegate:

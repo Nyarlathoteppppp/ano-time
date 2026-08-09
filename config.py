@@ -104,6 +104,10 @@ class Config:
         self.window_height = self._getint("display", "window_height", 120)
         self.display_mode = self._get("display", "mode", "glass").lower()
 
+        # Global shortcut settings
+        self.shortcut_enabled = self._getbool("shortcut", "enabled", True)
+        self.shortcut_interval = self._getfloat("shortcut", "double_tap_interval", 0.32)
+
     def reload(self):
         """Reload config.ini in place so existing module references stay valid."""
         self.__init__(self.config_path)
@@ -125,6 +129,12 @@ class Config:
     def _getfloat(self, section, key, fallback=0.0):
         try:
             return self.config.getfloat(section, key)
+        except (configparser.NoSectionError, configparser.NoOptionError, ValueError):
+            return fallback
+
+    def _getbool(self, section, key, fallback=False):
+        try:
+            return self.config.getboolean(section, key)
         except (configparser.NoSectionError, configparser.NoOptionError, ValueError):
             return fallback
 

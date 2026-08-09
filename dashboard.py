@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTabWidget, QSpinBox, QDoubleSpinBox, QGridLayout,
                              QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
                              QMessageBox, QTextEdit, QDialog, QLayout)
+from PyQt6.QtWidgets import QCheckBox
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QThread, QTimer
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtGui import QFont, QIcon, QColor
@@ -143,6 +144,9 @@ class Dashboard(QWidget):
         audio_test = getattr(self, "audio_test_worker", None)
         if audio_test and audio_test.isRunning():
             audio_test.wait(2500)
+        shortcut = getattr(self, "global_shortcut", None)
+        if shortcut:
+            shortcut.stop()
         if self._native_blur_window is not None:
             self._native_blur_window.close()
             self._native_blur_window = None
@@ -235,6 +239,8 @@ class Dashboard(QWidget):
         self._startup_workers = {}
         self.pipeline = None
         self.overlay_window = None
+        self.shortcut_enabled = config.shortcut_enabled
+        self.shortcut_interval = config.shortcut_interval
         self.setWindowTitle("Real-Time Translator - Control Center")
         self.setMinimumSize(760, 540)
         self.setStyleSheet(STYLESHEET)
@@ -260,6 +266,16 @@ class Dashboard(QWidget):
         self.init_transcription_tab()
         self.init_translation_tab()
         self.update_home_summary()
+
+        from global_shortcut import MacDoubleOptionShortcut
+        self.global_shortcut = MacDoubleOptionShortcut(
+            enabled=self.shortcut_enabled,
+            interval_seconds=self.shortcut_interval,
+            parent=self,
+        )
+        self.global_shortcut.activated.connect(self.on_global_shortcut)
+        self.global_shortcut.start()
+        self._update_shortcut_button()
         
         # Footer Actions
         footer = QHBoxLayout()
@@ -368,11 +384,16 @@ class Dashboard(QWidget):
         self.log_btn = QPushButton("📄 Open Runtime Log")
         self.log_btn.setFixedSize(200, 38)
         self.log_btn.clicked.connect(self.open_runtime_log)
+
+        self.shortcut_btn = QPushButton("⌥⌥ Shortcut Settings")
+        self.shortcut_btn.setFixedSize(240, 38)
+        self.shortcut_btn.clicked.connect(self.open_shortcut_settings)
         
         btn_layout.addWidget(self.start_btn)
         btn_layout.addWidget(self.stop_btn)
         layout.addLayout(btn_layout)
         layout.addWidget(self.log_btn)
+        layout.addWidget(self.shortcut_btn)
         
         info = QLabel("The translator will open as an overlay window.\nYou can minimize this dashboard.")
         info.setStyleSheet("color: #6c7086; font-style: italic;")
@@ -394,6 +415,117 @@ class Dashboard(QWidget):
         import subprocess
         from runtime_log import LOG_PATH
         subprocess.run(["open", LOG_PATH], check=False)
+
+    def _update_shortcut_button(self):
+        if not hasattr(self, "shortcut_btn"):
+            return
+        state = "On" if self.shortcut_enabled else "Off"
+        interval_ms = int(round(self.shortcut_interval * 1000))
+        self.shortcut_btn.setText(
+            f"⌥⌥ Double Option · {state} · {interval_ms} ms"
+        )
+
+    def open_shortcut_settings(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Global Shortcut Settings")
+        dialog.setMinimumWidth(440)
+        dialog.setStyleSheet(STYLESHEET)
+        layout = QVBoxLayout(dialog)
+
+        title = QLabel("⌥⌥ Double Option（双击 Option）")
+        title.setStyleSheet("font-size: 17px; font-weight: 700; color: #89b4fa;")
+        layout.addWidget(title)
+
+        enabled = QCheckBox("Enable global shortcut（启用全局快捷键）")
+        enabled.setChecked(self.shortcut_enabled)
+        layout.addWidget(enabled)
+
+        interval_row = QHBoxLayout()
+        interval_row.addWidget(QLabel("Double-tap interval（双击间隔）:"))
+        interval = QSpinBox()
+        interval.setRange(200, 600)
+        interval.setSingleStep(20)
+        interval.setSuffix(" ms")
+        interval.setValue(int(round(self.shortcut_interval * 1000)))
+        interval_row.addWidget(interval)
+        layout.addLayout(interval_row)
+
+        explanation = QLabel(
+            "Idle: launch directly in Physical MacBook Notch mode.\n"
+            "Running: pause. Paused: resume.\n"
+            "Option combined with any other key is ignored. If it does not react "
+            "outside the app, allow Realtime Translator under macOS Accessibility."
+        )
+        explanation.setWordWrap(True)
+        explanation.setStyleSheet(
+            "color: #a6adc8; background: rgba(255,255,255,14); "
+            "padding: 10px; border-radius: 8px;"
+        )
+        layout.addWidget(explanation)
+
+        permission_btn = QPushButton("Open Accessibility Settings（打开辅助功能权限）")
+        permission_btn.clicked.connect(self.open_accessibility_settings)
+        layout.addWidget(permission_btn)
+
+        actions = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        save = QPushButton("Save")
+        cancel.clicked.connect(dialog.reject)
+        save.clicked.connect(dialog.accept)
+        actions.addStretch()
+        actions.addWidget(cancel)
+        actions.addWidget(save)
+        layout.addLayout(actions)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.shortcut_enabled = enabled.isChecked()
+        self.shortcut_interval = interval.value() / 1000.0
+        self.global_shortcut.set_enabled(self.shortcut_enabled)
+        self.global_shortcut.set_interval(self.shortcut_interval)
+        self._update_shortcut_button()
+        self.save_config(show_status=False)
+        self.status_label.setText("Shortcut settings saved · Double Option")
+        self.status_label.setStyleSheet("font-size: 16px; color: #a6e3a1;")
+
+    def open_accessibility_settings(self):
+        import subprocess
+        subprocess.Popen([
+            "open",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        ])
+
+    def on_global_shortcut(self):
+        if not self.shortcut_enabled:
+            return
+        if self._session_state == "idle":
+            notch_index = self.display_mode.findData("notch")
+            if notch_index >= 0:
+                self.display_mode.setCurrentIndex(notch_index)
+            self.status_label.setText("Double Option · launching notch translator…")
+            self.status_label.setStyleSheet("font-size: 16px; color: #89b4fa;")
+            self.on_start()
+            return
+        if self._session_state == "starting":
+            self.status_label.setText("Translator is already starting…")
+            return
+        if self.pipeline:
+            self._set_pipeline_paused(not self.pipeline.is_paused)
+
+    def _set_pipeline_paused(self, paused, update_overlay=True):
+        if not self.pipeline:
+            return
+        self.pipeline.set_paused(paused)
+        if update_overlay and self.overlay_window and hasattr(
+            self.overlay_window, "set_paused"
+        ):
+            self.overlay_window.set_paused(paused)
+        if paused:
+            self.status_label.setText("Paused · Double Option to resume")
+            self.status_label.setStyleSheet("font-size: 16px; color: #f9e2af;")
+        else:
+            self.status_label.setText("Running · Double Option to pause")
+            self.status_label.setStyleSheet("font-size: 16px; color: #a6e3a1;")
 
     def update_runtime_status(self, stage, status, detail):
         label = self.runtime_labels.get(stage)
@@ -1254,6 +1386,7 @@ class Dashboard(QWidget):
         if not cp.has_section("transcription"): cp.add_section("transcription")
         if not cp.has_section("providers"): cp.add_section("providers")
         if not cp.has_section("display"): cp.add_section("display")
+        if not cp.has_section("shortcut"): cp.add_section("shortcut")
         
         # Audio
         idx = self.device_combo.currentData()
@@ -1312,6 +1445,8 @@ class Dashboard(QWidget):
             self.cloudflare_api_token.text(),
         ))
         cp.set("display", "mode", self.display_mode.currentData())
+        cp.set("shortcut", "enabled", "true" if self.shortcut_enabled else "false")
+        cp.set("shortcut", "double_tap_interval", str(self.shortcut_interval))
         
         with open(config_path, 'w') as f:
             cp.write(f)
@@ -1401,7 +1536,9 @@ class Dashboard(QWidget):
         if hasattr(self.overlay_window, 'stop_requested'):
              self.overlay_window.stop_requested.connect(self.on_stop)
         if hasattr(self.overlay_window, 'pause_requested'):
-             self.overlay_window.pause_requested.connect(self.pipeline.set_paused)
+             self.overlay_window.pause_requested.connect(
+                 lambda paused: self._set_pipeline_paused(paused, update_overlay=False)
+             )
 
         # Start Pipeline Thread
         self.pipeline.start()
