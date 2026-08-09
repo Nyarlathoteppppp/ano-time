@@ -171,8 +171,12 @@ private struct CompactLeading: View {
         let sourceFile = URL(fileURLWithPath: #filePath)
         let imageURL = sourceFile
             .deletingLastPathComponent()
-            .appendingPathComponent("Resources/ano-smile.png")
-        return NSImage(contentsOf: imageURL)
+            .appendingPathComponent("Resources/ano-smile@2x.png")
+        guard let image = NSImage(contentsOf: imageURL) else { return nil }
+        // The source is an exact 52 x 52 Retina bitmap for a 26-point slot.
+        // Declaring its logical size avoids SwiftUI resampling a 512px master.
+        image.size = NSSize(width: 26, height: 26)
+        return image
     }()
 
     var body: some View {
@@ -181,9 +185,7 @@ private struct CompactLeading: View {
         }) {
             if let mascotImage = Self.mascotImage {
                 Image(nsImage: mascotImage)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 22, height: 22)
+                    .frame(width: 26, height: 26)
             } else {
                 Image(systemName: "captions.bubble.fill")
                     .foregroundStyle(.blue)
