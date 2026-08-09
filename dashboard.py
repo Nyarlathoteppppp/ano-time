@@ -263,7 +263,6 @@ class Dashboard(QWidget):
         
         self.init_home_tab()
         self.init_audio_tab()
-        self.init_device_manager_tab()
         self.init_transcription_tab()
         self.init_translation_tab()
         self.update_home_summary()
