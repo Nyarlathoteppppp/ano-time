@@ -27,10 +27,16 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn(".transition(.opacity)", self.source)
         self.assertNotIn(".move(edge:", self.source)
 
-    def test_mode_switch_holds_width_until_spring_finishes(self):
+    def test_mode_switch_shrinks_smoothly_but_grows_immediately(self):
         self.assertIn("isChangingDisplayCount = true", self.source)
-        self.assertIn(".spring(response: 0.30, dampingFraction: 0.88)", self.source)
+        self.assertIn("if nextDisplayCount < displayCount", self.source)
+        self.assertIn("withAnimation(.easeInOut(duration: 0.45))", self.source)
+        self.assertIn("let isShrinking = width < contentWidth", self.source)
         self.assertIn("Task.sleep(for: .seconds(0.30))", self.source)
+
+    def test_compact_mode_hides_english_and_does_not_measure_its_width(self):
+        self.assertIn("if state.displayCount > 1", self.source)
+        self.assertIn("let englishWidth = displayCount == 1 ? 0", self.source)
 
 
 if __name__ == "__main__":

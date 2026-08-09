@@ -85,6 +85,26 @@ class ControllerTests(unittest.TestCase):
         self.assertFalse(view.pause_btn.visible)
         self.assertEqual(calls, ["overlay", "pipeline", "normal"])
 
+    def test_session_stop_flushes_automatic_transcript(self):
+        calls = []
+        view = SimpleNamespace(
+            _session_generation=3,
+            _session_state="running",
+            overlay_window=None,
+            pipeline=None,
+            transcript_recorder=SimpleNamespace(
+                stop=lambda: calls.append("transcript")
+            ),
+            status_label=FakeWidget(),
+            stop_btn=FakeWidget(),
+            pause_btn=FakeWidget(),
+            start_btn=FakeWidget(),
+            showNormal=lambda: None,
+        )
+        SessionController(view, None).stop()
+        self.assertEqual(calls, ["transcript"])
+        self.assertIsNone(view.transcript_recorder)
+
     def test_pause_button_tracks_pipeline_state(self):
         paused = []
         view = SimpleNamespace(

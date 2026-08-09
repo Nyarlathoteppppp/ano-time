@@ -76,8 +76,13 @@ private final class SubtitleState: ObservableObject {
         modeTransitionTask?.cancel()
         widthShrinkTask?.cancel()
         isChangingDisplayCount = true
-        withAnimation(.spring(response: 0.30, dampingFraction: 0.88)) {
-            displayCount = displayCount == 3 ? 1 : displayCount + 1
+        let nextDisplayCount = displayCount == 3 ? 1 : displayCount + 1
+        if nextDisplayCount < displayCount {
+            withAnimation(.easeInOut(duration: 0.45)) {
+                displayCount = nextDisplayCount
+            }
+        } else {
+            displayCount = nextDisplayCount
         }
         Self.sizeDefaults?.set(displayCount, forKey: "displayCount")
         modeTransitionTask = Task { @MainActor [weak self] in
@@ -96,7 +101,7 @@ private final class SubtitleState: ObservableObject {
         let englishFont = NSFont.systemFont(ofSize: 11.5, weight: .regular)
         let translatedFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
         let measured = visibleItems.reduce(CGFloat(0)) { longest, item in
-            let englishWidth = (item.original as NSString).size(
+            let englishWidth = displayCount == 1 ? 0 : (item.original as NSString).size(
                 withAttributes: [.font: englishFont]
             ).width
             let translatedWidth = (item.translated as NSString).size(
@@ -116,8 +121,9 @@ private final class SubtitleState: ObservableObject {
 
     private func setContentWidth(_ width: CGFloat, animated: Bool) {
         guard width != contentWidth else { return }
-        if animated {
-            withAnimation(.easeInOut(duration: 0.18)) {
+        let isShrinking = width < contentWidth
+        if animated && isShrinking {
+            withAnimation(.easeInOut(duration: 0.45)) {
                 contentWidth = width
             }
         } else {
@@ -170,17 +176,19 @@ private struct SubtitleContent: View {
             VStack(alignment: .center, spacing: 5) {
                 ForEach(state.items.suffix(state.displayCount)) { item in
                     VStack(alignment: .center, spacing: 2) {
-                        Text(item.original)
-                            .font(.system(
-                                size: 11.5,
-                                weight: item.finalized == true ? .medium : .regular
-                            ))
-                            .foregroundStyle(
-                                .white.opacity(item.finalized == true ? 0.96 : 0.78)
-                            )
-                            .lineLimit(1)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity, alignment: .center)
+                        if state.displayCount > 1 {
+                            Text(item.original)
+                                .font(.system(
+                                    size: 11.5,
+                                    weight: item.finalized == true ? .medium : .regular
+                                ))
+                                .foregroundStyle(
+                                    .white.opacity(item.finalized == true ? 0.96 : 0.78)
+                                )
+                                .lineLimit(1)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        }
 
                         Text(item.translated.isEmpty ? "…" : item.translated)
                             .font(.system(size: 16, weight: .semibold))

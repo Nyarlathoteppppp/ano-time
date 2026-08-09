@@ -133,6 +133,12 @@ class Config:
         self.window_height = self._getint("display", "window_height", 120)
         self.display_mode = self._get("display", "mode", "notch").lower()
 
+        # Session transcripts are written by a background worker and retained
+        # for three days. The UI can disable the recorder entirely.
+        self.auto_save_transcripts = self._getbool(
+            "records", "auto_save_transcripts", True
+        )
+
         # Global shortcut settings
         self.shortcut_enabled = self._getbool("shortcut", "enabled", True)
         self.shortcut_interval = self._getfloat("shortcut", "double_tap_interval", 0.45)

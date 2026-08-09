@@ -595,6 +595,17 @@ class Dashboard(QWidget):
             "When off, no log queue, log writer, or resource sampler runs."
         )
 
+        self.transcript_recording_checkbox = QCheckBox(
+            "自动保存双语记录（保留 3 天）"
+        )
+        self.transcript_recording_checkbox.setChecked(
+            config.auto_save_transcripts
+        )
+        self.transcript_recording_checkbox.setToolTip(
+            "每次启动翻译后，在“文稿/Anotime Records”生成带日期时间的双语 TXT。\n"
+            "写入在独立后台线程完成，不阻塞实时字幕；超过 3 天自动删除。"
+        )
+
         self.shortcut_btn = QPushButton("⌃S Shortcut Settings")
         self.shortcut_btn.setFixedSize(240, 38)
         self.shortcut_btn.clicked.connect(self.open_shortcut_settings)
@@ -605,6 +616,7 @@ class Dashboard(QWidget):
         layout.addLayout(btn_layout)
         layout.addWidget(self.log_btn)
         layout.addWidget(self.diagnostics_checkbox)
+        layout.addWidget(self.transcript_recording_checkbox)
         layout.addWidget(self.shortcut_btn)
         
         info = QLabel("The translator will open as an overlay window.\nYou can minimize this dashboard.")
@@ -753,6 +765,9 @@ class Dashboard(QWidget):
             field.textChanged.connect(self._mark_settings_dirty)
 
         self.diagnostics_checkbox.toggled.connect(self._mark_settings_dirty)
+        self.transcript_recording_checkbox.toggled.connect(
+            self._mark_settings_dirty
+        )
 
     def _mark_settings_dirty(self, *_):
         if not self._settings_ready:
@@ -1873,6 +1888,7 @@ class Dashboard(QWidget):
         if not cp.has_section("display"): cp.add_section("display")
         if not cp.has_section("shortcut"): cp.add_section("shortcut")
         if not cp.has_section("diagnostics"): cp.add_section("diagnostics")
+        if not cp.has_section("records"): cp.add_section("records")
         
         # Audio
         idx = self.device_combo.currentData()
@@ -1977,6 +1993,10 @@ class Dashboard(QWidget):
         cp.set(
             "diagnostics", "enabled",
             "true" if self.diagnostics_checkbox.isChecked() else "false",
+        )
+        cp.set(
+            "records", "auto_save_transcripts",
+            "true" if self.transcript_recording_checkbox.isChecked() else "false",
         )
         
         with open(config_path, 'w') as f:

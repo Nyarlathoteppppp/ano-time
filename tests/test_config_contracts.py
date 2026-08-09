@@ -20,6 +20,7 @@ class ConfigContractTests(unittest.TestCase):
         self.assertEqual(loaded.model, "qwen-mt-flash")
         self.assertEqual(loaded.api_key, "")
         self.assertIsNone(loaded.device_index)
+        self.assertTrue(loaded.auto_save_transcripts)
 
     def test_auto_audio_uses_macos_default_instead_of_blackhole(self):
         with tempfile.TemporaryDirectory() as directory:

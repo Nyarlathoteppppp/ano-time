@@ -42,6 +42,11 @@ double_tap_interval = 0.45
 # Enable temporarily only while troubleshooting; restart after changing it.
 enabled = false
 
+[records]
+# Save one timestamped bilingual transcript per translation session.
+# Files are stored in ~/Documents/Anotime Records and removed after 3 days.
+auto_save_transcripts = true
+
 [pipeline]
 # Isolate ASR/Apple UI updates from finalized remote translation work.
 split_fast_path = true

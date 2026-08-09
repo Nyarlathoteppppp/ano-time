@@ -6,9 +6,14 @@ from runtime_log import log_stage
 
 
 class SessionController:
-    def __init__(self, view, startup_worker_factory):
+    def __init__(self, view, startup_worker_factory, transcript_recorder_factory=None):
         self.view = view
         self.startup_worker_factory = startup_worker_factory
+        if transcript_recorder_factory is None:
+            from session_transcript_recorder import SessionTranscriptRecorder
+
+            transcript_recorder_factory = SessionTranscriptRecorder
+        self.transcript_recorder_factory = transcript_recorder_factory
 
     def start(self):
         view = self.view
@@ -87,6 +92,20 @@ class SessionController:
         view.overlay_window.show()
 
         view.pipeline.signals.update_text.connect(view.overlay_window.update_text)
+        previous_recorder = getattr(view, "transcript_recorder", None)
+        if previous_recorder:
+            previous_recorder.stop()
+        view.transcript_recorder = None
+        if config.auto_save_transcripts:
+            try:
+                view.transcript_recorder = self.transcript_recorder_factory()
+                view.pipeline.signals.update_text.connect(
+                    view.transcript_recorder.update_text
+                )
+            except Exception as exc:
+                # Recording is useful but must never block live captions.
+                view.transcript_recorder = None
+                log_stage("transcript_recording", status="error", detail=str(exc))
         view.pipeline.signals.pipeline_error.connect(view.on_pipeline_error)
         view.pipeline.signals.runtime_status.connect(view.update_runtime_status)
         if hasattr(view.overlay_window, "stop_requested"):
@@ -156,6 +175,10 @@ class SessionController:
         if view.pipeline:
             view.pipeline.stop()
             view.pipeline = None
+        transcript_recorder = getattr(view, "transcript_recorder", None)
+        if transcript_recorder:
+            transcript_recorder.stop()
+            view.transcript_recorder = None
         view.status_label.setText("Stopped")
         view.stop_btn.hide()
         if hasattr(view, "pause_btn"):
