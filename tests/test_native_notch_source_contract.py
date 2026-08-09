@@ -34,9 +34,10 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn("let isShrinking = width < contentWidth", self.source)
         self.assertIn("Task.sleep(for: .seconds(0.30))", self.source)
 
-    def test_compact_mode_hides_english_and_does_not_measure_its_width(self):
-        self.assertIn("if state.displayCount > 1", self.source)
-        self.assertIn("let englishWidth = displayCount == 1 ? 0", self.source)
+    def test_compact_and_oldest_large_line_hide_english(self):
+        self.assertIn("let hidesOriginal = displayCount == 1", self.source)
+        self.assertIn("displayCount == 3 && item.id == visibleItems.first?.id", self.source)
+        self.assertIn("if !hidesOriginal", self.source)
 
     def test_launch_and_exit_use_directional_notch_transitions(self):
         self.assertIn("openingAnimation: .easeOut(duration: 0.55)", self.source)

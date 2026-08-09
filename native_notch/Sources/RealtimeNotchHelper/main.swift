@@ -101,7 +101,10 @@ private final class SubtitleState: ObservableObject {
         let englishFont = NSFont.systemFont(ofSize: 11.5, weight: .regular)
         let translatedFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
         let measured = visibleItems.reduce(CGFloat(0)) { longest, item in
-            let englishWidth = displayCount == 1 ? 0 : (item.original as NSString).size(
+            let hidesOriginal = displayCount == 1 || (
+                displayCount == 3 && item.id == visibleItems.first?.id
+            )
+            let englishWidth = hidesOriginal ? 0 : (item.original as NSString).size(
                 withAttributes: [.font: englishFont]
             ).width
             let translatedWidth = (item.translated as NSString).size(
@@ -176,7 +179,11 @@ private struct SubtitleContent: View {
             VStack(alignment: .center, spacing: 5) {
                 ForEach(state.items.suffix(state.displayCount)) { item in
                     VStack(alignment: .center, spacing: 2) {
-                        if state.displayCount > 1 {
+                        let hidesOriginal = state.displayCount == 1 || (
+                            state.displayCount == 3
+                                && item.id == state.items.suffix(3).first?.id
+                        )
+                        if !hidesOriginal {
                             Text(item.original)
                                 .font(.system(
                                     size: 11.5,
