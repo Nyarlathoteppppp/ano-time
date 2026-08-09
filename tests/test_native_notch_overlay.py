@@ -75,6 +75,28 @@ class NativeNotchOverlayTest(unittest.TestCase):
         self.assertEqual(overlay.transcript_data[7]["translated"], translation)
         self.assertGreater(len(rendered), 1)
 
+    def test_long_provisional_translation_is_split_for_small_notch_visibility(self):
+        overlay = RecordingNotchOverlay()
+        translation = "正在增长的苹果实时翻译草稿会持续追加中文内容" * 7
+        overlay.update_text(8, "A growing provisional sentence", translation, "partial")
+        rendered = overlay._latest_items()
+        self.assertGreater(len(rendered), 1)
+        self.assertTrue(all(item["finalized"] is False for item in rendered))
+        self.assertTrue(all(
+            overlay._visual_width(item["translated"]) <= 58 * 16
+            for item in rendered
+        ))
+        self.assertEqual(overlay.transcript_data[8]["translated"], translation)
+
+    def test_mixed_width_translation_uses_rendered_capacity(self):
+        text = "半正定矩阵 covariance matrix 与 posterior distribution " * 5
+        parts = NativeNotchOverlay._split_display_text(text, 58)
+        self.assertGreater(len(parts), 1)
+        self.assertTrue(all(
+            NativeNotchOverlay._visual_width(part) <= 58 * 16
+            for part in parts
+        ))
+
     def test_pause_resume_and_quit_events_follow_native_protocol(self):
         overlay = RecordingNotchOverlay()
         paused = []

@@ -201,7 +201,7 @@ class NativeNotchOverlay(QObject):
         for chunk_id in sorted(self.transcript_data):
             item = self.transcript_data[chunk_id]
             translated_parts = self._split_display_text(item["translated"], 58)
-            if not item["finalized"] or len(translated_parts) <= 1:
+            if len(translated_parts) <= 1:
                 rendered.append({
                     "id": chunk_id,
                     "original": item["original"],
@@ -218,28 +218,39 @@ class NativeNotchOverlay(QObject):
                     "id": chunk_id * 1000 + index,
                     "original": original_parts[index],
                     "translated": translated,
-                    "finalized": True,
+                    "finalized": item["finalized"],
                 })
         return rendered[-3:]
 
     @staticmethod
     def _split_display_text(text, max_chars):
         text = " ".join((text or "").split())
-        # The native Chinese label is 16 pt and can show two lines within a
-        # 560 pt notch. Split only when the rendered text would exceed that
-        # capacity; raw character count is inaccurate for mixed CJK/ASCII.
-        if not text or NativeNotchOverlay._visual_width(text) <= 1104:
+        # The native label has 480 pt of usable width after horizontal padding
+        # and two visible lines. A wide/CJK character is approximately 16 pt,
+        # so 58 CJK characters (928 visual units) is the safe rendered limit.
+        # Apply this to provisional drafts too: small-notch mode then keeps the
+        # newest fitting fragment visible as a long partial continues growing.
+        max_visual_width = max(16, int(max_chars) * 16)
+        if not text or NativeNotchOverlay._visual_width(text) <= max_visual_width:
             return [text]
         clauses = [part for part in re.split(r"(?<=[。！？!?；;，,])", text) if part]
         parts = []
         current = ""
         for clause in clauses:
-            if current and len(current) + len(clause) > max_chars:
+            if (
+                current
+                and NativeNotchOverlay._visual_width(current + clause)
+                > max_visual_width
+            ):
                 parts.append(current.strip())
                 current = ""
-            while len(clause) > max_chars:
-                split_at = clause.rfind(" ", 0, max_chars + 1)
-                split_at = split_at if split_at > 0 else max_chars
+            while NativeNotchOverlay._visual_width(clause) > max_visual_width:
+                split_at = NativeNotchOverlay._visual_prefix_length(
+                    clause, max_visual_width
+                )
+                word_boundary = clause.rfind(" ", 0, split_at + 1)
+                if word_boundary > max(0, split_at // 2):
+                    split_at = word_boundary
                 if current:
                     parts.append(current.strip())
                     current = ""
@@ -256,6 +267,18 @@ class NativeNotchOverlay(QObject):
             16 if unicodedata.east_asian_width(char) in ("W", "F", "A") else 8
             for char in text
         )
+
+    @staticmethod
+    def _visual_prefix_length(text, max_visual_width):
+        width = 0
+        for index, char in enumerate(text):
+            char_width = (
+                16 if unicodedata.east_asian_width(char) in ("W", "F", "A") else 8
+            )
+            if width + char_width > max_visual_width:
+                return max(1, index)
+            width += char_width
+        return len(text)
 
     @staticmethod
     def _balanced_parts(text, count):
