@@ -210,12 +210,10 @@ private struct RealtimeNotchHelper {
         }
 
         let regularNotch = makeNotch(style: .auto)
-        // One-line mode uses matching upper/lower radii so both sides form a
-        // capsule. Medium and large retain DynamicNotchKit's normal silhouette.
-        let smallNotch = makeNotch(style: .notch(
-            topCornerRadius: 48,
-            bottomCornerRadius: 48
-        ))
+        // The compact one-item mode is a detached capsule. A very large
+        // continuous radius is clamped to half the rendered height, producing
+        // true semicircular ends instead of the shoulders of a notch shape.
+        let smallNotch = makeNotch(style: .floating(cornerRadius: 999))
 
         func expandActiveNotch() async {
             if state.displayCount == 1 {
