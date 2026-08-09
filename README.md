@@ -1,6 +1,325 @@
 # Anotime
 
+<p align="center">
+  <a href="#中文说明">中文</a> · <a href="#english">English</a>
+</p>
+
+<a id="中文说明"></a>
+
+## 中文说明
+
 <p align="center"><strong>这款应用帮助大家度过一开始的语言难关，避免大家像 Ano 一样过了雅思却听不懂课（早知道不如去花咲川）。</strong></p>
+
+**面向 macOS 课堂、会议和全屏视频的速度优先型英译中实时字幕工具。**
+
+Anotime 使用 Apple 端侧语音识别与即时翻译提供低延迟草稿，并可接入 Groq 桥接模型和带严格截止时间的 AI 精修。即使远程模型变慢、不可用或免费额度耗尽，Apple 草稿也不会被阻塞。
+
+应用可通过 ScreenCaptureKit 直接监听 Mac 本机音频，无需配置 BlackHole；字幕可以显示为可调整大小的磨砂玻璃窗口，也可以贴合 MacBook 物理刘海显示。
+
+> 主要面向 Apple Silicon MacBook。通用 Python/Qt 路径可以在其他平台运行，但 Apple Speech、Apple Translation、ScreenCaptureKit 系统音频和物理刘海界面仅支持 macOS。
+
+### 界面预览
+
+#### 控制中心
+
+![Anotime 磨砂玻璃控制中心](./demo/control-center.png)
+
+#### 小型物理刘海
+
+<p align="center">
+  <img src="./demo/compact-notch.png" width="68%" alt="Anotime 小型物理刘海字幕">
+</p>
+
+#### 展开的物理刘海字幕
+
+![Anotime 物理刘海字幕](./demo/physical-notch.png)
+
+#### 可调整大小的玻璃字幕
+
+<p align="center">
+  <img src="./demo/glass-overlay.png" width="46%" alt="Anotime 磨砂玻璃字幕窗口">
+</p>
+
+### 主要功能
+
+- Apple Speech 实时识别，并用透明度区分临时英文与 finalized 英文。
+- 通过 ScreenCaptureKit 直接翻译浏览器视频、网课、Zoom 和其他应用音频。
+- Apple 草稿走独立快速路径，远程模型限时执行，不阻塞后续字幕。
+- 三种可选流程：智能混合、单模型和完全本地 Apple；桥接模型与最终模型互相独立。
+- 内置 API 测速：发送五条固定技术语句，显示首字延迟和平均单次总耗时。
+- 物理刘海支持显示 1/2/3 条消息、自动宽度、长译文切段、暂停、玻璃模式和退出菜单。
+- 磨砂玻璃字幕可以从任意边缘或角落调整大小，并保持在全屏视频上方。
+- 支持可选 TSV 术语表和 finalized ASR 纠错表；新用户默认不会加载维护者的课程术语。
+- 支持 Qwen-MT、DeepSeek、SiliconFlow、Groq、Gemini、Cloudflare Workers AI 和自定义 OpenAI-compatible 接口。
+- 免费模型额度按分钟、token 和每日额度管理；失败后自动切换，并由 Qwen-MT 付费接口兜底。
+- `Control + S` 全局快捷键可启动、暂停和恢复刘海翻译，无需辅助功能或输入监控权限。
+
+#### 可用的免费模型
+
+- Apple Speech + Apple Translation：[macOS 内置](https://support.apple.com/)。
+- GPT-OSS 20B：[Groq Console](https://console.groq.com/)。
+- Gemini 3.5 Flash-Lite：[Google AI Studio](https://aistudio.google.com/)。
+- GLM-4.7-Flash：[Cloudflare Dashboard](https://dash.cloudflare.com/)。
+- Qwen-MT Flash：[阿里云百炼](https://bailian.console.aliyun.com/)。
+
+免费额度和模型可用性可能变化，正式上课前应在对应平台确认。
+
+### 环境要求
+
+- 推荐 Apple Silicon Mac。
+- 原生 Apple `SpeechAnalyzer` / `SpeechTranscriber` 推荐 macOS 26 或更高版本。
+- Python 3.10+。
+- Xcode Command Line Tools。
+- Homebrew 和 FFmpeg。
+
+Apple Speech 不可用时可以选择 Whisper/MLX。Windows 保留旧启动脚本，但当前低延迟原生功能主要面向 macOS。
+
+### 安装
+
+```bash
+git clone https://github.com/Nyarlathoteppppp/ano-time.git
+cd ano-time
+chmod +x install_mac.sh start_mac.sh
+./install_mac.sh
+```
+
+缺少 FFmpeg 时：
+
+```bash
+brew install ffmpeg
+```
+
+安装脚本会创建项目内的 `.venv`、安装 Python 依赖、构建 Apple Speech 与原生刘海 helper，并从示例生成 `config.ini`。
+
+#### 安装桌面应用和快捷键
+
+```bash
+chmod +x install_desktop_app.sh install_hotkey_agent.sh
+./install_desktop_app.sh
+./install_hotkey_agent.sh
+```
+
+完成后可以像普通 Mac 应用一样打开 **Anotime.app**。应用采用单实例机制，重复打开只会激活已有控制中心，不会产生多个翻译窗口。
+
+`Control + S` 在停止状态下启动物理刘海翻译，在运行时暂停，在暂停时恢复。快捷键由常驻 LaunchAgent 注册，不需要辅助功能或输入监控权限。
+
+普通 Python 源码更新不需要重新安装桌面应用。只有首次安装或 launcher 本身发生变化时才运行 `install_desktop_app.sh`；重新签名可能导致 macOS 再次要求隐私权限。
+
+### 快速开始
+
+```bash
+./start_mac.sh
+```
+
+在控制中心中：
+
+1. **Audio**：翻译视频或应用时选择 `System Audio`，线下课堂选择麦克风。
+2. **ASR · 语音识别**：最低延迟选择 `Apple`，Apple Silicon Whisper 路径选择 `MLX`。
+3. **AI · 翻译**：选择翻译流程、可选桥接模型，并填写对应 API Key。
+4. **Subtitle Mode**：选择 `Physical MacBook Notch` 或 `Glass`。
+5. 点击 **Launch Translator**。
+
+API Key 会保存在 macOS Keychain。被 Git 忽略的 `config.ini` 只保存 `keychain://...` 引用；旧的明文密钥会在成功写入 Keychain 后自动迁移。不要把真实密钥放进 Issue、日志、截图或 README；已经公开的密钥应立即轮换。
+
+### macOS 权限
+
+#### 翻译浏览器或应用音频
+
+打开：
+
+**系统设置 → 隐私与安全性 → 录屏与系统录音**
+
+启用所有出现的项目条目：
+
+- **Anotime**：桌面 launcher。
+- **Realtime Translator Audio**：原生 ScreenCaptureKit helper。
+- **Python**：本地 Dashboard 进程。
+
+部分 macOS 版本还会显示“仅系统录音”，对应的 Anotime 条目也需要打开。修改权限后必须完整退出并重新打开应用；已经运行的 ScreenCaptureKit 进程不会实时获得新权限。
+
+在视频播放时使用 **Audio → Test Permission & Audio**，可以区分权限失败和当前音频本身静音。
+
+#### 翻译麦克风音频
+
+打开：
+
+**系统设置 → 隐私与安全性 → 麦克风**
+
+启用 **Anotime**，然后重启应用。正常的 ScreenCaptureKit 系统音频路径不需要 BlackHole。
+
+#### 全局快捷键
+
+安装常驻快捷键 agent：
+
+```bash
+./install_hotkey_agent.sh
+```
+
+检查运行状态：
+
+```bash
+launchctl print "gui/$(id -u)/com.nyarlathotep.realtime-ton.hotkey"
+tail -f /tmp/realtime-ton-hotkey.log
+```
+
+成功启动会显示：
+
+```text
+[Shortcut] Registered Control + S via Carbon
+[Hotkey Agent] Ready
+```
+
+### 字幕模式
+
+#### 物理 MacBook 刘海
+
+- 点击字幕在 1、2、3 条显示模式之间切换。
+- 右键菜单提供暂停/恢复、玻璃模式和退出。
+- 长文本出现时立即增宽，短文本出现时延迟收缩，减少 ASR 更新造成的抖动。
+- 英文和中文始终居中，刘海左右对称变化。
+- finalized 长译文只在影响两行显示时切段。
+- 六秒没有新语音后自动收起。
+
+#### 磨砂玻璃字幕
+
+- 拖动窗口移动位置。
+- 从任意边缘或角落调整大小。
+- 下次启动恢复上次的位置和尺寸。
+- 系统音频模式使用适合视频的透明效果；麦克风模式保留普通玻璃背景。
+- 原生窗口层级可以保持在浏览器全屏视频上方。
+
+### 翻译流程
+
+控制中心提供三种互相独立的流程：
+
+- **Smart Hybrid（推荐）**：Apple → 可选 Groq → Gemini/GLM → Qwen-MT。
+- **Single Model**：Apple 草稿 → 可选 Groq → 用户指定的 Qwen-MT、DeepSeek、SiliconFlow 或自定义模型。
+- **Apple Only**：完全使用 Apple ASR 和 Apple Translation，不发送远程请求。
+
+桥接模型和最终模型分别配置。修改 Single Model 不会改变 Smart Hybrid 的路由或额度状态。
+
+填写密钥后，选择 **Test Target** 并点击 **Test API · 5 Requests**。应用会在后台发送五条固定的计算机/AI 技术语句，逐条显示首字延迟、总耗时和译文，最后显示成功率与平均单次总耗时。测速会消耗对应 API 的五次真实请求，但不会进入课堂字幕或对话上下文。
+
+```text
+音频
+  → Apple ASR 临时英文
+  → Apple 即时翻译草稿
+  → 可选 Groq 低延迟桥接
+  → finalized 英文句段
+  → Gemini / Cloudflare / Qwen-MT 限时精修
+```
+
+实时策略：
+
+- 每个不同的 Apple partial 都可以更新本地草稿，优先保证视觉实时性。
+- 远程 AI 只处理 stable/finalized 句段，不处理不断增长的 ASR hypothesis。
+- 纯标点 final 会被过滤；三个单词以内的短句保留 Apple 草稿但不消耗远程额度。
+- AI 默认硬截止时间为 3 秒，不执行阻塞式重试。
+- 同时允许两个精修任务，等待队列只保留最新任务。
+- 迟到的低等级结果不能覆盖更高等级译文。
+- Qwen-MT 使用专用翻译参数；通用模型只接收最近一句 finalized 英文作为消歧上下文。
+
+### 配置
+
+控制中心把普通设置和 Keychain 引用写入 `config.ini`。安全模板位于 [`config.ini.example`](./config.ini.example)。
+
+常用选项：
+
+| 设置 | 作用 |
+| --- | --- |
+| `translation.workflow` | `smart_hybrid`、`single_model` 或 `apple_only` |
+| `translation.bridge_provider` | 可选桥接模型：`groq` 或 `off` |
+| `translation.single_provider` | Single Model 使用的最终服务商 |
+| `translation.fast_backend` | Apple 即时草稿或关闭 |
+| `translation.ai_deadline_seconds` | 远程精修的最大有效时间 |
+| `translation.glossary_path` | TSV 术语表 |
+| `translation.asr_corrections_path` | finalized 英文纠错 TSV |
+| `transcription.backend` | `apple`、`mlx`、`whisper` 或 `funasr` |
+| `audio.device_index` | `system`、`auto` 或麦克风设备编号 |
+| `display.mode` | `notch` 或 `glass` |
+
+### 可选术语配置
+
+新安装默认不加载维护者的术语文件。普通课程请保持为空：
+
+```ini
+glossary_path =
+asr_corrections_path =
+```
+
+需要时可以创建两列 TSV 文件并显式设置路径。仓库中的 [`course_glossary.tsv`](./course_glossary.tsv) 是计算机–AI 研究生课程示例：
+
+```tsv
+heuristic function	启发式函数
+admissible heuristic	可采纳启发式
+state space	状态空间
+```
+
+finalized ASR 纠错使用相同格式。纠错只作用于 finalized 文本，不会影响低延迟临时字幕。术语表应保持简短，并且只包含当前课程确定会出现的术语。
+
+### 常见问题
+
+#### 系统音频提示没有权限
+
+确认“录屏与系统录音”中的 **Anotime**、**Realtime Translator Audio** 和 **Python** 均已启用，然后完整重启 Dashboard。排查权限时不要反复运行 `install_desktop_app.sh`，因为重新签名可能使刚刚授予的权限失效。
+
+#### `Control + S` 没有反应
+
+检查常驻 agent：
+
+```bash
+launchctl print "gui/$(id -u)/com.nyarlathotep.realtime-ton.hotkey"
+tail -30 /tmp/realtime-ton-hotkey.log
+```
+
+agent 不存在时重新运行 `./install_hotkey_agent.sh`。
+
+#### 手机播放有识别，浏览器视频没有识别
+
+当前使用的是麦克风而不是 ScreenCaptureKit。选择 **System Audio**，在视频播放时运行音频测试，并确认 Home 页面显示 `System Audio · ScreenCaptureKit active`。
+
+#### 字幕不能显示在全屏视频上方
+
+更新后完整重启应用。物理刘海和玻璃窗口都依赖 macOS 原生窗口层级及 fullscreen Space 行为。
+
+#### 翻译返回 `401 invalid_api_key`
+
+接口可以连接，但 API Key 不属于当前服务商或 Host。Base URL、模型名和 API Key 必须来自同一平台。
+
+#### 第一次启动很慢
+
+MLX/Whisper 会在首次使用时下载模型；Apple Speech 也可能需要下载语言资源，后续启动会复用缓存。
+
+### 开发与测试
+
+```bash
+./build_apple_speech.sh
+./build_native_notch.sh
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -q
+```
+
+### 平台支持
+
+| 功能 | macOS | Windows / Linux |
+| --- | --- | --- |
+| Python/Qt 控制中心 | 支持 | 部分支持 |
+| Whisper / FunASR | 支持 | 支持，取决于硬件和依赖 |
+| Apple Speech / Translation | 支持 | 不支持 |
+| ScreenCaptureKit 系统音频 | 支持 | 不支持 |
+| 物理 MacBook 刘海 | 支持 | 不支持 |
+| 磨砂玻璃字幕 | 支持 | 可使用通用 Qt 路径 |
+
+### 许可证
+
+项目采用 [MIT License](./LICENSE)。
+
+---
+
+<a id="english"></a>
+
+## English
+
+<p align="center"><strong>Helping students through the initial language barrier—so passing IELTS does not still mean being unable to follow a lecture like Ano (perhaps Hanasakigawa would have been easier).</strong></p>
 
 **Speed-first English → Chinese live subtitles for macOS classes, meetings, and fullscreen video.**
 
@@ -400,8 +719,8 @@ MLX/Whisper models download on first use. Apple Speech may also need language as
 REALTIME_TON_DEV_RELOAD=1 ./start_mac.sh
 ```
 
-完整测试范围、延迟指标和人工验收项见
-[`docs/REFACTORING_SAFETY_NET.md`](docs/REFACTORING_SAFETY_NET.md)。
+See [`docs/REFACTORING_SAFETY_NET.md`](docs/REFACTORING_SAFETY_NET.md)
+for the complete regression suite, latency baselines, and manual acceptance checks.
 
 ## Platform support
 
