@@ -50,6 +50,19 @@ class HybridTranslatorTests(unittest.TestCase):
             self.assertEqual(router.translate("two"), "gemini")
             self.assertEqual((groq.calls, gemini.calls), (1, 1))
 
+    def test_reports_active_provider_and_latency(self):
+        with tempfile.TemporaryDirectory() as directory:
+            router = self._router(
+                [{"name": "gemini", "translator": _FakeTranslator("translated")}],
+                directory,
+            )
+            events = []
+            router.status_callback = lambda *event: events.append(event)
+            self.assertEqual(router.translate("sentence"), "translated")
+            self.assertEqual(events[0][:2], ("active", "gemini"))
+            self.assertEqual(events[-1][:2], ("ok", "gemini"))
+            self.assertIsNotNone(events[-1][2])
+
     def test_rate_limit_immediately_fails_over(self):
         with tempfile.TemporaryDirectory() as directory:
             groq = _FakeTranslator("groq", _StatusError(429))

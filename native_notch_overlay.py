@@ -24,6 +24,7 @@ class NativeNotchOverlay(QObject):
         self.process = None
         self.delegate = None
         self.transcript_data = {}
+        self._last_native_items = None
         self._write_lock = threading.Lock()
         self._event_received.connect(self._handle_event)
 
@@ -153,7 +154,12 @@ class NativeNotchOverlay(QObject):
             )
             return
 
-        self._send({"items": self._latest_items()})
+        latest_items = self._latest_items()
+        # A late translation for a subtitle that has already scrolled out is
+        # still retained in transcript_data, but must not perturb the notch.
+        if latest_items != self._last_native_items:
+            self._last_native_items = latest_items
+            self._send({"items": latest_items})
 
     def _latest_items(self):
         rendered = []

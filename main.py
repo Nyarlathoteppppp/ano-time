@@ -20,11 +20,13 @@ from config import config
 from runtime_log import log_stage
 from stable_prefix import StablePrefixTracker
 from groq_bridge import GroqBridgeGate
+from live_segmenter import IncrementalSegmenter
 
 class WorkerSignals(QObject):
     # (chunk_id, original, translated, ASR state: "partial" | "final")
     update_text = pyqtSignal(int, str, str, str)
     pipeline_error = pyqtSignal(str)
+    runtime_status = pyqtSignal(str, str, str)
 
 class Pipeline(QObject):
     def __init__(self):
@@ -166,6 +168,7 @@ class Pipeline(QObject):
                 providers,
                 usage_path=os.path.join(os.path.dirname(__file__), "logs", "provider_usage.json"),
             )
+            self.translator.status_callback = self._on_provider_status
         else:
             self.translator = Translator(
                 base_url=config.api_base_url,
@@ -188,6 +191,18 @@ class Pipeline(QObject):
         # Warmup Transcriber (Critical for MLX/GPU)
         if self.transcriber:
             self.transcriber.warmup()
+
+    def _on_provider_status(self, status, provider, elapsed_ms=None, detail=""):
+        if elapsed_ms is not None:
+            message = f"{provider} · {elapsed_ms / 1000:.1f}s"
+        elif status == "active":
+            message = f"{provider} · translating"
+        else:
+            message = f"{provider} · {detail or status}"
+        self.signals.runtime_status.emit("Remote", status, message)
+        network_status = "ok" if status in ("active", "ok") else status
+        network_message = "Online" if network_status == "ok" else detail or status
+        self.signals.runtime_status.emit("Network", network_status, network_message)
 
     def _emit_ranked_translation(self, chunk_id, text, translated, state, rank):
         """Prevent a late draft from replacing a newer translation stage."""
@@ -398,7 +413,34 @@ class Pipeline(QObject):
                 agreement_window=config.stable_prefix_window,
                 min_growth_words=config.stable_prefix_min_words,
             ),
+            "segmenter": IncrementalSegmenter(),
         }
+
+        def publish_final(text, chunk_id, segment_started_at, first_partial_at):
+            now = time.monotonic()
+            with self._translation_state_lock:
+                self._finalized_chunks.add(chunk_id)
+                self._partial_versions[chunk_id] = self._partial_versions.get(chunk_id, 0) + 1
+            elapsed_ms = (now - segment_started_at) * 1000
+            print(f"[Apple Final {chunk_id}] {text}")
+            log_stage(
+                "asr_final", chunk_id=chunk_id, elapsed_ms=elapsed_ms,
+                since_first_partial_ms=(
+                    (now - first_partial_at) * 1000 if first_partial_at else None
+                ),
+                words=len(text.split()), detail=text,
+            )
+            self.signals.runtime_status.emit(
+                "ASR", "ok", f"Apple · {elapsed_ms / 1000:.1f}s"
+            )
+            self.last_final_text = text
+            context_text = self._snapshot_finalized_context(text)
+            self.signals.update_text.emit(chunk_id, text, "", "final")
+            fast_executor.submit(
+                self._run_fast_final_translation,
+                text, chunk_id, refine_executor, context_text,
+                segment_started_at, first_partial_at,
+            )
 
         def on_result(text, is_final):
             if not self.running or self._paused.is_set():
@@ -407,29 +449,21 @@ class Pipeline(QObject):
             if not text:
                 return
             now = time.monotonic()
+            finalized_segments = []
             with state_lock:
-                chunk_id = state["chunk_id"]
                 segment_started_at = state["audio_started_at"] or now
                 first_partial_at = state["first_partial_at"]
-
-                if is_final:
-                    with self._translation_state_lock:
-                        self._finalized_chunks.add(chunk_id)
-                        self._partial_versions[chunk_id] = self._partial_versions.get(chunk_id, 0) + 1
-                    state["chunk_id"] += 1
-                    state["audio_started_at"] = None
-                    state["first_partial_at"] = None
-                    state["stable_tracker"] = StablePrefixTracker(
-                        agreement_window=config.stable_prefix_window,
-                        min_growth_words=config.stable_prefix_min_words,
-                    )
-                else:
+                stable_text = text if is_final else ""
+                if not is_final:
                     if first_partial_at is None:
                         first_partial_at = now
                         state["first_partial_at"] = now
+                        self.signals.runtime_status.emit(
+                            "ASR", "active", "Apple · listening"
+                        )
                         log_stage(
                             "asr_first_partial",
-                            chunk_id=chunk_id,
+                            chunk_id=state["chunk_id"],
                             elapsed_ms=(now - segment_started_at) * 1000,
                             words=len(text.split()),
                         )
@@ -437,54 +471,57 @@ class Pipeline(QObject):
                     if stable_text:
                         log_stage(
                             "asr_stable",
-                            chunk_id=chunk_id,
+                            chunk_id=state["chunk_id"],
                             elapsed_ms=(now - segment_started_at) * 1000,
                             since_first_partial_ms=(now - first_partial_at) * 1000,
                             words=len(stable_text.split()),
                             detail=stable_text,
                         )
+                segments, remainder = state["segmenter"].observe(
+                    text, stable_text=stable_text, is_final=is_final, now=now
+                )
+                for segment in segments:
+                    finalized_segments.append((
+                        state["chunk_id"], segment,
+                        segment_started_at, first_partial_at,
+                    ))
+                    state["chunk_id"] += 1
+                    segment_started_at = now
+                    first_partial_at = now
+                current_chunk_id = state["chunk_id"]
+                if is_final:
+                    state["audio_started_at"] = None
+                    state["first_partial_at"] = None
+                    state["stable_tracker"] = StablePrefixTracker(
+                        agreement_window=config.stable_prefix_window,
+                        min_growth_words=config.stable_prefix_min_words,
+                    )
+                elif finalized_segments:
+                    state["audio_started_at"] = now
+                    state["first_partial_at"] = now
+
+            for final_id, segment, started_at, partial_at in finalized_segments:
+                publish_final(segment, final_id, started_at, partial_at)
 
             if is_final:
-                print(f"[Apple Final {chunk_id}] {text}")
-                log_stage(
-                    "asr_final",
-                    chunk_id=chunk_id,
-                    elapsed_ms=(now - segment_started_at) * 1000,
-                    since_first_partial_ms=(
-                        (now - first_partial_at) * 1000 if first_partial_at else None
-                    ),
-                    words=len(text.split()),
-                    detail=text,
-                )
-                self.last_final_text = text
-                context_text = self._snapshot_finalized_context(text)
-                # Preserve the already-visible Apple draft while final translation runs.
-                self.signals.update_text.emit(chunk_id, text, "", "final")
-                fast_executor.submit(
-                    self._run_fast_final_translation,
-                    text,
-                    chunk_id,
-                    refine_executor,
-                    context_text,
-                    segment_started_at,
-                    first_partial_at,
-                )
                 return
 
-            self.signals.update_text.emit(chunk_id, text, "", "partial")
+            if not remainder:
+                return
+            self.signals.update_text.emit(current_chunk_id, remainder, "", "partial")
             with self._translation_state_lock:
-                previous = self._last_partial_text.get(chunk_id)
-                if previous == text or len(text) < 6:
+                previous = self._last_partial_text.get(current_chunk_id)
+                if previous == remainder or len(remainder) < 6:
                     return
-                self._last_partial_text[chunk_id] = text
-                version = self._partial_versions.get(chunk_id, 0) + 1
-                self._partial_versions[chunk_id] = version
+                self._last_partial_text[current_chunk_id] = remainder
+                version = self._partial_versions.get(current_chunk_id, 0) + 1
+                self._partial_versions[current_chunk_id] = version
             # Speed-first path: every distinct Apple partial is translated. Stable
             # Prefix is measured in parallel and never gates the local draft.
             fast_executor.submit(
                 self._run_partial_translation,
-                text,
-                chunk_id,
+                remainder,
+                current_chunk_id,
                 version,
                 segment_started_at,
                 first_partial_at,
@@ -614,10 +651,11 @@ class Pipeline(QObject):
                 try:
                     started = time.perf_counter()
                     draft = self.fast_translator.translate(text)
+                    elapsed_ms = (time.perf_counter() - started) * 1000
                     log_stage(
                         "apple_partial",
                         chunk_id=chunk_id,
-                        elapsed_ms=(time.perf_counter() - started) * 1000,
+                        elapsed_ms=elapsed_ms,
                         e2e_ms=(
                             (time.monotonic() - segment_started_at) * 1000
                             if segment_started_at else None
@@ -627,6 +665,9 @@ class Pipeline(QObject):
                             if first_partial_at else None
                         ),
                         words=len(text.split()),
+                    )
+                    self.signals.runtime_status.emit(
+                        "Draft", "ok", f"Apple · {elapsed_ms / 1000:.1f}s"
                     )
                     emit_if_current(draft)
                 except Exception as exc:
@@ -704,6 +745,9 @@ class Pipeline(QObject):
                 draft = self.fast_translator.translate(text)
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 self._emit_ranked_translation(chunk_id, text, draft, "final", 1)
+                self.signals.runtime_status.emit(
+                    "Draft", "ok", f"Apple · {elapsed_ms / 1000:.1f}s"
+                )
                 log_stage(
                     "apple_final",
                     chunk_id=chunk_id,
@@ -798,19 +842,29 @@ class Pipeline(QObject):
             if isinstance(self.translator, HybridTranslator):
                 translate = self.translator.translate_excluding
                 translate_args = ({"Groq GPT-OSS 20B"},)
+            else:
+                self._on_provider_status("active", config.model)
             translated = translate(
                 *translate_args, text, use_context=False, remember_context=False,
                 context_text=context_text, deadline=deadline,
                 on_update=emit_before_deadline,
             )
             elapsed_ms = (time.perf_counter() - started) * 1000
+            if not isinstance(self.translator, HybridTranslator):
+                self._on_provider_status("ok", config.model, elapsed_ms)
             if translated and self.running and time.monotonic() < deadline:
                 self._emit_ranked_translation(chunk_id, text, translated, "final", 3)
                 log_stage("llm_refine", chunk_id=chunk_id, elapsed_ms=elapsed_ms, detail=translated)
         except TimeoutError as exc:
+            if not isinstance(self.translator, HybridTranslator):
+                self._on_provider_status("warning", config.model, detail="timeout")
             print(f"[LLM Refinement {chunk_id}] Deadline exceeded: {exc}")
             log_stage("llm_refine", chunk_id=chunk_id, status="timeout", detail=str(exc))
         except Exception as exc:
+            if not isinstance(self.translator, HybridTranslator):
+                self._on_provider_status(
+                    "error", config.model, detail=type(exc).__name__
+                )
             # Keep the Apple draft visible on all remote API failures.
             print(f"[LLM Refinement {chunk_id}] Failed: {exc}")
             log_stage("llm_refine", chunk_id=chunk_id, status="error", detail=str(exc))

@@ -36,7 +36,16 @@ class HybridTranslator:
         self._next_index = 0
         self._usage = self._load_usage()
         self._reservation_counter = 0
+        self.status_callback = None
         self._restore_minute_windows()
+
+    def _report_status(self, status, provider, elapsed_ms=None, detail=""):
+        callback = self.status_callback
+        if callback:
+            try:
+                callback(status, provider, elapsed_ms, detail)
+            except Exception:
+                pass
 
     def _today(self, provider):
         timezone = provider.get("daily_timezone")
@@ -370,9 +379,17 @@ class HybridTranslator:
             attempt_kwargs["usage_callback"] = lambda total, p=provider, r=reservation_id: (
                 self._record_actual_usage(p, r, total)
             )
+            started = time.perf_counter()
+            self._report_status("active", provider["name"])
             try:
-                return provider["translator"].translate(*args, **attempt_kwargs)
+                result = provider["translator"].translate(*args, **attempt_kwargs)
+                self._report_status(
+                    "ok", provider["name"],
+                    (time.perf_counter() - started) * 1000,
+                )
+                return result
             except TimeoutError as exc:
+                self._report_status("warning", provider["name"], detail="timeout")
                 last_error = exc
                 self._record_actual_usage(provider, reservation_id, 0)
                 self._cool_down(provider, exc)
@@ -380,6 +397,9 @@ class HybridTranslator:
                 if deadline is not None and time.monotonic() >= deadline:
                     break
             except Exception as exc:
+                self._report_status(
+                    "error", provider["name"], detail=type(exc).__name__
+                )
                 last_error = exc
                 self._record_actual_usage(provider, reservation_id, 0)
                 self._cool_down(provider, exc)

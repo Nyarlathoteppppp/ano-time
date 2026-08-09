@@ -307,6 +307,32 @@ class Dashboard(QWidget):
         summary_layout.addWidget(self.translation_summary, 2, 1)
         layout.addWidget(summary)
 
+        runtime = QFrame()
+        runtime.setObjectName("RuntimeStatus")
+        runtime.setStyleSheet("""
+            QFrame#RuntimeStatus {
+                background-color: rgba(255, 255, 255, 10);
+                border: 1px solid rgba(255, 255, 255, 25);
+                border-radius: 9px;
+            }
+            QFrame#RuntimeStatus QLabel { background: transparent; }
+        """)
+        runtime_layout = QGridLayout(runtime)
+        runtime_layout.setContentsMargins(14, 10, 14, 10)
+        self.runtime_labels = {}
+        for row, (key, title) in enumerate((
+            ("ASR", "ASR"),
+            ("Draft", "Apple Draft（快速草稿）"),
+            ("Remote", "Remote Model（远程模型）"),
+            ("Network", "Network（网络）"),
+        )):
+            runtime_layout.addWidget(QLabel(title), row, 0)
+            value = QLabel("Waiting")
+            value.setStyleSheet("color: #6c7086; font-weight: 600;")
+            runtime_layout.addWidget(value, row, 1)
+            self.runtime_labels[key] = value
+        layout.addWidget(runtime)
+
         display_row = QHBoxLayout()
         display_row.addWidget(QLabel("Subtitle Mode（字幕显示模式）:"))
         self.display_mode = ReadableComboBox()
@@ -350,6 +376,21 @@ class Dashboard(QWidget):
         import subprocess
         from runtime_log import LOG_PATH
         subprocess.run(["open", LOG_PATH], check=False)
+
+    def update_runtime_status(self, stage, status, detail):
+        label = self.runtime_labels.get(stage)
+        if not label:
+            return
+        colors = {
+            "ok": "#a6e3a1",
+            "active": "#89b4fa",
+            "warning": "#f9e2af",
+            "error": "#f38ba8",
+        }
+        label.setText(detail)
+        label.setStyleSheet(
+            f"color: {colors.get(status, '#cdd6f4')}; font-weight: 600;"
+        )
 
     def update_home_summary(self, *_):
         if not hasattr(self, "audio_summary"):
@@ -1315,6 +1356,7 @@ class Dashboard(QWidget):
         # Connect Signals
         self.pipeline.signals.update_text.connect(self.overlay_window.update_text)
         self.pipeline.signals.pipeline_error.connect(self.on_pipeline_error)
+        self.pipeline.signals.runtime_status.connect(self.update_runtime_status)
         if hasattr(self.overlay_window, 'stop_requested'):
              self.overlay_window.stop_requested.connect(self.on_stop)
         if hasattr(self.overlay_window, 'pause_requested'):
