@@ -210,10 +210,13 @@ private struct RealtimeNotchHelper {
         }
 
         let regularNotch = makeNotch(style: .auto)
-        // The compact one-item mode is a detached capsule. A very large
-        // continuous radius is clamped to half the rendered height, producing
-        // true semicircular ends instead of the shoulders of a notch shape.
-        let smallNotch = makeNotch(style: .floating(cornerRadius: 999))
+        // Keep the compact mode attached to the physical MacBook notch. Slightly
+        // larger radii soften its shoulders and lower corners without turning it
+        // into a detached floating capsule.
+        let smallNotch = makeNotch(style: .notch(
+            topCornerRadius: 22,
+            bottomCornerRadius: 30
+        ))
 
         func expandActiveNotch() async {
             if state.displayCount == 1 {
