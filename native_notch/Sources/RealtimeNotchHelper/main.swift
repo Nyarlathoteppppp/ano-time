@@ -166,12 +166,28 @@ private struct SubtitleContent: View {
 
 private struct CompactLeading: View {
     @ObservedObject var state: SubtitleState
+
+    private static let mascotImage: NSImage? = {
+        let sourceFile = URL(fileURLWithPath: #filePath)
+        let imageURL = sourceFile
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/ano-smile.png")
+        return NSImage(contentsOf: imageURL)
+    }()
+
     var body: some View {
         Button(action: {
             state.onCycleSize?()
         }) {
-            Image(systemName: "captions.bubble.fill")
-                .foregroundStyle(.blue)
+            if let mascotImage = Self.mascotImage {
+                Image(nsImage: mascotImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 18)
+            } else {
+                Image(systemName: "captions.bubble.fill")
+                    .foregroundStyle(.blue)
+            }
         }
         .buttonStyle(.plain)
         .help("点击切换显示 1、2、3 条字幕")

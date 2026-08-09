@@ -2,7 +2,7 @@
 
 **Native, low-latency English → Chinese live subtitles for macOS lectures, meetings, and fullscreen video.**
 
-> 帮助大家度过一开始的语言难关，避免像 Ano 一样（早知道不如去花咲川）。
+> 帮助大家度过一开始的语言难关，避免像 Ano 一样过了雅思却听不懂课（早知道不如去花咲川）。
 
 Ano Time combines Apple on-device speech recognition and translation with optional AI refinement. Provisional subtitles remain instant, stable sentences receive terminology-aware refinement, and every remote request is deadline-limited so a slow model can never block the live path.
 

@@ -10,7 +10,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "RealtimeNotchHelper",
-            dependencies: ["DynamicNotchKit"]
+            dependencies: ["DynamicNotchKit"],
+            exclude: ["Resources"]
         )
     ],
     swiftLanguageModes: [.v5]
