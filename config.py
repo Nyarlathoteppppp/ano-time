@@ -1,6 +1,8 @@
 import configparser
 import os
 
+from keychain_store import SECRET_FIELDS, migrate_plaintext_secrets, store as keychain
+
 class Config:
     """Centralized configuration loaded from config.ini"""
     
@@ -14,13 +16,17 @@ class Config:
         
         if os.path.exists(config_path):
             self.config.read(config_path)
+            if migrate_plaintext_secrets(self.config, config_path):
+                self.config.read(config_path)
             print(f"[Config] Loaded from: {config_path}")
         else:
             print(f"[Config] Warning: {config_path} not found, using defaults/env vars")
         
         # API settings (env vars take precedence)
         self.api_base_url = os.getenv("OPENAI_BASE_URL") or self._get("api", "base_url") or None
-        self.api_key = os.getenv("OPENAI_API_KEY") or self._get("api", "api_key", "dummy-key-for-local")
+        self.api_key = os.getenv("OPENAI_API_KEY") or self._secret(
+            "api", "api_key", "dummy-key-for-local"
+        )
         
         # Translation settings
         self.model = self._get("translation", "model", "gpt-3.5-turbo")
@@ -43,14 +49,14 @@ class Config:
             if os.path.isabs(glossary_path)
             else os.path.join(os.path.dirname(self.config_path), glossary_path)
         )
-        self.deepseek_api_key = self._get("providers", "deepseek_api_key", "")
-        self.siliconflow_api_key = self._get("providers", "siliconflow_api_key", "")
-        self.qwen_mt_api_key = self._get("providers", "qwen_mt_api_key", "")
+        self.deepseek_api_key = self._secret("providers", "deepseek_api_key")
+        self.siliconflow_api_key = self._secret("providers", "siliconflow_api_key")
+        self.qwen_mt_api_key = self._secret("providers", "qwen_mt_api_key")
         self.qwen_mt_base_url = self._get("providers", "qwen_mt_base_url", "")
-        self.groq_api_key = self._get("providers", "groq_api_key", "")
-        self.gemini_api_key = self._get("providers", "gemini_api_key", "")
+        self.groq_api_key = self._secret("providers", "groq_api_key")
+        self.gemini_api_key = self._secret("providers", "gemini_api_key")
         self.cloudflare_account_id = self._get("providers", "cloudflare_account_id", "")
-        self.cloudflare_api_token = self._get("providers", "cloudflare_api_token", "")
+        self.cloudflare_api_token = self._secret("providers", "cloudflare_api_token")
         
         # Transcription settings
         self.asr_backend = self._get("transcription", "backend", "whisper").lower()
@@ -121,6 +127,12 @@ class Config:
             return self.config.getfloat(section, key)
         except (configparser.NoSectionError, configparser.NoOptionError, ValueError):
             return fallback
+
+    def _secret(self, section, key, fallback=""):
+        raw = self._get(section, key, "")
+        account = SECRET_FIELDS[(section, key)]
+        resolved = keychain.resolve(raw, account)
+        return resolved or fallback
     
     def _find_blackhole_device(self):
         """Auto-detect BlackHole audio device index"""
@@ -141,7 +153,7 @@ class Config:
         """Print current configuration for debugging"""
         print("[Config] Current settings:")
         print(f"  API Base URL: {self.api_base_url or '(default OpenAI)'}")
-        print(f"  API Key: {self.api_key[:8]}...{self.api_key[-4:] if len(self.api_key) > 12 else '***'}")
+        print(f"  API Key: {'configured' if self.api_key else 'missing'}")
         print(f"  Model: {self.model}")
         print(f"  Target Language: {self.target_lang}")
         print(f"  Fast Translation: {self.fast_translation_backend}")

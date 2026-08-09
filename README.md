@@ -83,7 +83,11 @@ In the control center:
 4. **Subtitle Mode** → choose `Physical MacBook Notch` or `Glass`.
 5. Click **Launch Translator**.
 
-API credentials are stored only in the ignored local `config.ini`. Never commit or paste real keys into issues, logs, screenshots, or README files. Rotate any key that has been exposed publicly.
+On macOS, API credentials are stored in the user Keychain. The ignored local
+`config.ini` contains only `keychain://...` references; existing plaintext keys
+are migrated automatically after a successful Keychain write. Never paste real
+keys into issues, logs, screenshots, or README files. Rotate any key that has
+been exposed publicly.
 
 ## macOS permissions
 
@@ -149,7 +153,9 @@ Stage timings and failures are written to `logs/runtime.log` and can be opened f
 
 ## Configuration
 
-The dashboard writes settings to `config.ini`. A safe template is provided in [`config.ini.example`](./config.ini.example).
+The dashboard writes ordinary settings and Keychain references to `config.ini`.
+Secret values remain in macOS Keychain. A safe template is provided in
+[`config.ini.example`](./config.ini.example).
 
 ### Recommended classroom profile
 

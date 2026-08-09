@@ -1221,6 +1221,7 @@ class Dashboard(QWidget):
     def save_config(self, checked=False, show_status=True):
         import configparser
         import os
+        from keychain_store import SECRET_FIELDS, store as keychain
         
         # Update config object logic would go here, 
         # For now, we write directly to config.ini similarly to settings_window.py
@@ -1254,7 +1255,12 @@ class Dashboard(QWidget):
         
         # Translation
         if self.provider.currentText() != "Fast Free Pool → Qwen-MT":
-            cp.set("api", "api_key", self.api_key.text())
+            cp.set(
+                "api", "api_key",
+                keychain.store_for_config(
+                    SECRET_FIELDS[("api", "api_key")], self.api_key.text()
+                ),
+            )
             cp.set("api", "base_url", self.base_url.text())
             cp.set("translation", "model", self.model.currentText())
         cp.set("translation", "target_lang", self.target_lang.currentText())
@@ -1263,18 +1269,35 @@ class Dashboard(QWidget):
         cp.set("translation", "provider", self.provider.currentText())
         self.provider_keys[self.provider.currentText()] = self.api_key.text()
         self.provider_urls[self.provider.currentText()] = self.base_url.text()
-        cp.set("providers", "deepseek_api_key", self.provider_keys.get("DeepSeek Official", ""))
-        cp.set("providers", "siliconflow_api_key", self.provider_keys.get("SiliconFlow", ""))
-        cp.set("providers", "qwen_mt_api_key", self.provider_keys.get("Alibaba Cloud Qwen-MT", ""))
+        cp.set("providers", "deepseek_api_key", keychain.store_for_config(
+            SECRET_FIELDS[("providers", "deepseek_api_key")],
+            self.provider_keys.get("DeepSeek Official", ""),
+        ))
+        cp.set("providers", "siliconflow_api_key", keychain.store_for_config(
+            SECRET_FIELDS[("providers", "siliconflow_api_key")],
+            self.provider_keys.get("SiliconFlow", ""),
+        ))
+        cp.set("providers", "qwen_mt_api_key", keychain.store_for_config(
+            SECRET_FIELDS[("providers", "qwen_mt_api_key")],
+            self.provider_keys.get("Alibaba Cloud Qwen-MT", ""),
+        ))
         cp.set("providers", "qwen_mt_base_url", self.provider_urls.get("Alibaba Cloud Qwen-MT", ""))
-        cp.set("providers", "groq_api_key", self.groq_api_key.text())
-        cp.set("providers", "gemini_api_key", self.gemini_api_key.text())
+        cp.set("providers", "groq_api_key", keychain.store_for_config(
+            SECRET_FIELDS[("providers", "groq_api_key")], self.groq_api_key.text()
+        ))
+        cp.set("providers", "gemini_api_key", keychain.store_for_config(
+            SECRET_FIELDS[("providers", "gemini_api_key")], self.gemini_api_key.text()
+        ))
         cp.set("providers", "cloudflare_account_id", self.cloudflare_account_id.text())
-        cp.set("providers", "cloudflare_api_token", self.cloudflare_api_token.text())
+        cp.set("providers", "cloudflare_api_token", keychain.store_for_config(
+            SECRET_FIELDS[("providers", "cloudflare_api_token")],
+            self.cloudflare_api_token.text(),
+        ))
         cp.set("display", "mode", self.display_mode.currentData())
         
         with open(config_path, 'w') as f:
             cp.write(f)
+        os.chmod(config_path, 0o600)
 
         config.reload()
         if show_status:

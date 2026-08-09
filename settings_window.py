@@ -191,6 +191,7 @@ class SettingsWindow(QWidget):
         
     def save_config(self):
         """Write to config.ini"""
+        from keychain_store import SECRET_FIELDS, store as keychain
         config_path = os.path.join(os.path.dirname(__file__), "config.ini")
         parser = configparser.ConfigParser()
         parser.read(config_path)
@@ -201,7 +202,13 @@ class SettingsWindow(QWidget):
         if not parser.has_section("transcription"): parser.add_section("transcription")
         if not parser.has_section("audio"): parser.add_section("audio")
         
-        parser.set("api", "api_key", self.api_key_input.text() or "")
+        parser.set(
+            "api", "api_key",
+            keychain.store_for_config(
+                SECRET_FIELDS[("api", "api_key")],
+                self.api_key_input.text() or "",
+            ),
+        )
         parser.set("api", "base_url", self.base_url_input.text() or "")
         parser.set("translation", "model", self.model_input.currentText())
         parser.set("translation", "threads", str(self.threads_input.value()))
@@ -215,6 +222,7 @@ class SettingsWindow(QWidget):
         try:
             with open(config_path, 'w') as f:
                 parser.write(f)
+            os.chmod(config_path, 0o600)
             QMessageBox.information(self, "Saved", "Configuration saved! The app should restart automatically.")
             self.close()
         except Exception as e:
