@@ -52,11 +52,15 @@ search frontier	搜索边界
 breadth-first search	广度优先搜索
 depth-first search	深度优先搜索
 uniform-cost search	一致代价搜索
+uniform cost search	一致代价搜索
 Dijkstra's algorithm	Dijkstra 算法
 priority queue	优先队列
 first in, first out	先进先出
 path cost	路径代价
 branching factor	分支因子
+search node	搜索节点
+solution depth	解深度
+iterative deepening	迭代加深搜索
 time complexity	时间复杂度
 space complexity	空间复杂度
 weighted graph	加权图
@@ -66,13 +70,19 @@ heuristic function	启发式函数
 admissible heuristic	可采纳启发式
 consistent heuristic	一致启发式
 inference	推理
+loss function	损失函数
+maximum likelihood estimate	最大似然估计
+decision theory	决策理论
 
 # Software Processes and Architecture
 software development life cycle	软件开发生命周期
 SDLC	软件开发生命周期
 waterfall model	瀑布模型
+waterfall with feedback	带反馈的瀑布模型
 spiral model	螺旋模型
+V-model	V 模型
 incremental model	增量模型
+incremental prototyping	增量原型开发
 rapid prototyping	快速原型开发
 operational prototype	可运行原型
 risk analysis	风险分析
@@ -84,7 +94,15 @@ non-functional requirement	非功能需求
 change control	变更控制
 feedback loop	反馈循环
 agile manifesto	敏捷宣言
+Agile SDLC	敏捷软件开发生命周期
 agile methodology	敏捷方法
+lightweight process model	轻量级过程模型
+code-and-fix approach	编码—修复方法
+code and fix approach	编码—修复方法
+ad hoc approach	临时性开发方法
+defined process control	定义式过程控制
+empirical process control	经验式过程控制
+de-emphasize	弱化
 working software	可工作的软件
 customer collaboration	客户协作
 technical excellence	技术卓越
@@ -101,4 +119,3 @@ quality attribute	质量属性
 architectural pattern	架构模式
 coupling	耦合
 cohesion	内聚
-

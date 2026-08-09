@@ -21,6 +21,7 @@ from runtime_log import log_stage
 from stable_prefix import StablePrefixTracker
 from groq_bridge import GroqBridgeGate
 from live_segmenter import IncrementalSegmenter
+from glossary import ASRCorrections
 
 class WorkerSignals(QObject):
     # (chunk_id, original, translated, ASR state: "partial" | "final")
@@ -48,6 +49,9 @@ class Pipeline(QObject):
         self._groq_bridge_gate = GroqBridgeGate(
             max_per_minute=15,
             duplicate_window=30.0,
+        )
+        self._asr_corrections = ASRCorrections.from_file(
+            config.asr_corrections_path
         )
         
         # Print config for debugging
@@ -195,6 +199,10 @@ class Pipeline(QObject):
             self.transcriber.warmup()
 
     def _on_provider_status(self, status, provider, elapsed_ms=None, detail=""):
+        log_stage(
+            "provider_attempt", status=status, elapsed_ms=elapsed_ms,
+            provider=provider, detail=detail,
+        )
         if elapsed_ms is not None:
             message = f"{provider} · {elapsed_ms / 1000:.1f}s"
         elif status == "active":
@@ -428,6 +436,13 @@ class Pipeline(QObject):
 
         def publish_final(text, chunk_id, segment_started_at, first_partial_at,
                           cut_reason="native_final"):
+            original_text = text
+            text = self._asr_corrections.apply(text)
+            if text != original_text:
+                log_stage(
+                    "asr_correction", chunk_id=chunk_id,
+                    detail=f"{original_text} -> {text}",
+                )
             now = time.monotonic()
             with self._translation_state_lock:
                 self._finalized_chunks.add(chunk_id)
@@ -611,6 +626,13 @@ class Pipeline(QObject):
                 return
             text = self.transcriber.transcribe(audio_data, prompt=prompt)
             if text:
+                original_text = text
+                text = self._asr_corrections.apply(text)
+                if text != original_text:
+                    log_stage(
+                        "asr_correction", chunk_id=chunk_id,
+                        detail=f"{original_text} -> {text}",
+                    )
                 print(f"[Final {chunk_id}] Transcribed: {text}")
                 context_text = self._snapshot_finalized_context(text)
                 # Save for context (only if meaningful)

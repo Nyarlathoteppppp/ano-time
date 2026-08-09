@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 
-from glossary import CourseGlossary
+from glossary import ASRCorrections, CourseGlossary
 from translator import Translator
 
 
@@ -23,6 +23,17 @@ class _RecordingClient:
 
 
 class CourseGlossaryTests(unittest.TestCase):
+    def test_finalized_asr_corrections_are_boundary_safe(self):
+        corrections = ASRCorrections([
+            ("Ajail", "Agile"),
+            ("code and fixed", "code and fix"),
+        ])
+        self.assertEqual(
+            corrections.apply("Ajail does not mean code and fixed development."),
+            "Agile does not mean code and fix development.",
+        )
+        self.assertEqual(corrections.apply("Ajailable"), "Ajailable")
+
     def test_matches_longest_terms_without_substring_collisions(self):
         glossary = CourseGlossary(
             [

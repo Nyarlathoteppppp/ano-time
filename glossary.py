@@ -69,3 +69,39 @@ class CourseGlossary:
     def __len__(self):
         return len(self._entries)
 
+
+class ASRCorrections:
+    """Conservative, editable replacements applied only to finalized ASR."""
+
+    def __init__(self, entries=()):
+        prepared = []
+        for source, target in entries:
+            source = source.strip()
+            target = target.strip()
+            if source and target:
+                prepared.append((
+                    re.compile(rf"(?<!\w){re.escape(source)}(?!\w)", re.IGNORECASE),
+                    target,
+                ))
+        self._entries = sorted(prepared, key=lambda item: len(item[0].pattern), reverse=True)
+
+    @classmethod
+    def from_file(cls, path):
+        if not path or not os.path.exists(path):
+            return cls()
+        entries = []
+        with open(path, "r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t", 1)
+                if len(parts) == 2:
+                    entries.append(parts)
+        return cls(entries)
+
+    def apply(self, text):
+        corrected = text
+        for pattern, target in self._entries:
+            corrected = pattern.sub(target, corrected)
+        return corrected

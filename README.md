@@ -1,8 +1,10 @@
 # Realtime Ton
 
-Low-latency, always-on-top English→Chinese subtitles for classes, meetings, and videos on macOS.
+**Native, low-latency English → Chinese live subtitles for macOS lectures, meetings, and fullscreen video.**
 
-Realtime Ton captures a microphone or Mac system audio, streams provisional and finalized speech through Apple Speech or Whisper, shows an immediate Apple Translation draft, and refines stable sentences with a remote translation model—without allowing a slow API to block the live subtitle path.
+Realtime Ton combines Apple on-device speech recognition and translation with optional AI refinement. Provisional subtitles remain instant, stable sentences receive terminology-aware refinement, and every remote request is deadline-limited so a slow model can never block the live path.
+
+It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHole setup required—and render subtitles either as a resizable glass overlay or as an adaptive window attached to the physical MacBook notch.
 
 > Built primarily for Apple Silicon MacBooks. The generic Python/Qt path can run on other platforms, but Apple Speech, Apple Translation, ScreenCaptureKit system audio, and the physical-notch UI are macOS-only.
 
@@ -26,7 +28,7 @@ Realtime Ton captures a microphone or Mac system audio, streams provisional and 
 - **Speed-first translation pipeline**: Apple drafts appear immediately while remote AI refinement runs under a strict deadline.
 - **Physical MacBook notch subtitles** with 1/2/3-message modes, centered adaptive width, long-translation segmentation, pause/resume, glass-mode switch, and exit controls.
 - **Resizable glass overlay** that stays above fullscreen video and supports edge/corner resizing.
-- **Technical-course terminology** through a course-domain prompt and TSV glossary.
+- **Optional terminology profiles** through editable TSV glossaries and finalized-ASR correction files; no maintainer-specific course vocabulary is enabled for new users.
 - **OpenAI-compatible providers**, including Qwen-MT, DeepSeek, SiliconFlow, Groq, Gemini, Cloudflare Workers AI, and custom endpoints.
 - **Quota-aware free-provider pool** with minute/day/token accounting, automatic fallback, cooldown recovery, and Qwen-MT fallback.
 - **Latest-wins refinement queue**: stale work is dropped so subtitles cannot accumulate seconds behind the speaker.
@@ -147,7 +149,7 @@ Important real-time behavior:
 - Two refinements may run concurrently; only the newest pending request is retained.
 - Late drafts cannot overwrite a higher-quality final result.
 - Qwen-MT uses its native translation options without conversation context; generic models receive one previous finalized English segment for disambiguation.
-- Translation prompts identify the domain as postgraduate computer science coursework and warn that ASR may contain recognition errors.
+- Translation prompts can identify a course domain and warn that ASR may contain recognition errors.
 
 Stage timings and failures are written to `logs/runtime.log` and can be opened from the control center.
 
@@ -162,10 +164,12 @@ Secret values remain in macOS Keychain. A safe template is provided in
 ```ini
 [translation]
 target_lang = Chinese
-domain = Postgraduate computer science coursework with computer science and mathematics terminology.
+domain = Postgraduate Computer Science–AI coursework. Preserve standard terminology in AI, machine learning, probability and statistics, linear algebra, optimization, and software engineering.
 ai_deadline_seconds = 3.0
 fast_backend = apple
-glossary_path = course_glossary.tsv
+# Leave these empty for general use. Enable only a glossary you selected.
+glossary_path =
+asr_corrections_path =
 
 [transcription]
 backend = apple
@@ -189,14 +193,22 @@ mode = notch
 | `translation.fast_backend` | Immediate local draft backend (`apple`) |
 | `translation.ai_deadline_seconds` | Maximum useful lifetime of a remote refinement |
 | `translation.glossary_path` | TSV terminology glossary |
+| `translation.asr_corrections_path` | Optional finalized-English correction TSV |
 | `transcription.backend` | `apple`, `mlx`, `whisper`, or `funasr` |
 | `audio.device_index` | `system`, `auto`, or a microphone device index |
 | `audio.silence_threshold` | Voice/silence sensitivity |
 | `display.mode` | `notch` or `glass` |
 
-## Course glossary
+## Optional terminology profiles
 
-Edit [`course_glossary.tsv`](./course_glossary.tsv) using tab-separated source and target terms:
+New installations do **not** load the maintainer's terminology files. For a general lecture, leave both settings empty:
+
+```ini
+glossary_path =
+asr_corrections_path =
+```
+
+To opt in, create or select a TSV file and set its path explicitly. The bundled [`course_glossary.tsv`](./course_glossary.tsv) is an example profile for postgraduate Computer Science–AI coursework:
 
 ```tsv
 heuristic function	启发式函数
@@ -204,7 +216,21 @@ admissible heuristic	可采纳启发式
 state space	状态空间
 ```
 
-The glossary is intended for computer science and mathematics terminology. Keep it focused: a short, relevant glossary improves consistency without inflating every request.
+Finalized-ASR corrections use the same two-column format:
+
+```tsv
+Ajail	Agile
+code and fixed	code and fix
+```
+
+Enable the example files only when they match your course:
+
+```ini
+glossary_path = course_glossary.tsv
+asr_corrections_path = asr_corrections.tsv
+```
+
+Corrections apply only after ASR finalization, never to the latency-critical provisional subtitle. Keep both files short and course-specific; only terms matched in the current sentence are sent to supported translation providers.
 
 ## Troubleshooting
 

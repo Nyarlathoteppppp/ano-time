@@ -42,13 +42,29 @@ class IncrementalSegmenterTest(unittest.TestCase):
         self.assertEqual(finalized, [])
         self.assertEqual(remainder, text)
 
-    def test_stalled_prefix_uses_safe_comma_boundary(self):
+    def test_stalled_prefix_never_finalizes_at_comma(self):
         segmenter = IncrementalSegmenter(timeout_seconds=1)
         text = "one two three four five six seven eight, Professor Smith explains the result"
         segmenter.observe(text, stable_text=text, now=1)
         finalized, remainder = segmenter.observe(text, now=2.1)
-        self.assertEqual(finalized, ["one two three four five six seven eight,"])
+        self.assertEqual(finalized, [])
+        self.assertEqual(remainder, text)
+
+    def test_stalled_prefix_can_finalize_at_semicolon(self):
+        segmenter = IncrementalSegmenter(timeout_seconds=1)
+        text = "one two three four five six seven eight; Professor Smith explains the result"
+        segmenter.observe(text, stable_text=text, now=1)
+        finalized, remainder = segmenter.observe(text, now=2.1)
+        self.assertEqual(finalized, ["one two three four five six seven eight;"])
         self.assertEqual(remainder, "Professor Smith explains the result")
+
+    def test_conditional_clause_before_comma_is_not_finalized(self):
+        segmenter = IncrementalSegmenter(timeout_seconds=1)
+        text = "If you see the initial misconception in earlier days, I'm not telling every engineer did it"
+        segmenter.observe(text, stable_text=text, now=1)
+        finalized, remainder = segmenter.observe(text, now=2.1)
+        self.assertEqual(finalized, [])
+        self.assertEqual(remainder, text)
 
     def test_lowercase_comma_continuation_is_not_a_semantic_boundary(self):
         segmenter = IncrementalSegmenter(timeout_seconds=1)

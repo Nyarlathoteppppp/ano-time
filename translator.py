@@ -24,8 +24,9 @@ class Translator:
         self.model = model
         self.deadline_seconds = max(0.1, float(deadline_seconds))
         self.domain_prompt = domain_prompt or (
-            "Postgraduate computer science coursework. Preserve computer science "
-            "and mathematics terminology accurately, consistently, and in standard academic language."
+            "Postgraduate Computer Science–AI coursework. Preserve standard terminology "
+            "in AI, machine learning, probability and statistics, linear algebra, "
+            "optimization, and software engineering."
         )
         self.asr_correction_prompt = (
             "The source text comes from live speech recognition and may contain "

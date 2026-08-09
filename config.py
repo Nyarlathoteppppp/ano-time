@@ -35,7 +35,9 @@ class Config:
         self.translation_domain = self._get(
             "translation",
             "domain",
-            "Postgraduate computer science coursework with computer science and mathematics terminology.",
+            "Postgraduate Computer Science–AI coursework. Preserve standard terminology "
+            "in AI, machine learning, probability and statistics, linear algebra, "
+            "optimization, and software engineering.",
         )
         self.translation_threads = self._getint("translation", "threads", 4)
         self.ai_deadline_seconds = self._getfloat("translation", "ai_deadline_seconds", 3.0)
@@ -43,12 +45,16 @@ class Config:
         self.translation_provider = self._get(
             "translation", "provider", "Fast Free Pool → Qwen-MT"
         )
-        glossary_path = self._get("translation", "glossary_path", "course_glossary.tsv")
-        self.glossary_path = (
-            glossary_path
-            if os.path.isabs(glossary_path)
-            else os.path.join(os.path.dirname(self.config_path), glossary_path)
-        )
+        def optional_project_path(setting):
+            path = self._get("translation", setting, "").strip()
+            if not path:
+                return None
+            return path if os.path.isabs(path) else os.path.join(
+                os.path.dirname(self.config_path), path
+            )
+
+        self.glossary_path = optional_project_path("glossary_path")
+        self.asr_corrections_path = optional_project_path("asr_corrections_path")
         self.deepseek_api_key = self._secret("providers", "deepseek_api_key")
         self.siliconflow_api_key = self._secret("providers", "siliconflow_api_key")
         self.qwen_mt_api_key = self._secret("providers", "qwen_mt_api_key")

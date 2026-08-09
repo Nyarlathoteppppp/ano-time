@@ -11,8 +11,9 @@ class IncrementalSegmenter:
     """
 
     _END = re.compile(r"[.!?。！？][\"')\]]*$")
-    _SOFT = re.compile(r"[,;:，；：][\"')\]]*$")
-    _COMMA = re.compile(r"[,，][\"')\]]*$")
+    # A comma can end a dependent clause, so it is never strong enough to
+    # finalize semantic text. Semicolons and colons are safe early boundaries.
+    _SOFT = re.compile(r"[;:；：][\"')\]]*$")
 
     _FORBIDDEN_LEFT = {
         "a", "an", "the", "to", "of", "in", "on", "at", "for", "from",
@@ -63,16 +64,6 @@ class IncrementalSegmenter:
             right = self._plain(raw_right)
             if right in self._FORBIDDEN_RIGHT:
                 return False
-            # A comma alone is too weak to prove that an English clause is
-            # complete. Only treat it as an early boundary when the following
-            # token visibly starts a new named/quoted clause. Lowercase
-            # continuations such as "years, the government" and lists such as
-            # "research, development, or" remain one semantic segment.
-            if self._COMMA.search(stable_words[index - 1]):
-                if not raw_right or not raw_right[0].isupper():
-                    return False
-        elif self._COMMA.search(stable_words[index - 1]):
-            return False
         return True
 
     def _cut_count(self, words, full_words, stalled=False, final=False):
