@@ -209,14 +209,14 @@ private struct RealtimeNotchHelper {
             }
         }
 
-        let regularNotch = makeNotch(style: .auto)
-        // Keep the compact mode attached to the physical MacBook notch. Slightly
-        // larger radii soften its shoulders and lower corners without turning it
-        // into a detached floating capsule.
-        let smallNotch = makeNotch(style: .notch(
+        let physicalNotchStyle = DynamicNotchStyle.notch(
             topCornerRadius: 22,
             bottomCornerRadius: 30
-        ))
+        )
+        // All three sizes keep the same softened physical-notch silhouette;
+        // only their content height and visible subtitle count differ.
+        let regularNotch = makeNotch(style: physicalNotchStyle)
+        let smallNotch = makeNotch(style: physicalNotchStyle)
 
         func expandActiveNotch() async {
             if state.displayCount == 1 {
