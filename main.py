@@ -22,6 +22,7 @@ from stable_prefix import StablePrefixTracker
 from groq_bridge import GroqBridgeGate
 from live_segmenter import IncrementalSegmenter
 from glossary import ASRCorrections
+from finalized_text import clean_finalized_text, is_meaningful_final, should_request_remote
 
 class WorkerSignals(QObject):
     # (chunk_id, original, translated, ASR state: "partial" | "final")
@@ -437,12 +438,18 @@ class Pipeline(QObject):
         def publish_final(text, chunk_id, segment_started_at, first_partial_at,
                           cut_reason="native_final"):
             original_text = text
-            text = self._asr_corrections.apply(text)
+            text = clean_finalized_text(self._asr_corrections.apply(text))
             if text != original_text:
                 log_stage(
-                    "asr_correction", chunk_id=chunk_id,
+                    "final_text_cleanup", chunk_id=chunk_id,
                     detail=f"{original_text} -> {text}",
                 )
+            if not is_meaningful_final(text):
+                log_stage(
+                    "asr_final", chunk_id=chunk_id, status="filtered",
+                    cut_reason=cut_reason, detail=original_text,
+                )
+                return
             now = time.monotonic()
             with self._translation_state_lock:
                 self._finalized_chunks.add(chunk_id)
@@ -536,6 +543,8 @@ class Pipeline(QObject):
 
             if not remainder:
                 return
+            if not is_meaningful_final(remainder):
+                return
             self.signals.update_text.emit(current_chunk_id, remainder, "", "partial")
             with self._translation_state_lock:
                 previous = self._last_partial_text.get(current_chunk_id)
@@ -627,12 +636,18 @@ class Pipeline(QObject):
             text = self.transcriber.transcribe(audio_data, prompt=prompt)
             if text:
                 original_text = text
-                text = self._asr_corrections.apply(text)
+                text = clean_finalized_text(self._asr_corrections.apply(text))
                 if text != original_text:
                     log_stage(
                         "asr_correction", chunk_id=chunk_id,
                         detail=f"{original_text} -> {text}",
                     )
+                if not is_meaningful_final(text):
+                    log_stage(
+                        "asr_final", chunk_id=chunk_id, status="filtered",
+                        detail=original_text,
+                    )
+                    return
                 print(f"[Final {chunk_id}] Transcribed: {text}")
                 context_text = self._snapshot_finalized_context(text)
                 # Save for context (only if meaningful)
@@ -834,6 +849,12 @@ class Pipeline(QObject):
                 log_stage("apple_final", chunk_id=chunk_id, status="error", detail=str(exc))
 
         try:
+            if not should_request_remote(text):
+                log_stage(
+                    "remote_refine", chunk_id=chunk_id, status="skipped",
+                    words=len(text.split()), detail="short or low-value final",
+                )
+                return
             self._submit_latest_ai(
                 refine_executor,
                 self._run_refinement,
@@ -956,6 +977,13 @@ class Pipeline(QObject):
                         self.signals.update_text.emit(chunk_id, text, draft, "final")
                 except Exception as exc:
                     print(f"[Apple Final Translation {chunk_id}] Failed: {exc}")
+
+            if not should_request_remote(text):
+                log_stage(
+                    "remote_refine", chunk_id=chunk_id, status="skipped",
+                    words=len(text.split()), detail="short or low-value final",
+                )
+                return
 
             def emit_before_deadline(partial):
                 if self.running and not self._paused.is_set() and time.monotonic() < deadline:

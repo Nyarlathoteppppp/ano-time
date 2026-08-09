@@ -71,6 +71,8 @@ The installer creates a project-local `.venv`, installs Python dependencies, bui
 
 This installs **Realtime Translator.app** so the control center can be opened like a normal Mac application. The app is single-instance: opening it again activates the existing control center instead of creating duplicate translator windows.
 
+The launcher fingerprints the checked-out source. After an update it closes the loaded Dashboard and starts the new code; otherwise it activates the existing instance. The control-center title shows the loaded Git revision.
+
 ## Quick start
 
 ```bash
@@ -145,6 +147,8 @@ Important real-time behavior:
 
 - Every distinct Apple partial may update the local draft for minimum latency.
 - Remote AI refinement runs on stable/finalized segments, not every growing ASR hypothesis.
+- Punctuation-only finals are discarded; finals of three words or fewer keep the Apple draft but do not spend remote-model quota.
+- Conservative finalized-text cleanup removes obvious streaming-ASR repetitions while preserving intentional emphasis.
 - AI requests have a configurable hard deadline (`3.0s` by default) and no retry chain.
 - Two refinements may run concurrently; only the newest pending request is retained.
 - Late drafts cannot overwrite a higher-quality final result.

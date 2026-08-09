@@ -10,6 +10,7 @@ from PyQt6.QtGui import QFont, QIcon, QColor
 import sys
 import sounddevice as sd
 from config import config
+from runtime_version import current_version
 
 try:
     from ctypes import c_void_p
@@ -252,7 +253,7 @@ class Dashboard(QWidget):
         self.setLayout(self.layout)
         
         # Header
-        header = QLabel("🎙️ Real-Time Translator")
+        header = QLabel(f"🎙️ Real-Time Translator  ·  {current_version()}")
         header.setStyleSheet("font-size: 24px; font-weight: bold; color: #89b4fa;")
         self.layout.addWidget(header)
         
@@ -1534,7 +1535,7 @@ class Dashboard(QWidget):
         self.pipeline.signals.pipeline_error.connect(self.on_pipeline_error)
         self.pipeline.signals.runtime_status.connect(self.update_runtime_status)
         if hasattr(self.overlay_window, 'stop_requested'):
-             self.overlay_window.stop_requested.connect(self.on_stop)
+             self.overlay_window.stop_requested.connect(self.close)
         if hasattr(self.overlay_window, 'pause_requested'):
              self.overlay_window.pause_requested.connect(
                  lambda paused: self._set_pipeline_paused(paused, update_overlay=False)
@@ -1639,19 +1640,19 @@ class StartupWorker(QThread):
 INSTANCE_SERVER_NAME = "com.realtime-ton.dashboard"
 
 
-def notify_existing_instance():
-    """Return True after asking an existing Dashboard process to show itself."""
+def notify_existing_instance(command=b"activate"):
+    """Send a command to the running Dashboard process."""
     socket = QLocalSocket()
     socket.connectToServer(INSTANCE_SERVER_NAME)
     if not socket.waitForConnected(250):
         return False
-    socket.write(b"activate")
+    socket.write(command)
     socket.waitForBytesWritten(250)
     socket.disconnectFromServer()
     return True
 
 
-def start_instance_server(on_activate):
+def start_instance_server(on_activate, on_quit):
     """Own the process-wide singleton socket, recovering stale socket files."""
     server = QLocalServer()
     if not server.listen(INSTANCE_SERVER_NAME):
@@ -1666,7 +1667,12 @@ def start_instance_server(on_activate):
     def accept_connections():
         while server.hasPendingConnections():
             connection = server.nextPendingConnection()
-            on_activate()
+            connection.waitForReadyRead(100)
+            command = bytes(connection.readAll()).strip()
+            if command == b"quit":
+                on_quit()
+            else:
+                on_activate()
             connection.disconnectFromServer()
             connection.deleteLater()
 
@@ -1691,6 +1697,9 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
+    if "--quit-existing" in sys.argv:
+        sys.exit(0 if notify_existing_instance(b"quit") else 1)
+
     if notify_existing_instance():
         sys.exit(0)
 
@@ -1701,7 +1710,7 @@ if __name__ == "__main__":
         w.raise_()
         w.activateWindow()
 
-    instance_server = start_instance_server(activate_dashboard)
+    instance_server = start_instance_server(activate_dashboard, w.close)
     if instance_server is None:
         # Another instance won a simultaneous-launch race after our first probe.
         notify_existing_instance()

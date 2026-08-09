@@ -29,7 +29,23 @@ empirical risk	经验风险
 zero-one loss	0-1 损失
 decision boundary	决策边界
 gradient descent	梯度下降
+stochastic gradient descent	随机梯度下降
+stochastic gradient	随机梯度
+batch size	批量大小
+convexity	凸性
+convex function	凸函数
+non-convex function	非凸函数
+global minimum	全局最小值
+local minimum	局部最小值
+iterative method	迭代方法
+AdaGrad	AdaGrad
+momentum	动量
 analytical solution	解析解
+analytic solution	解析解
+objective function	目标函数
+learning rate	学习率
+mini-batch	小批量
+derivative	导数
 generative model	生成模型
 discriminative model	判别模型
 supervised learning	监督学习
