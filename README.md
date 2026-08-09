@@ -1,216 +1,246 @@
-# Real-Time Translator 🎙️➡️🇨🇳
+# Realtime Ton
 
-A high-performance real-time speech-to-text and translation application built for macOS (Apple Silicon optimized).
+Low-latency, always-on-top English→Chinese subtitles for classes, meetings, and videos on macOS.
 
-## Features
-- **⚡️ Real-Time Transcription**: Instant streaming display using `faster-whisper`, `mlx-whisper`, or `FunASR`.
-- **🎯 Multiple ASR Backends**: Choose between Apple SpeechTranscriber (macOS 26 native streaming), Whisper, MLX, or FunASR.
-- **🌊 Word-by-Word Streaming**: See text appear as you speak, with smart context accumulation.
-- **🔄 Async Translation**: Translates text to Chinese (or target language) in the background without blocking the UI.
-- **🖥️ Overlay UI**: Always-on-top, transparent, click-through window for seamless usage during meetings/videos.
-- **⚙️ Hot Reloading**: Change code or config and the app restarts automatically.
-- **💾 Transcript Saving**: One-click save of your session history. Can be used as subtitle or LLM analyze.
-- **🪟 Resizable Glass Overlay**: Drag the overlay from its handle and resize it from the bottom-right corner.
-- **◒ Notch Mode**: Switch to a compact top-center subtitle that only shows the current utterance.
-- **⚡ Two-Stage Translation**: Show an Apple on-device draft first, then replace it with an LLM-refined translation.
+Realtime Ton captures a microphone or Mac system audio, streams provisional and finalized speech through Apple Speech or Whisper, shows an immediate Apple Translation draft, and refines stable sentences with a remote translation model—without allowing a slow API to block the live subtitle path.
 
-## Demo
-https://github.com/user-attachments/assets/9982fe5d-3937-42d5-bcfc-e23748c01edf
+> Built primarily for Apple Silicon MacBooks. The generic Python/Qt path can run on other platforms, but Apple Speech, Apple Translation, ScreenCaptureKit system audio, and the physical-notch UI are macOS-only.
 
-![Dashboard](./demo/main_dashboard.png)
+![Realtime Ton control center](./demo/main_dashboard.png)
 
-## Installation
+## Why Realtime Ton
 
-1. **Prerequisites**:
-   - Python 3.10+
-   - macOS (recommended for `mlx-whisper` support)
-   - `ffmpeg` installed (e.g., `brew install ffmpeg`)
-   - `BlackHole` installed (e.g., `brew install blackhole-2ch`, need to enter system password)
-   - `BlackHole` Settings![BlackHole Settings](demo/how_to_set_blackhole.png)
+- **Live Apple Speech transcription** with visibly distinct provisional and finalized English.
+- **Direct system-audio capture** through ScreenCaptureKit for browser videos, lectures, Zoom, and media apps—BlackHole is optional.
+- **Speed-first translation pipeline**: Apple drafts appear immediately while remote AI refinement runs under a strict deadline.
+- **Physical MacBook notch subtitles** with 1/2/3-message modes, centered adaptive width, long-translation segmentation, pause/resume, glass-mode switch, and exit controls.
+- **Resizable glass overlay** that stays above fullscreen video and supports edge/corner resizing.
+- **Technical-course terminology** through a course-domain prompt and TSV glossary.
+- **OpenAI-compatible providers**, including Qwen-MT, DeepSeek, SiliconFlow, Groq, Gemini, Cloudflare Workers AI, and custom endpoints.
+- **Quota-aware free-provider pool** with minute/day/token accounting, automatic fallback, cooldown recovery, and Qwen-MT fallback.
+- **Latest-wins refinement queue**: stale work is dropped so subtitles cannot accumulate seconds behind the speaker.
+- **Runtime latency log** for audio, ASR, local draft, bridge model, and final refinement stages.
 
-2. **Install Dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-   
-   *(Ensure you have `PyQt6`, `sounddevice`, `numpy`, `openai`, `watchdog` installed)*
+## Requirements
 
-   **🪟 Windows Users**:
-   1. Double-click `install_windows.bat` to automatically set up the environment.
-   2. Ensure [FFmpeg](https://ffmpeg.org/download.html) is installed and added to your PATH.
+Recommended configuration:
 
-   **🖥 MacOS Users**:
-   1. Use terminal to run `install_mac.sh`
+- Apple Silicon Mac
+- macOS 26+ for native Apple `SpeechAnalyzer` / `SpeechTranscriber`
+- Python 3.10+
+- Xcode Command Line Tools
+- Homebrew and FFmpeg
 
-## ✨ New Features & Quick Start
-- **Modern Control Center**: Manage all settings in a dark-themed Dashboard.
-- **One-Click Launch**: Start the overlay translator directly from the Dashboard.
-- **Auto-Dependency Check**: Automatically installs missing requirements.
-- **Audio Device Selection**: Choose your specific microphone input.
+Whisper/MLX can be used when Apple Speech is unavailable. Windows has legacy launch scripts, but the current low-latency native feature set is macOS-focused.
 
-## Usage
+## Install
 
-### 1. Start the Application
-Run the helper script for your OS:
-- **Mac/Linux**: `./start_mac.sh`
-- **Windows**: `start_windows.bat`
+```bash
+git clone https://github.com/Nyarlathoteppppp/realtime-ton.git
+cd realtime-ton
+chmod +x install_mac.sh start_mac.sh
+./install_mac.sh
+```
 
-### 2. The Dashboard
-The application opens the **Real-Time Translator Control Center**.
-- **Home**: Click **"▶ Launch Translator"** to start the overlay.
-- **Audio**: Select your Input Device and adjust Silence Threshold.
-  * <details>
-     <summary>How to Set</summary>
-     1. Audio MIDI Setup: create multiple devices, including `BlackHole 2ch` device, and if you want to listen too, remember adding system output device
+If FFmpeg is missing:
 
-     ![](./demo/Audio_MIDI_Setup.png)
+```bash
+brew install ffmpeg
+```
 
-     2. Choose target audio device to capture
+The installer creates a project-local `.venv`, installs Python dependencies, builds the Apple Speech and native-notch helpers, and prepares `config.ini` from the example configuration.
 
-     ![](./demo/Audio_configuraiton.png)
-   </details>
-- **Transcription**: Choose Whisper model size (tiny, base, small, medium, large-v3, [see the difference](https://github.com/openai/whisper?tab=readme-ov-file#available-models-and-languages)).
-  * <details>
-     <summary>How to Set</summary>
-     
-     * MacOS
-       * Whisper Model: base
-       * Compute Device: audo
-       * Quantization: float16
-   </details>
-- **Translation**: Set your OpenAI API Key and Target Language.
-- **Save Settings**: Click "Save Settings" to persist your configuration.
+### Optional desktop launcher
 
-### 3. The Overlay
-Once launched, a transparent window appears:
-- **Move**: Click and drag text to move.
-- **Resize**: Drag the bottom-right handle (◢).
-- **Stop**: Click **"⏹"** on the overlay or "Stop Translator" in the Dashboard.
-- **Save**: Click **"💾 Save"** to export transcript.
+```bash
+./install_desktop_app.sh
+```
 
-## ⚙️ Configuration Reference
-Settings are managed via the Dashboard, but stored in `config.ini`.
+This installs **Realtime Translator.app** so the control center can be opened like a normal Mac application. The app is single-instance: opening it again activates the existing control center instead of creating duplicate translator windows.
 
-#### `[api]` Section
-| Parameter | Description | Examples |
-| :--- | :--- | :--- |
-| `base_url` | API Endpoint | `https://api.openai.com/v1`, `http://localhost:11434/v1` |
-| `api_key` | Auth Key | `sk-...` (or `dummy` for local) |
-| `target_lang` | Output Language | `Chinese`, `English`, `Japanese` |
+## Quick start
 
-The Translation tab lists Alibaba Cloud Qwen-MT first, followed by DeepSeek Official,
-SiliconFlow, and custom OpenAI-compatible endpoints. Qwen-MT models use
-their required single-user-message format and `translation_options` automatically.
-API keys stay in the ignored local `config.ini`; model names remain editable and
-can also be fetched from `/models`.
+```bash
+./start_mac.sh
+```
 
-Use **Course Domain** to provide subject context. It is sent as Qwen-MT's `domains`
-option and is included in the system prompt for generic LLM providers, helping keep
-computer science and mathematics terminology accurate and consistent.
+In the control center:
 
-Set `fast_backend = apple` under `[translation]` to display an on-device draft
-before the configured LLM returns its refined translation. Apple Translation
-requires its source/target language assets to be installed on macOS.
+1. **Audio** → select `System Audio` for videos/apps or a microphone for an in-person class.
+2. **Transcription** → select `Apple` for the lowest native latency, or `MLX` as the Apple Silicon Whisper path.
+3. **Translation** → choose a provider/model and enter its API key.
+4. **Subtitle Mode** → choose `Physical MacBook Notch` or `Glass`.
+5. Click **Launch Translator**.
 
-Live partial hypotheses use Apple Translation only. The remote LLM is called
-only for finalized utterances, so a slow or blocked API cannot delay the local
-draft. Stage timings and failures are written to `logs/runtime.log`; open it
-from the Dashboard with **Open Runtime Log**.
+API credentials are stored only in the ignored local `config.ini`. Never commit or paste real keys into issues, logs, screenshots, or README files. Rotate any key that has been exposed publicly.
 
-The Apple draft is display-only: finalized remote requests translate the English
-source directly and stream their result over the draft. SiliconFlow
-`deepseek-ai/DeepSeek-V4-Flash` automatically sends `enable_thinking = false`;
-generic translation requests use `temperature = 0` and a 256-token output cap.
-Remote AI refinement has a three-second end-to-end deadline with retries disabled.
-Two requests may run concurrently and only the newest third request may wait;
-newer finalized speech replaces an older pending request. Generic models receive
-one previous finalized English segment as context, while Qwen-MT remains a
-single-turn translation request without context.
+## macOS permissions
 
-Choose `glass` or `notch` under **Subtitle Mode** on the Dashboard. On MacBooks
-with a camera housing, `notch` uses the native SwiftUI/AppKit
-[DynamicNotchKit](https://github.com/MrKai77/DynamicNotchKit) component instead
-of the Qt overlay. New subtitles expand from the physical notch and compact after
-six seconds of inactivity. **Glass** switches to the resizable overlay. Drag any
-edge or corner to resize; its last position and size are restored on the next
-launch. **Exit** stops the translator. The native helper builds during
-`install_mac.sh`.
+### Translate browser or application audio
 
-English subtitle opacity communicates ASR stability in both display modes:
-volatile/partial text is dim and regular-weight, while finalized text becomes
-brighter and medium-weight. Finalized subtitle objects reject any delayed partial
-updates, so their text and visual state cannot regress.
+Open:
 
-#### `[transcription]` Section
-| Parameter | Description | Details |
-| :--- | :--- | :--- |
-| `backend` | ASR Engine | `apple` (macOS 26 native), `whisper`, `mlx`, `funasr` |
-| `whisper_model` | Whisper Model Size | `tiny` (fast), `large-v3` (accurate) |
-| `funasr_model` | FunASR Model Name | `paraformer-zh` (Chinese), `SenseVoiceSmall` (Multi-lang) |
-| `device` | Compute Unit | `auto` (Apple Neural Engine), `cuda` (NVIDIA) |
+**System Settings → Privacy & Security → Screen & System Audio Recording**
 
-For the lowest-latency microphone transcription on macOS 26+, set `backend = apple`.
-The native helper uses Apple's on-device `SpeechAnalyzer`/`SpeechTranscriber`, emits
-volatile and finalized results continuously, and builds automatically with the installed
-Xcode Command Line Tools. Run `./build_apple_speech.sh` manually to rebuild it.
+Enable **Realtime Translator**, then fully quit and reopen the application. Use **Audio → Test Permission & Audio** while a video is playing to distinguish a permission problem from valid but silent capture.
 
-`./start_mac.sh` starts the Dashboard directly for fast, stable classroom use.
-Developers can opt into source-file hot reload with
-`REALTIME_TON_DEV_RELOAD=1 ./start_mac.sh`.
-The Dashboard is process-wide single-instance: opening the desktop launcher again
-activates the existing Dashboard instead of creating another session. Stop/relaunch
-uses generation IDs so a late initializer cannot reopen an obsolete subtitle window.
+### Translate microphone audio
 
-#### `[audio]` Section
-| Parameter | Description | Details |
-| :--- | :--- | :--- |
-| `silence_threshold`| Sensitivity | `0.005` (Quiet) to `0.05` (Loud) |
-| `device_index` | Audio source | `system` for macOS app/video audio, `auto`, or mic index `0`, `1`... |
-| `update_interval` | Partial subtitle refresh | `0.5` seconds recommended for classroom use |
+Open:
 
-Select **System Audio (ScreenCaptureKit — videos/apps)** in the Dashboard to
-translate audio played by browsers and media apps without BlackHole. The first
-launch requires **System Settings → Privacy & Security → Screen & System Audio
-Recording** permission; restart the translator after granting it. This source
-excludes the translator process itself to avoid feedback loops.
+**System Settings → Privacy & Security → Microphone**
 
-The Control Center home page shows the selected audio source, ASR backend, and
-translation model. Its Audio tab provides **Use System Audio**, **Test Permission
-& Audio**, and **Open Permission Settings**. The test distinguishes a permission
-failure from a valid but silent capture; play a video while it runs to verify
-that actual samples are arriving.
+Enable **Realtime Translator**, then restart it.
+
+BlackHole is not required for the normal ScreenCaptureKit system-audio path. It remains available for custom routing on older or unusual setups.
+
+## Subtitle modes
+
+### Physical MacBook notch
+
+- Click the subtitle to cycle through 1, 2, and 3 visible messages.
+- Right-click for **Pause/Resume**, **Glass Mode**, and **Exit**.
+- Width grows immediately with longer text but shrinks with a short delay to prevent ASR-driven visual jitter.
+- English and Chinese remain centered while the notch expands symmetrically.
+- Long finalized translations are split only when they would exceed the available two-line display area.
+- The notch compacts after six seconds without new speech.
+
+### Glass overlay
+
+- Drag the window to move it.
+- Resize from any edge or corner.
+- The last position and size are restored on the next launch.
+- System-audio mode uses video-friendly transparency; microphone mode retains the regular glass surface.
+- The native window level keeps subtitles visible above browser fullscreen video.
+
+## Translation pipeline
+
+```text
+Audio
+  → provisional Apple ASR
+  → immediate Apple Translation draft
+  → optional low-latency Groq bridge
+  → finalized ASR segment
+  → deadline-limited Gemini / Cloudflare / Qwen-MT refinement
+```
+
+Important real-time behavior:
+
+- Every distinct Apple partial may update the local draft for minimum latency.
+- Remote AI refinement runs on stable/finalized segments, not every growing ASR hypothesis.
+- AI requests have a configurable hard deadline (`3.0s` by default) and no retry chain.
+- Two refinements may run concurrently; only the newest pending request is retained.
+- Late drafts cannot overwrite a higher-quality final result.
+- Qwen-MT uses its native translation options without conversation context; generic models receive one previous finalized English segment for disambiguation.
+- Translation prompts identify the domain as postgraduate computer science coursework and warn that ASR may contain recognition errors.
+
+Stage timings and failures are written to `logs/runtime.log` and can be opened from the control center.
+
+## Configuration
+
+The dashboard writes settings to `config.ini`. A safe template is provided in [`config.ini.example`](./config.ini.example).
+
+### Recommended classroom profile
+
+```ini
+[translation]
+target_lang = Chinese
+domain = Postgraduate computer science coursework with computer science and mathematics terminology.
+ai_deadline_seconds = 3.0
+fast_backend = apple
+glossary_path = course_glossary.tsv
+
+[transcription]
+backend = apple
+source_language = en
+
+[audio]
+device_index = system
+silence_threshold = 0.005
+update_interval = 0.5
+
+[display]
+mode = notch
+```
+
+### Main options
+
+| Setting | Purpose |
+| --- | --- |
+| `translation.provider` | Translation provider or quota-aware provider pool |
+| `translation.model` | Remote translation model |
+| `translation.fast_backend` | Immediate local draft backend (`apple`) |
+| `translation.ai_deadline_seconds` | Maximum useful lifetime of a remote refinement |
+| `translation.glossary_path` | TSV terminology glossary |
+| `transcription.backend` | `apple`, `mlx`, `whisper`, or `funasr` |
+| `audio.device_index` | `system`, `auto`, or a microphone device index |
+| `audio.silence_threshold` | Voice/silence sensitivity |
+| `display.mode` | `notch` or `glass` |
+
+## Course glossary
+
+Edit [`course_glossary.tsv`](./course_glossary.tsv) using tab-separated source and target terms:
+
+```tsv
+heuristic function	启发式函数
+admissible heuristic	可采纳启发式
+state space	状态空间
+```
+
+The glossary is intended for computer science and mathematics terminology. Keep it focused: a short, relevant glossary improves consistency without inflating every request.
 
 ## Troubleshooting
-- **No Audio?** Check the terminal for capture logs. For System Audio, grant
-  Screen & System Audio Recording and restart; for a microphone, grant Microphone
-  access. BlackHole remains optional for custom audio routing.
-- **Resize not working?** Use the designated "◢" handle in the bottom-right.
-- **Hot Reload**: Modify any `.py` file or save settings in the UI to trigger a reload.
 
-## 🎯 Using FunASR (NEW!)
+### System audio stops with permission error
 
-FunASR is Alibaba's industrial-grade ASR toolkit with excellent Chinese language support.
+Confirm **Realtime Translator** is enabled in both Screen & System Audio permission sections, fully quit the app, and reopen it. Permission changes do not reliably affect an already-running native helper.
 
-**Quick Start:**
-1. Set backend to `funasr` in Settings or `config.ini`
-2. Choose a FunASR model (e.g., `iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch` for Chinese)
-3. Models auto-download on first use from ModelScope
+### Speech works from a phone but not from a browser video
 
-**Recommended Models:**
-- **Chinese (Offline)**: `iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch`
-- **Chinese (Streaming)**: `iic/speech_paraformer_asr_nat-zh-cn-16k-common-vocab8404-online`
-- **English (Streaming)**: `iic/speech_UniASR_asr_2pass-en-16k-common-vocab1080-tensorflow1-online`
-- **Multi-language**: `iic/SenseVoiceSmall` or `FunAudioLLM/SenseVoiceSmall`
-- **Latest 31-language model**: `FunAudioLLM/Fun-ASR-Nano-2512` (Supports dialects, accents, lyrics)
+The microphone is active instead of ScreenCaptureKit. Select **System Audio**, run the audio test while the browser video is playing, and verify the home page reports `System Audio · ScreenCaptureKit active`.
 
-**Note**: FunASR model names must include the namespace (e.g., `iic/` or `FunAudioLLM/`)
+### Subtitle does not stay above fullscreen video
 
+Restart after updating. Both native notch and glass windows use macOS window levels and collection behavior intended for fullscreen Spaces.
 
-## License: MIT
-Copyright 2025 Van
+### Translation returns `401 invalid_api_key`
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+The endpoint is reachable, but the configured key does not belong to that provider or host. Check Base URL, model name, and API key as one matching set.
 
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+### First launch is slow
 
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+MLX/Whisper models download on first use. Apple Speech may also need language assets. Later launches reuse local assets.
+
+## Development
+
+```bash
+# Native helper builds
+./build_apple_speech.sh
+./build_native_notch.sh
+
+# Tests
+./.venv/bin/python -m unittest -q \
+  test_groq_bridge.py \
+  test_hybrid_translator.py \
+  test_glossary.py \
+  test_stable_prefix.py
+
+# Optional source-file hot reload
+REALTIME_TON_DEV_RELOAD=1 ./start_mac.sh
+```
+
+## Platform support
+
+| Feature | macOS | Windows/Linux |
+| --- | ---: | ---: |
+| Microphone capture | Yes | Legacy/partial |
+| Whisper/FunASR | Yes | Architecture supports it |
+| Apple live ASR and translation | Yes | No |
+| ScreenCaptureKit system audio | Yes | No |
+| Physical MacBook notch UI | Yes | No |
+| Generic OpenAI-compatible translation | Yes | Yes |
+| Qt glass overlay | Yes | Legacy/partial |
+
+## License
+
+[MIT](./LICENSE) © Van and contributors.
