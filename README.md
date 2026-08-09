@@ -6,7 +6,18 @@ Realtime Ton captures a microphone or Mac system audio, streams provisional and 
 
 > Built primarily for Apple Silicon MacBooks. The generic Python/Qt path can run on other platforms, but Apple Speech, Apple Translation, ScreenCaptureKit system audio, and the physical-notch UI are macOS-only.
 
-![Realtime Ton control center](./demo/main_dashboard.png)
+## Screenshots
+
+### Control center
+
+![Realtime Ton glass control center](./demo/control-center.png)
+
+### Physical notch and glass overlay
+
+<p align="center">
+  <img src="./demo/physical-notch.png" width="49%" alt="Realtime Ton subtitles expanding from the physical MacBook notch">
+  <img src="./demo/glass-overlay.png" width="38%" alt="Realtime Ton resizable glass subtitle overlay">
+</p>
 
 ## Why Realtime Ton
 
