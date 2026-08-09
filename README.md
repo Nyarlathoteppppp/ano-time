@@ -16,11 +16,20 @@ It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHo
 
 ![Ano Time glass control center](./demo/control-center.png)
 
-### Physical notch and glass overlay
+### Compact physical notch
 
 <p align="center">
-  <img src="./demo/physical-notch.png" width="49%" alt="Ano Time subtitles expanding from the physical MacBook notch">
-  <img src="./demo/glass-overlay.png" width="38%" alt="Ano Time resizable glass subtitle overlay">
+  <img src="./demo/compact-notch.png" width="68%" alt="Ano Time compact mascot control in the physical MacBook notch">
+</p>
+
+### Expanded physical-notch subtitles
+
+![Ano Time subtitles expanding from the physical MacBook notch](./demo/physical-notch.png)
+
+### Resizable glass subtitles
+
+<p align="center">
+  <img src="./demo/glass-overlay.png" width="46%" alt="Ano Time resizable pink glass subtitle overlay">
 </p>
 
 ## Why Ano Time
