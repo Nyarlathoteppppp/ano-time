@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize Ano Time latency stages from the asynchronous runtime log."""
+"""Summarize Anotime latency stages from the asynchronous runtime log."""
 
 import argparse
 import json

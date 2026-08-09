@@ -306,7 +306,7 @@ class Dashboard(QWidget):
         # 320 ms proved too strict for normal human double taps. Preserve any
         # explicitly slower setting while migrating the old default to 450 ms.
         self.shortcut_interval = max(0.45, config.shortcut_interval)
-        self.setWindowTitle("Ano Time - Control Center")
+        self.setWindowTitle("Anotime - Control Center")
         self.setMinimumSize(760, 540)
         self.setStyleSheet(STYLESHEET)
         
@@ -330,7 +330,7 @@ class Dashboard(QWidget):
             # visibly blurs the mascot.
             mascot.setPixmap(mascot_pixmap)
             mascot.setScaledContents(True)
-        header = QLabel(f"Ano Time  ·  {current_version()}")
+        header = QLabel(f"Anotime  ·  {current_version()}")
         header.setStyleSheet("font-size: 24px; font-weight: bold; color: #f5a9c7;")
         header_row.addWidget(mascot)
         header_row.addWidget(header)

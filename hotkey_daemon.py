@@ -1,4 +1,4 @@
-"""Resident macOS global-hotkey agent for Realtime Translator."""
+"""Resident macOS global-hotkey agent for Anotime."""
 
 import configparser
 import os
@@ -14,7 +14,7 @@ from global_shortcut import MacCarbonHotkeyShortcut
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(ROOT, "config.ini")
-APP_PATH = os.path.expanduser("~/Desktop/Realtime Translator.app")
+APP_PATH = os.path.expanduser("~/Desktop/Anotime.app")
 INSTANCE_SERVER_NAME = "com.realtime-ton.dashboard"
 
 

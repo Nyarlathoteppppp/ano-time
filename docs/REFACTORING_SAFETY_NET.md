@@ -1,6 +1,6 @@
 # Refactoring safety net
 
-Ano Time treats latency and visible subtitle behavior as compatibility
+Anotime treats latency and visible subtitle behavior as compatibility
 requirements. Refactoring is accepted only when the automated contracts pass
 and a real microphone/system-audio smoke test shows no latency regression.
 
@@ -58,13 +58,13 @@ to delay subsequent speech.
 Diagnostics are opt-in and disabled by default. Normal classroom use does not
 create a logging queue, disk writer, or resource-sampling thread. Enable
 **Diagnostics** on the Home page only while investigating a problem, save, and
-fully restart Ano Time. The setting is read once per process so the live path
+fully restart Anotime. The setting is read once per process so the live path
 never polls the configuration file.
 
 When enabled, the confirmed primary app process creates a fresh
 `logs/runtime.log` on launch. The previous session is moved to `logs/history/`;
 at most five sessions and seven days are retained. Reopening the desktop
-launcher while Ano Time is already running does not rotate or interrupt the
+launcher while Anotime is already running does not rotate or interrupt the
 active log.
 
 While diagnostics and a Pipeline are active, `runtime_performance` records process CPU, peak

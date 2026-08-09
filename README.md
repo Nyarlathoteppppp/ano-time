@@ -1,10 +1,10 @@
-# Ano Time
+# Anotime
 
 <p align="center"><strong>这款应用帮助大家度过一开始的语言难关，避免大家像 Ano 一样过了雅思却听不懂课（早知道不如去花咲川）。</strong></p>
 
 **Native, low-latency English → Chinese live subtitles for macOS lectures, meetings, and fullscreen video.**
 
-Ano Time combines Apple on-device speech recognition and translation with optional AI refinement. Provisional subtitles remain instant, stable sentences receive terminology-aware refinement, and every remote request is deadline-limited so a slow model can never block the live path.
+Anotime combines Apple on-device speech recognition and translation with optional AI refinement. Provisional subtitles remain instant, stable sentences receive terminology-aware refinement, and every remote request is deadline-limited so a slow model can never block the live path.
 
 It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHole setup required—and render subtitles either as a resizable glass overlay or as an adaptive window attached to the physical MacBook notch.
 
@@ -14,25 +14,25 @@ It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHo
 
 ### Control center
 
-![Ano Time glass control center](./demo/control-center.png)
+![Anotime glass control center](./demo/control-center.png)
 
 ### Compact physical notch
 
 <p align="center">
-  <img src="./demo/compact-notch.png" width="68%" alt="Ano Time compact mascot control in the physical MacBook notch">
+  <img src="./demo/compact-notch.png" width="68%" alt="Anotime compact mascot control in the physical MacBook notch">
 </p>
 
 ### Expanded physical-notch subtitles
 
-![Ano Time subtitles expanding from the physical MacBook notch](./demo/physical-notch.png)
+![Anotime subtitles expanding from the physical MacBook notch](./demo/physical-notch.png)
 
 ### Resizable glass subtitles
 
 <p align="center">
-  <img src="./demo/glass-overlay.png" width="46%" alt="Ano Time resizable pink glass subtitle overlay">
+  <img src="./demo/glass-overlay.png" width="46%" alt="Anotime resizable pink glass subtitle overlay">
 </p>
 
-## Why Ano Time
+## Why Anotime
 
 - **Live Apple Speech transcription** with visibly distinct provisional and finalized English.
 - **Direct system-audio capture** through ScreenCaptureKit for browser videos, lectures, Zoom, and media apps—BlackHole is optional.
@@ -93,7 +93,7 @@ chmod +x install_desktop_app.sh install_hotkey_agent.sh
 ./install_hotkey_agent.sh
 ```
 
-This installs **Realtime Translator.app** so the control center can be opened like a normal Mac application. The app is single-instance: opening it again activates the existing control center instead of creating duplicate translator windows.
+This installs **Anotime.app** so the control center can be opened like a normal Mac application. The app is single-instance: opening it again activates the existing control center instead of creating duplicate translator windows.
 
 The second command installs a per-user LaunchAgent named
 `com.nyarlathotep.realtime-ton.hotkey`. It owns the native `Control + S`
@@ -141,17 +141,17 @@ Open:
 
 **System Settings → Privacy & Security → Screen & System Audio Recording**
 
-Enable **Realtime Translator**, then fully quit and reopen the application. Use **Audio → Test Permission & Audio** while a video is playing to distinguish a permission problem from valid but silent capture.
+Enable **Anotime**, then fully quit and reopen the application. Use **Audio → Test Permission & Audio** while a video is playing to distinguish a permission problem from valid but silent capture.
 
 Depending on the macOS version and launch path, the permission list may show:
 
-- **Realtime Translator** — desktop launcher/responsible application.
+- **Anotime** — desktop launcher/responsible application.
 - **Realtime Translator Audio** — native ScreenCaptureKit helper.
 - **Python** — local Dashboard process.
 
 Enable every project entry that appears under **Screen & System Audio
 Recording**. Some macOS versions also show a separate **System Audio Recording
-Only** section; enable the Realtime Translator entry there as well. The generic
+Only** section; enable the Anotime-related entry there as well. The generic
 `applet` row is a legacy launcher identity and is not required.
 
 After changing a permission, restart the running Dashboard. Changing a switch
@@ -163,7 +163,7 @@ Open:
 
 **System Settings → Privacy & Security → Microphone**
 
-Enable **Realtime Translator**, then restart it.
+Enable **Anotime**, then restart it.
 
 BlackHole is not required for the normal ScreenCaptureKit system-audio path. It remains available for custom routing on older or unusual setups.
 
@@ -316,7 +316,7 @@ Corrections apply only after ASR finalization, never to the latency-critical pro
 
 ### System audio stops with permission error
 
-Confirm every visible project entry—**Realtime Translator**, **Realtime
+Confirm every visible project entry—**Anotime**, **Realtime
 Translator Audio**, and **Python**—is enabled under Screen & System Audio
 Recording, then fully restart the Dashboard. If macOS still denies capture
 after a local app rebuild, remove/reset only that project entry and grant the

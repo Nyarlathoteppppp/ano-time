@@ -3,11 +3,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-APP_PATH="$HOME/Desktop/Realtime Translator.app"
+APP_NAME="Anotime"
+APP_PATH="$HOME/Desktop/$APP_NAME.app"
 /usr/bin/osacompile -o "$APP_PATH" desktop_launcher.applescript
 
 PLIST="$APP_PATH/Contents/Info.plist"
 BUNDLE_ID="com.nyarlathotep.realtime-ton"
+ICON_NAME="Anotime.icns"
 
 set_plist_string() {
     local key="$1"
@@ -20,14 +22,21 @@ set_plist_string() {
 # produced by osacompile has no bundle identifier by default, which leaves stale
 # permission rows after the launcher is rebuilt.
 set_plist_string "CFBundleIdentifier" "$BUNDLE_ID"
+set_plist_string "CFBundleName" "$APP_NAME"
+set_plist_string "CFBundleDisplayName" "$APP_NAME"
+set_plist_string "CFBundleIconFile" "$ICON_NAME"
+set_plist_string "CFBundleIconName" "Anotime"
 set_plist_string \
     "NSScreenCaptureUsageDescription" \
-    "Realtime Translator captures screen-associated system audio for live subtitles."
+    "Anotime captures screen-associated system audio for live subtitles."
 set_plist_string \
     "NSAudioCaptureUsageDescription" \
-    "Realtime Translator captures audio from videos and applications for live translation."
+    "Anotime captures audio from videos and applications for live translation."
+
+cp "assets/$ICON_NAME" "$APP_PATH/Contents/Resources/$ICON_NAME"
 
 /usr/bin/codesign --force --deep --sign - --identifier "$BUNDLE_ID" "$APP_PATH"
+/usr/bin/touch "$APP_PATH"
 
 echo "Installed: $APP_PATH"
 echo "Bundle ID: $BUNDLE_ID"
