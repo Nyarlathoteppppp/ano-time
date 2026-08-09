@@ -371,7 +371,7 @@ MLX/Whisper models download on first use. Apple Speech may also need language as
 # Tests
 ./tools/run_tests.sh
 
-# Latency baseline from the asynchronous runtime log
+# Temporarily enable Diagnostics on Home and restart first, then measure.
 .venv/bin/python tools/latency_baseline.py
 
 # Optional source-file hot reload

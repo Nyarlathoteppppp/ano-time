@@ -17,7 +17,7 @@ from translator import Translator
 from hybrid_translator import HybridTranslator
 from overlay_window import OverlayWindow
 from config import config
-from runtime_log import log_stage
+from runtime_log import diagnostics_enabled, log_stage
 from stable_prefix import StablePrefixTracker
 from groq_bridge import GroqBridgeGate
 from live_segmenter import IncrementalSegmenter
@@ -60,8 +60,10 @@ class Pipeline(QObject):
         self._subtitle_revision_lock = threading.Lock()
         self._subtitle_revisions = {}
         self._subtitle_events_since_sample = 0
-        self._performance_sampler = RuntimePerformanceSampler(
-            self._take_subtitle_event_count
+        self._performance_sampler = (
+            RuntimePerformanceSampler(self._take_subtitle_event_count)
+            if diagnostics_enabled()
+            else None
         )
         self._context_lock = threading.Lock()
         self._last_finalized_segment = ""
@@ -274,9 +276,10 @@ class Pipeline(QObject):
         with lock:
             revision = self._subtitle_revisions.get(chunk_id, 0) + 1
             self._subtitle_revisions[chunk_id] = revision
-            self._subtitle_events_since_sample = (
-                self.__dict__.get("_subtitle_events_since_sample", 0) + 1
-            )
+            if self.__dict__.get("_performance_sampler") is not None:
+                self._subtitle_events_since_sample = (
+                    self.__dict__.get("_subtitle_events_since_sample", 0) + 1
+                )
         event = SubtitleEvent.create(
             chunk_id,
             revision,
@@ -1219,7 +1222,7 @@ def start_overlay_session():
 def main():
     global _pipeline, _app
     from runtime_log import begin_runtime_session
-    begin_runtime_session(reset=True)
+    begin_runtime_session(reset=True, enabled=config.diagnostics_enabled)
     
     # Set up signal handler for Ctrl-C
     signal.signal(signal.SIGINT, signal_handler)

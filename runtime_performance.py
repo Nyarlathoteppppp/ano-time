@@ -6,7 +6,7 @@ import sys
 import threading
 import time
 
-from runtime_log import log_stage
+from runtime_log import diagnostics_enabled, log_stage
 
 
 class RuntimePerformanceSampler:
@@ -17,8 +17,10 @@ class RuntimePerformanceSampler:
         self._thread = None
 
     def start(self):
+        if not diagnostics_enabled():
+            return False
         if self._thread and self._thread.is_alive():
-            return
+            return True
         self._stop.clear()
         self._thread = threading.Thread(
             target=self._run,
@@ -26,6 +28,7 @@ class RuntimePerformanceSampler:
             daemon=True,
         )
         self._thread.start()
+        return True
 
     def stop(self):
         self._stop.set()

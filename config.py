@@ -114,6 +114,10 @@ class Config:
         self.shortcut_enabled = self._getbool("shortcut", "enabled", True)
         self.shortcut_interval = self._getfloat("shortcut", "double_tap_interval", 0.45)
 
+        # Diagnostics are opt-in. Normal classroom use must not start logging
+        # queues, disk writers, or process resource samplers.
+        self.diagnostics_enabled = self._getbool("diagnostics", "enabled", False)
+
     def reload(self):
         """Reload config.ini in place so existing module references stay valid."""
         self.__init__(self.config_path)

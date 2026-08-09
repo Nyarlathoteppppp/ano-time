@@ -55,12 +55,19 @@ to delay subsequent speech.
 
 ## Runtime log lifecycle
 
-The confirmed primary app process creates a fresh `logs/runtime.log` on every
-launch. The previous session is moved to `logs/history/`; at most five sessions
-and seven days are retained. Reopening the desktop launcher while Ano Time is
-already running does not rotate or interrupt the active log.
+Diagnostics are opt-in and disabled by default. Normal classroom use does not
+create a logging queue, disk writer, or resource-sampling thread. Enable
+**Diagnostics** on the Home page only while investigating a problem, save, and
+fully restart Ano Time. The setting is read once per process so the live path
+never polls the configuration file.
 
-While a Pipeline is active, `runtime_performance` records process CPU, peak
+When enabled, the confirmed primary app process creates a fresh
+`logs/runtime.log` on launch. The previous session is moved to `logs/history/`;
+at most five sessions and seven days are retained. Reopening the desktop
+launcher while Ano Time is already running does not rotate or interrupt the
+active log.
+
+While diagnostics and a Pipeline are active, `runtime_performance` records process CPU, peak
 resident memory, thread count and subtitle event rate every two seconds. The
 sampler uses process counters only; it does not execute `ps`, inspect other
 applications or run on the latency-critical audio callback.

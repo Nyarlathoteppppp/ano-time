@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTabWidget, QSpinBox, QDoubleSpinBox, QGridLayout,
                              QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
                              QMessageBox, QTextEdit, QDialog, QLayout)
+from PyQt6.QtWidgets import QCheckBox
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QThread, QTimer
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap
@@ -301,6 +302,7 @@ class Dashboard(QWidget):
         self.pipeline = None
         self.overlay_window = None
         self.shortcut_enabled = config.shortcut_enabled
+        self._diagnostics_active = config.diagnostics_enabled
         # 320 ms proved too strict for normal human double taps. Preserve any
         # explicitly slower setting while migrating the old default to 450 ms.
         self.shortcut_interval = max(0.45, config.shortcut_interval)
@@ -486,6 +488,18 @@ class Dashboard(QWidget):
         self.log_btn = QPushButton("📄 Open Runtime Log")
         self.log_btn.setFixedSize(200, 38)
         self.log_btn.clicked.connect(self.open_runtime_log)
+        self.log_btn.setEnabled(self._diagnostics_active)
+        if not self._diagnostics_active:
+            self.log_btn.setText("📄 Runtime Log (Off)")
+
+        self.diagnostics_checkbox = QCheckBox(
+            "Diagnostics（诊断埋点，仅排查时开启）"
+        )
+        self.diagnostics_checkbox.setChecked(config.diagnostics_enabled)
+        self.diagnostics_checkbox.setToolTip(
+            "Default: Off. Applies after a full app restart.\n"
+            "When off, no log queue, log writer, or resource sampler runs."
+        )
 
         self.shortcut_btn = QPushButton("⌃S Shortcut Settings")
         self.shortcut_btn.setFixedSize(240, 38)
@@ -496,6 +510,7 @@ class Dashboard(QWidget):
         btn_layout.addWidget(self.stop_btn)
         layout.addLayout(btn_layout)
         layout.addWidget(self.log_btn)
+        layout.addWidget(self.diagnostics_checkbox)
         layout.addWidget(self.shortcut_btn)
         
         info = QLabel("The translator will open as an overlay window.\nYou can minimize this dashboard.")
@@ -1433,6 +1448,7 @@ class Dashboard(QWidget):
         if not cp.has_section("providers"): cp.add_section("providers")
         if not cp.has_section("display"): cp.add_section("display")
         if not cp.has_section("shortcut"): cp.add_section("shortcut")
+        if not cp.has_section("diagnostics"): cp.add_section("diagnostics")
         
         # Audio
         idx = self.device_combo.currentData()
@@ -1499,6 +1515,10 @@ class Dashboard(QWidget):
         cp.set("display", "mode", self.display_mode.currentData())
         cp.set("shortcut", "enabled", "true" if self.shortcut_enabled else "false")
         cp.set("shortcut", "double_tap_interval", str(self.shortcut_interval))
+        cp.set(
+            "diagnostics", "enabled",
+            "true" if self.diagnostics_checkbox.isChecked() else "false",
+        )
         
         with open(config_path, 'w') as f:
             cp.write(f)
@@ -1677,6 +1697,6 @@ if __name__ == "__main__":
         notify_existing_instance()
         sys.exit(0)
     from runtime_log import begin_runtime_session
-    begin_runtime_session(reset=True)
+    begin_runtime_session(reset=True, enabled=config.diagnostics_enabled)
     w.show()
     sys.exit(app.exec())

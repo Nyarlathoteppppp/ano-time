@@ -35,6 +35,10 @@ mode = glass
 enabled = true
 double_tap_interval = 0.32
 
+[diagnostics]
+# Enable temporarily only while troubleshooting; restart after changing it.
+enabled = false
+
 [transcription]
 backend = whisper
 whisper_model = base

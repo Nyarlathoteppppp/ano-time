@@ -13,8 +13,6 @@ LOG_HISTORY_DIR = os.path.join(LOG_DIR, "history")
 HISTORY_LIMIT = 5
 HISTORY_MAX_AGE_DAYS = 7
 
-os.makedirs(LOG_DIR, exist_ok=True)
-
 logger = logging.getLogger("realtime_ton")
 logger.setLevel(logging.INFO)
 logger.propagate = False
@@ -38,7 +36,20 @@ class DroppingQueueHandler(logging.Handler):
 
 _listener = None
 _session_started = False
+_diagnostics_enabled = False
 _startup_lock = threading.Lock()
+
+
+def diagnostics_enabled():
+    """Return the process-wide diagnostics state without touching disk."""
+    return _diagnostics_enabled
+
+
+def configure_diagnostics(enabled):
+    """Set the single diagnostics state used by logging and samplers."""
+    global _diagnostics_enabled
+    _diagnostics_enabled = bool(enabled)
+    return _diagnostics_enabled
 
 
 def rotate_runtime_logs(
@@ -78,12 +89,17 @@ def rotate_runtime_logs(
                 pass
 
 
-def begin_runtime_session(reset=True):
-    """Start one non-blocking log session; safe to call more than once."""
+def begin_runtime_session(reset=True, enabled=None):
+    """Start one opt-in non-blocking log session; safe to call repeatedly."""
     global _listener, _session_started
+    if enabled is not None:
+        configure_diagnostics(enabled)
+    if not diagnostics_enabled():
+        return False
     with _startup_lock:
         if _session_started:
-            return
+            return True
+        os.makedirs(LOG_DIR, exist_ok=True)
         if reset:
             rotate_runtime_logs()
         file_handler = RotatingFileHandler(
@@ -100,6 +116,7 @@ def begin_runtime_session(reset=True):
         )
         _listener.start()
         _session_started = True
+        return True
 
 
 def _stop_listener():
@@ -114,6 +131,8 @@ atexit.register(_stop_listener)
 
 
 def log_stage(stage, chunk_id=None, status="ok", elapsed_ms=None, detail="", **metrics):
+    if not diagnostics_enabled():
+        return False
     if not _session_started:
         # Libraries and unit tests may use telemetry without launching the app.
         # Append in that case; only the confirmed primary app resets a session.
@@ -135,3 +154,4 @@ def log_stage(stage, chunk_id=None, status="ok", elapsed_ms=None, detail="", **m
     if detail:
         fields.append(f"detail={detail.replace(chr(10), ' ')[:300]}")
     logger.info(" | ".join(fields))
+    return True

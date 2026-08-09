@@ -32,6 +32,16 @@ class ConfigContractTests(unittest.TestCase):
                 os.path.join(directory, "corrections.tsv"),
             )
             self.assertIsNone(loaded.source_language)
+            self.assertFalse(loaded.diagnostics_enabled)
+
+    def test_diagnostics_require_explicit_opt_in(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.ini")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("[diagnostics]\nenabled = true\n")
+            with patch.object(config_module.keychain, "resolve", return_value=""):
+                loaded = config_module.Config(path)
+            self.assertTrue(loaded.diagnostics_enabled)
 
     def test_keychain_reference_is_resolved_by_config_layer(self):
         with tempfile.TemporaryDirectory() as directory:

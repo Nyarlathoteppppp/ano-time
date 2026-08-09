@@ -4,11 +4,36 @@ import queue
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
-from runtime_log import DroppingQueueHandler, rotate_runtime_logs
+import runtime_log
+from runtime_log import (
+    DroppingQueueHandler,
+    configure_diagnostics,
+    diagnostics_enabled,
+    log_stage,
+    rotate_runtime_logs,
+)
 
 
 class RuntimeLogTests(unittest.TestCase):
+    def tearDown(self):
+        configure_diagnostics(False)
+
+    def test_diagnostics_are_off_until_explicitly_enabled(self):
+        configure_diagnostics(False)
+        self.assertFalse(diagnostics_enabled())
+        with patch.object(runtime_log, "begin_runtime_session") as begin, patch.object(
+            runtime_log.logger, "info"
+        ) as info:
+            self.assertFalse(log_stage("apple_partial", elapsed_ms=12))
+        begin.assert_not_called()
+        info.assert_not_called()
+
+    def test_single_process_switch_enables_diagnostics(self):
+        self.assertTrue(configure_diagnostics(True))
+        self.assertTrue(diagnostics_enabled())
+
     def test_full_log_queue_never_blocks_caller(self):
         log_queue = queue.Queue(maxsize=1)
         log_queue.put_nowait("occupied")
