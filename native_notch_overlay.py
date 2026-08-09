@@ -4,10 +4,10 @@ import queue
 import re
 import subprocess
 import threading
-import time
 import unicodedata
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from subtitle_record_store import SubtitleRecordStore
 
 
 class NativeNotchOverlay(QObject):
@@ -24,7 +24,7 @@ class NativeNotchOverlay(QObject):
         self.window_height = window_height
         self.process = None
         self.delegate = None
-        self.transcript_data = {}
+        self.record_store = SubtitleRecordStore()
         self._last_native_items = None
         self._paused = False
         self._write_lock = threading.Lock()
@@ -39,6 +39,11 @@ class NativeNotchOverlay(QObject):
             self.package_dir, ".build", "release", "RealtimeNotchHelper"
         )
         self.build_script = os.path.join(root, "build_native_notch.sh")
+
+    @property
+    def transcript_data(self):
+        """Read-only compatibility snapshot of complete semantic records."""
+        return self.record_store.snapshot()
 
     def _ensure_built(self):
         source_files = [
@@ -143,8 +148,7 @@ class NativeNotchOverlay(QObject):
         self.delegate.notch_requested.connect(
             lambda: QTimer.singleShot(0, self._show_native_overlay)
         )
-        for chunk_id in sorted(self.transcript_data):
-            item = self.transcript_data[chunk_id]
+        for chunk_id, item in self.record_store.sorted_items():
             self.delegate.update_text(
                 chunk_id,
                 item["original"],
@@ -158,48 +162,37 @@ class NativeNotchOverlay(QObject):
             self.delegate.close()
             self.delegate = None
         self.show()
-        if self.transcript_data:
+        if self.record_store:
             self._send({"items": self._latest_items()})
 
     def update_text(self, chunk_id, original_text, translated_text, state="partial"):
-        current = self.transcript_data.get(chunk_id)
-        if current and current["finalized"] and state != "final":
-            return
-        existing = self.transcript_data.setdefault(
-            chunk_id,
-            {
-                "timestamp": time.strftime("%H:%M:%S"),
-                "original": "",
-                "translated": "",
-                "finalized": False,
-            },
+        record = self.record_store.update(
+            chunk_id, original_text, translated_text, state
         )
-        existing["finalized"] = existing["finalized"] or state == "final"
-        if original_text:
-            existing["original"] = original_text
-        if translated_text:
-            existing["translated"] = translated_text
+        if record is None:
+            return
 
         if self.delegate:
             self.delegate.update_text(
                 chunk_id,
                 original_text,
                 translated_text,
-                "final" if existing["finalized"] else "partial",
+                "final" if record["finalized"] else "partial",
             )
             return
 
         latest_items = self._latest_items()
         # A late translation for a subtitle that has already scrolled out is
-        # still retained in transcript_data, but must not perturb the notch.
+        # still retained in record_store, but must not perturb the notch.
         if latest_items != self._last_native_items:
             self._last_native_items = latest_items
             self._send({"items": latest_items})
 
     def _latest_items(self):
         rendered = []
-        for chunk_id in sorted(self.transcript_data):
-            item = self.transcript_data[chunk_id]
+        # Display fragments are an ephemeral projection. They never enter the
+        # complete semantic record store or classroom export data.
+        for chunk_id, item in self.record_store.latest_items(3):
             translated_parts = self._split_display_text(item["translated"], 58)
             if len(translated_parts) <= 1:
                 rendered.append({
@@ -320,7 +313,7 @@ class NativeNotchOverlay(QObject):
     def set_paused(self, paused):
         self._paused = bool(paused)
         payload = {"paused": self._paused}
-        if self.transcript_data:
+        if self.record_store:
             payload["items"] = self._latest_items()
         self._send(payload)
 
