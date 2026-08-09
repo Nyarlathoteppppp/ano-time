@@ -1267,6 +1267,8 @@ class Dashboard(QWidget):
         self.pipeline.signals.pipeline_error.connect(self.on_pipeline_error)
         if hasattr(self.overlay_window, 'stop_requested'):
              self.overlay_window.stop_requested.connect(self.on_stop)
+        if hasattr(self.overlay_window, 'pause_requested'):
+             self.overlay_window.pause_requested.connect(self.pipeline.set_paused)
 
         # Start Pipeline Thread
         self.pipeline.start()

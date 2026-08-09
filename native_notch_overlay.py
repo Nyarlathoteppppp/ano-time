@@ -1,8 +1,10 @@
 import json
 import os
+import re
 import subprocess
 import threading
 import time
+import unicodedata
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
@@ -11,6 +13,7 @@ class NativeNotchOverlay(QObject):
     """Qt-compatible bridge to the native SwiftUI DynamicNotchKit helper."""
 
     stop_requested = pyqtSignal()
+    pause_requested = pyqtSignal(bool)
     _event_received = pyqtSignal(str)
 
     def __init__(self, display_duration=None, window_width=800, window_height=120,
@@ -80,6 +83,10 @@ class NativeNotchOverlay(QObject):
     def _handle_event(self, event):
         if event == "exit":
             QTimer.singleShot(0, self.stop_requested.emit)
+        elif event == "pause":
+            QTimer.singleShot(0, lambda: self.pause_requested.emit(True))
+        elif event == "resume":
+            QTimer.singleShot(0, lambda: self.pause_requested.emit(False))
         elif event == "glass":
             QTimer.singleShot(0, self._show_glass_overlay)
 
@@ -149,14 +156,80 @@ class NativeNotchOverlay(QObject):
         self._send({"items": self._latest_items()})
 
     def _latest_items(self):
+        rendered = []
+        for chunk_id in sorted(self.transcript_data):
+            item = self.transcript_data[chunk_id]
+            translated_parts = self._split_display_text(item["translated"], 58)
+            if not item["finalized"] or len(translated_parts) <= 1:
+                rendered.append({
+                    "id": chunk_id,
+                    "original": item["original"],
+                    "translated": item["translated"],
+                    "finalized": item["finalized"],
+                })
+                continue
+
+            original_parts = self._balanced_parts(
+                item["original"], len(translated_parts)
+            )
+            for index, translated in enumerate(translated_parts):
+                rendered.append({
+                    "id": chunk_id * 1000 + index,
+                    "original": original_parts[index],
+                    "translated": translated,
+                    "finalized": True,
+                })
+        return rendered[-3:]
+
+    @staticmethod
+    def _split_display_text(text, max_chars):
+        text = " ".join((text or "").split())
+        # The native Chinese label is 16 pt and can show two lines within a
+        # 560 pt notch. Split only when the rendered text would exceed that
+        # capacity; raw character count is inaccurate for mixed CJK/ASCII.
+        if not text or NativeNotchOverlay._visual_width(text) <= 1104:
+            return [text]
+        clauses = [part for part in re.split(r"(?<=[。！？!?；;，,])", text) if part]
+        parts = []
+        current = ""
+        for clause in clauses:
+            if current and len(current) + len(clause) > max_chars:
+                parts.append(current.strip())
+                current = ""
+            while len(clause) > max_chars:
+                split_at = clause.rfind(" ", 0, max_chars + 1)
+                split_at = split_at if split_at > 0 else max_chars
+                if current:
+                    parts.append(current.strip())
+                    current = ""
+                parts.append(clause[:split_at].strip())
+                clause = clause[split_at:].strip()
+            current += clause
+        if current.strip():
+            parts.append(current.strip())
+        return parts or [text]
+
+    @staticmethod
+    def _visual_width(text):
+        return sum(
+            16 if unicodedata.east_asian_width(char) in ("W", "F", "A") else 8
+            for char in text
+        )
+
+    @staticmethod
+    def _balanced_parts(text, count):
+        text = " ".join((text or "").split())
+        if count <= 1:
+            return [text]
+        words = text.split()
+        if len(words) >= count:
+            return [
+                " ".join(words[len(words) * i // count:len(words) * (i + 1) // count])
+                for i in range(count)
+            ]
         return [
-            {
-                "id": chunk_id,
-                "original": self.transcript_data[chunk_id]["original"],
-                "translated": self.transcript_data[chunk_id]["translated"],
-                "finalized": self.transcript_data[chunk_id]["finalized"],
-            }
-            for chunk_id in sorted(self.transcript_data)[-3:]
+            text[len(text) * i // count:len(text) * (i + 1) // count].strip()
+            for i in range(count)
         ]
 
     def _send(self, payload):

@@ -31,6 +31,7 @@ class Pipeline(QObject):
         super().__init__()
         self.signals = WorkerSignals()
         self.running = True
+        self._paused = threading.Event()
         self._translation_state_lock = threading.Lock()
         self._partial_versions = {}
         self._last_partial_text = {}
@@ -190,6 +191,8 @@ class Pipeline(QObject):
 
     def _emit_ranked_translation(self, chunk_id, text, translated, state, rank):
         """Prevent a late draft from replacing a newer translation stage."""
+        if self._paused.is_set():
+            return False
         with self._translation_state_lock:
             current_rank = self._translation_ranks.get(chunk_id, 0)
             if rank < current_rank:
@@ -214,6 +217,15 @@ class Pipeline(QObject):
         if self.fast_translator:
             self.fast_translator.stop()
         print("[Pipeline] Stopped.")
+
+    def set_paused(self, paused):
+        """Pause audio ingestion without tearing down capture permissions."""
+        if paused:
+            self._paused.set()
+            print("[Pipeline] Paused.")
+        else:
+            self._paused.clear()
+            print("[Pipeline] Resumed.")
 
     def processing_loop(self):
         """Fully parallel pipeline: multiple concurrent transcription + translation"""
@@ -276,6 +288,11 @@ class Pipeline(QObject):
             for audio_chunk in audio_gen:
                 if not self.running:
                     break
+                if self._paused.is_set():
+                    buffer = np.array([], dtype=np.float32)
+                    phrase_start_time = time.time()
+                    last_update_time = phrase_start_time
+                    continue
                 buffer = np.concatenate([buffer, audio_chunk])
                 now = time.time()
                 buffer_duration = len(buffer) / self.audio.sample_rate
@@ -384,7 +401,7 @@ class Pipeline(QObject):
         }
 
         def on_result(text, is_final):
-            if not self.running:
+            if not self.running or self._paused.is_set():
                 return
             text = " ".join(text.split())
             if not text:
@@ -486,6 +503,8 @@ class Pipeline(QObject):
             for audio_chunk in self.audio.generator():
                 if not self.running:
                     break
+                if self._paused.is_set():
+                    continue
                 audio_marker = None
                 with state_lock:
                     if state["audio_started_at"] is None:
@@ -507,6 +526,8 @@ class Pipeline(QObject):
     def _process_partial_chunk(self, audio_data, chunk_id, prompt="", translate_executor=None):
         """Transcribe and translate an in-progress utterance."""
         try:
+            if self._paused.is_set():
+                return
             # Use accumulated context as prompt
             text = self.transcriber.transcribe(audio_data, prompt=prompt)
             if text:
@@ -535,6 +556,8 @@ class Pipeline(QObject):
     def _process_final_chunk(self, audio_data, chunk_id, prompt="", translate_executor=None):
         """Transcribe, Log, and Trigger Translation Async"""
         try:
+            if self._paused.is_set():
+                return
             text = self.transcriber.transcribe(audio_data, prompt=prompt)
             if text:
                 print(f"[Final {chunk_id}] Transcribed: {text}")
@@ -582,6 +605,7 @@ class Pipeline(QObject):
                 with self._translation_state_lock:
                     current = self._partial_versions.get(chunk_id) == version
                     current = current and chunk_id not in self._finalized_chunks
+                    current = current and not self._paused.is_set()
                 if current:
                     self.signals.update_text.emit(chunk_id, text, partial, "partial")
 
@@ -795,17 +819,18 @@ class Pipeline(QObject):
         """Run translation in background and emit result"""
         draft = None
         try:
-            if not self.running or time.monotonic() >= deadline:
+            if not self.running or self._paused.is_set() or time.monotonic() >= deadline:
                 return
             if self.fast_translator:
                 try:
                     draft = self.fast_translator.translate(text)
-                    self.signals.update_text.emit(chunk_id, text, draft, "final")
+                    if not self._paused.is_set():
+                        self.signals.update_text.emit(chunk_id, text, draft, "final")
                 except Exception as exc:
                     print(f"[Apple Final Translation {chunk_id}] Failed: {exc}")
 
             def emit_before_deadline(partial):
-                if self.running and time.monotonic() < deadline:
+                if self.running and not self._paused.is_set() and time.monotonic() < deadline:
                     self.signals.update_text.emit(chunk_id, text, partial, "final")
 
             translate = self.translator.translate
@@ -819,7 +844,7 @@ class Pipeline(QObject):
                 on_update=emit_before_deadline,
             )
             print(f"[Final {chunk_id}] Translated: {translated}")
-            if self.running and time.monotonic() < deadline:
+            if self.running and not self._paused.is_set() and time.monotonic() < deadline:
                 self.signals.update_text.emit(chunk_id, text, translated, "final")
         except TimeoutError as e:
             print(f"[Translation {chunk_id}] Deadline exceeded: {e}")
@@ -827,7 +852,7 @@ class Pipeline(QObject):
         except Exception as e:
             print(f"[Translation {chunk_id}] Failed: {e}")
             log_stage("translation", chunk_id=chunk_id, status="error", detail=str(e))
-            if not draft:
+            if not draft and not self._paused.is_set():
                 self.signals.update_text.emit(chunk_id, text, "[Translation Failed]", "final")
     
     def _transcribe_chunk(self, transcriber, audio_chunk, chunk_id):

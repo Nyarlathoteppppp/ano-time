@@ -29,10 +29,12 @@ private final class SubtitleState: ObservableObject {
     }
     @Published var displayCount: Int
     @Published private(set) var contentWidth: CGFloat = 360
+    @Published var isPaused = false
     var compactTask: Task<Void, Never>?
     private var widthShrinkTask: Task<Void, Never>?
     var onExpand: (() -> Void)?
     var onCycleSize: (() -> Void)?
+    var onPause: (() -> Void)?
     var onGlass: (() -> Void)?
     var onExit: (() -> Void)?
 
@@ -102,6 +104,10 @@ private func emitEvent(_ event: String) {
 private struct SubtitleContent: View {
     @ObservedObject var state: SubtitleState
 
+    private var visibleItemIDs: [Int] {
+        state.items.suffix(state.displayCount).map(\.id)
+    }
+
     var body: some View {
         VStack(alignment: .center, spacing: 5) {
             ForEach(state.items.suffix(state.displayCount)) { item in
@@ -126,6 +132,10 @@ private struct SubtitleContent: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .move(edge: .bottom)),
+                    removal: .opacity.combined(with: .move(edge: .top))
+                ))
             }
         }
         .frame(
@@ -135,8 +145,21 @@ private struct SubtitleContent: View {
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onTapGesture { state.onCycleSize?() }
+        .contextMenu {
+            Button(state.isPaused ? "继续" : "暂停") {
+                state.onPause?()
+            }
+            Button("玻璃模式") {
+                state.onGlass?()
+            }
+            Divider()
+            Button("退出") {
+                state.onExit?()
+            }
+        }
         .animation(.easeInOut(duration: 0.18), value: state.displayCount)
         .animation(.easeInOut(duration: 0.16), value: state.contentWidth)
+        .animation(.easeInOut(duration: 0.22), value: visibleItemIDs)
     }
 }
 
@@ -237,6 +260,10 @@ private struct RealtimeNotchHelper {
             }
         }
         state.onGlass = { terminate("glass") }
+        state.onPause = {
+            state.isPaused.toggle()
+            emitEvent(state.isPaused ? "pause" : "resume")
+        }
         state.onExit = { terminate("exit") }
 
         DispatchQueue.global(qos: .userInitiated).async {
