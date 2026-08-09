@@ -2,6 +2,19 @@ import AppKit
 import DynamicNotchKit
 import SwiftUI
 
+@MainActor
+private enum MascotAsset {
+    static let image: NSImage? = {
+        let sourceFile = URL(fileURLWithPath: #filePath)
+        let imageURL = sourceFile
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/ano-smile@2x.png")
+        guard let image = NSImage(contentsOf: imageURL) else { return nil }
+        image.size = NSSize(width: 26, height: 26)
+        return image
+    }()
+}
+
 private struct InputMessage: Decodable {
     let command: String?
     let original: String?
@@ -66,7 +79,9 @@ private final class SubtitleState: ObservableObject {
         let minimumWidth: CGFloat = 360
         let maximumWidth: CGFloat = 560
         let widthStep: CGFloat = 40
-        let desired = max(minimumWidth, measured + 8)
+        // Reserve equal space on both sides so the expanded mascot can sit on
+        // the left without moving the centered subtitles or covering text.
+        let desired = max(minimumWidth, measured + 80)
         let stepped = ceil(desired / widthStep) * widthStep
         return min(maximumWidth, stepped)
     }
@@ -110,33 +125,42 @@ private struct SubtitleContent: View {
     }
 
     var body: some View {
-        VStack(alignment: .center, spacing: 5) {
-            ForEach(state.items.suffix(state.displayCount)) { item in
-                VStack(alignment: .center, spacing: 2) {
-                    Text(item.original)
-                        .font(.system(
-                            size: 11.5,
-                            weight: item.finalized == true ? .medium : .regular
-                        ))
-                        .foregroundStyle(
-                            .white.opacity(item.finalized == true ? 0.96 : 0.78)
-                        )
-                        .lineLimit(1)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity, alignment: .center)
+        ZStack(alignment: .leading) {
+            VStack(alignment: .center, spacing: 5) {
+                ForEach(state.items.suffix(state.displayCount)) { item in
+                    VStack(alignment: .center, spacing: 2) {
+                        Text(item.original)
+                            .font(.system(
+                                size: 11.5,
+                                weight: item.finalized == true ? .medium : .regular
+                            ))
+                            .foregroundStyle(
+                                .white.opacity(item.finalized == true ? 0.96 : 0.78)
+                            )
+                            .lineLimit(1)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, alignment: .center)
 
-                    Text(item.translated.isEmpty ? "…" : item.translated)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                        Text(item.translated.isEmpty ? "…" : item.translated)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .bottom)),
+                        removal: .opacity.combined(with: .move(edge: .top))
+                    ))
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
-                .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .move(edge: .bottom)),
-                    removal: .opacity.combined(with: .move(edge: .top))
-                ))
+            }
+            .padding(.horizontal, 40)
+
+            if let mascotImage = MascotAsset.image {
+                Image(nsImage: mascotImage)
+                    .frame(width: 26, height: 26)
+                    .padding(.leading, 8)
             }
         }
         .frame(
@@ -167,23 +191,11 @@ private struct SubtitleContent: View {
 private struct CompactLeading: View {
     @ObservedObject var state: SubtitleState
 
-    private static let mascotImage: NSImage? = {
-        let sourceFile = URL(fileURLWithPath: #filePath)
-        let imageURL = sourceFile
-            .deletingLastPathComponent()
-            .appendingPathComponent("Resources/ano-smile@2x.png")
-        guard let image = NSImage(contentsOf: imageURL) else { return nil }
-        // The source is an exact 52 x 52 Retina bitmap for a 26-point slot.
-        // Declaring its logical size avoids SwiftUI resampling a 512px master.
-        image.size = NSSize(width: 26, height: 26)
-        return image
-    }()
-
     var body: some View {
         Button(action: {
             state.onCycleSize?()
         }) {
-            if let mascotImage = Self.mascotImage {
+            if let mascotImage = MascotAsset.image {
                 Image(nsImage: mascotImage)
                     .frame(width: 26, height: 26)
             } else {
