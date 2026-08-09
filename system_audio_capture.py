@@ -31,7 +31,14 @@ class SystemAudioCapture:
 
         root = os.path.dirname(os.path.abspath(__file__))
         self.source_path = os.path.join(root, "apple_system_audio_helper.swift")
-        self.binary_path = os.path.join(root, ".build", "apple_system_audio_helper")
+        self.binary_path = os.path.join(
+            root,
+            ".build",
+            "Realtime Translator Audio.app",
+            "Contents",
+            "MacOS",
+            "RealtimeTranslatorAudio",
+        )
         self.build_script = os.path.join(root, "build_apple_speech.sh")
 
     def _ensure_built(self):

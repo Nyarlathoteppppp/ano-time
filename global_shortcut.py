@@ -1,7 +1,22 @@
 import sys
 import time
+import ctypes
 
 from PyQt6.QtCore import QObject, pyqtSignal
+
+
+def accessibility_trusted():
+    """Return macOS Accessibility trust for the current responsibility chain."""
+    if sys.platform != "darwin":
+        return True
+    try:
+        framework = ctypes.cdll.LoadLibrary(
+            "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
+        )
+        framework.AXIsProcessTrusted.restype = ctypes.c_bool
+        return bool(framework.AXIsProcessTrusted())
+    except Exception:
+        return False
 
 
 class DoubleModifierDetector:
@@ -88,6 +103,10 @@ class MacDoubleOptionShortcut(QObject):
         if not self.available or self._global_monitor is not None:
             return self.available
         try:
+            print(
+                f"[Shortcut] Accessibility trusted: {accessibility_trusted()}",
+                flush=True,
+            )
             from AppKit import (
                 NSEvent,
                 NSEventMaskFlagsChanged,
@@ -159,3 +178,112 @@ class MacDoubleOptionShortcut(QObject):
         except Exception as exc:
             print(f"[Shortcut] Event handling failed: {exc}")
 
+
+class _EventTypeSpec(ctypes.Structure):
+    _fields_ = [("event_class", ctypes.c_uint32), ("event_kind", ctypes.c_uint32)]
+
+
+class _EventHotKeyID(ctypes.Structure):
+    _fields_ = [("signature", ctypes.c_uint32), ("identifier", ctypes.c_uint32)]
+
+
+def _fourcc(value):
+    return int.from_bytes(value.encode("ascii"), "big")
+
+
+class MacCarbonHotkeyShortcut(QObject):
+    """Permission-free macOS global hotkey: Control + S."""
+
+    activated = pyqtSignal()
+
+    _KEY_CODE_S = 1
+    _CONTROL_KEY = 1 << 12
+    _OPTION_KEY = 1 << 11
+    _EVENT_CLASS_KEYBOARD = _fourcc("keyb")
+    _EVENT_HOTKEY_PRESSED = 6
+    _SIGNATURE = _fourcc("RTON")
+
+    def __init__(self, enabled=True, parent=None):
+        super().__init__(parent)
+        self.enabled = bool(enabled)
+        self._carbon = None
+        self._handler_callback = None
+        self._handler_ref = ctypes.c_void_p()
+        self._hotkey_ref = ctypes.c_void_p()
+
+    @property
+    def available(self):
+        return sys.platform == "darwin"
+
+    def set_enabled(self, enabled):
+        self.enabled = bool(enabled)
+
+    def set_interval(self, _interval_seconds):
+        """Compatibility no-op for the retired Double Option setting."""
+
+    def start(self):
+        if not self.available or self._hotkey_ref.value:
+            return self.available
+        try:
+            carbon = ctypes.cdll.LoadLibrary(
+                "/System/Library/Frameworks/Carbon.framework/Carbon"
+            )
+            handler_type = ctypes.CFUNCTYPE(
+                ctypes.c_int32, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p
+            )
+
+            def handle_hotkey(_next_handler, _event, _user_data):
+                if self.enabled:
+                    print("[Shortcut] Activated Control + S", flush=True)
+                    self.activated.emit()
+                return 0
+
+            self._handler_callback = handler_type(handle_hotkey)
+            carbon.GetApplicationEventTarget.restype = ctypes.c_void_p
+            target = carbon.GetApplicationEventTarget()
+            event_spec = _EventTypeSpec(
+                self._EVENT_CLASS_KEYBOARD, self._EVENT_HOTKEY_PRESSED
+            )
+            install_status = carbon.InstallEventHandler(
+                ctypes.c_void_p(target),
+                self._handler_callback,
+                1,
+                ctypes.byref(event_spec),
+                None,
+                ctypes.byref(self._handler_ref),
+            )
+            if install_status != 0:
+                raise OSError(f"InstallEventHandler failed: {install_status}")
+
+            hotkey_id = _EventHotKeyID(self._SIGNATURE, 1)
+            register_status = carbon.RegisterEventHotKey(
+                self._KEY_CODE_S,
+                self._CONTROL_KEY,
+                hotkey_id,
+                ctypes.c_void_p(target),
+                0,
+                ctypes.byref(self._hotkey_ref),
+            )
+            if register_status != 0:
+                carbon.RemoveEventHandler(self._handler_ref)
+                self._handler_ref = ctypes.c_void_p()
+                raise OSError(f"RegisterEventHotKey failed: {register_status}")
+            self._carbon = carbon
+            print("[Shortcut] Registered Control + S via Carbon", flush=True)
+            return True
+        except Exception as exc:
+            print(f"[Shortcut] Could not register native global hotkey: {exc}", flush=True)
+            self.stop()
+            return False
+
+    def stop(self):
+        carbon = self._carbon
+        if carbon is not None:
+            if self._hotkey_ref.value:
+                carbon.UnregisterEventHotKey(self._hotkey_ref)
+            if self._handler_ref.value:
+                carbon.RemoveEventHandler(self._handler_ref)
+        self._hotkey_ref = ctypes.c_void_p()
+        self._handler_ref = ctypes.c_void_p()
+        self._handler_callback = None
+        self._carbon = None

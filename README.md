@@ -33,6 +33,7 @@ It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHo
 - **Quota-aware free-provider pool** with minute/day/token accounting, automatic fallback, cooldown recovery, and Qwen-MT fallback.
 - **Latest-wins refinement queue**: stale work is dropped so subtitles cannot accumulate seconds behind the speaker.
 - **Runtime latency log** for audio, ASR, local draft, bridge model, and final refinement stages.
+- **Native `Control + S` global shortcut** backed by a resident macOS agent: launch the notch, pause, and resume without Accessibility or Input Monitoring permission.
 
 ### Free model options
 
@@ -76,12 +77,30 @@ The installer creates a project-local `.venv`, installs Python dependencies, bui
 ### Optional desktop launcher
 
 ```bash
+chmod +x install_desktop_app.sh install_hotkey_agent.sh
 ./install_desktop_app.sh
+./install_hotkey_agent.sh
 ```
 
 This installs **Realtime Translator.app** so the control center can be opened like a normal Mac application. The app is single-instance: opening it again activates the existing control center instead of creating duplicate translator windows.
 
+The second command installs a per-user LaunchAgent named
+`com.nyarlathotep.realtime-ton.hotkey`. It owns the native `Control + S`
+shortcut independently of the control-center process, so the shortcut can
+reopen the app after the Dashboard has been closed.
+
+`Control + S` launches Physical MacBook Notch mode when stopped, pauses a
+running session, and resumes a paused session. It uses Carbon
+`RegisterEventHotKey`, so it does **not** require Accessibility or Input
+Monitoring permission. macOS uses `Command + S` for Save, so the standard Save
+command is unaffected.
+
 The launcher fingerprints the checked-out source. After an update it closes the loaded Dashboard and starts the new code; otherwise it activates the existing instance. The control-center title shows the loaded Git revision.
+
+The locally built launcher and native audio helper use local code signatures.
+Run `install_desktop_app.sh` for first installation or when the launcher itself
+changes—not for ordinary Python source updates. Rebuilding an app changes its
+local signature and macOS may request privacy permission again.
 
 ## Quick start
 
@@ -113,6 +132,20 @@ Open:
 
 Enable **Realtime Translator**, then fully quit and reopen the application. Use **Audio → Test Permission & Audio** while a video is playing to distinguish a permission problem from valid but silent capture.
 
+Depending on the macOS version and launch path, the permission list may show:
+
+- **Realtime Translator** — desktop launcher/responsible application.
+- **Realtime Translator Audio** — native ScreenCaptureKit helper.
+- **Python** — local Dashboard process.
+
+Enable every project entry that appears under **Screen & System Audio
+Recording**. Some macOS versions also show a separate **System Audio Recording
+Only** section; enable the Realtime Translator entry there as well. The generic
+`applet` row is a legacy launcher identity and is not required.
+
+After changing a permission, restart the running Dashboard. Changing a switch
+does not update an already-running ScreenCaptureKit process.
+
 ### Translate microphone audio
 
 Open:
@@ -122,6 +155,28 @@ Open:
 Enable **Realtime Translator**, then restart it.
 
 BlackHole is not required for the normal ScreenCaptureKit system-audio path. It remains available for custom routing on older or unusual setups.
+
+### Global shortcut
+
+No privacy permission is required. Install the resident agent once:
+
+```bash
+./install_hotkey_agent.sh
+```
+
+Verify it is running:
+
+```bash
+launchctl print "gui/$(id -u)/com.nyarlathotep.realtime-ton.hotkey"
+tail -f /tmp/realtime-ton-hotkey.log
+```
+
+A successful startup includes:
+
+```text
+[Shortcut] Registered Control + S via Carbon
+[Hotkey Agent] Ready
+```
 
 ## Subtitle modes
 
@@ -250,7 +305,34 @@ Corrections apply only after ASR finalization, never to the latency-critical pro
 
 ### System audio stops with permission error
 
-Confirm **Realtime Translator** is enabled in both Screen & System Audio permission sections, fully quit the app, and reopen it. Permission changes do not reliably affect an already-running native helper.
+Confirm every visible project entry—**Realtime Translator**, **Realtime
+Translator Audio**, and **Python**—is enabled under Screen & System Audio
+Recording, then fully restart the Dashboard. If macOS still denies capture
+after a local app rebuild, remove/reset only that project entry and grant the
+current build again; the displayed switch may refer to an older local signature.
+
+Do not repeatedly run `install_desktop_app.sh` while troubleshooting. It
+rebuilds and re-signs the local launcher, which can invalidate the permission
+you just granted.
+
+### `Control + S` does nothing
+
+Check the resident agent rather than Accessibility/Input Monitoring settings:
+
+```bash
+launchctl print "gui/$(id -u)/com.nyarlathotep.realtime-ton.hotkey"
+tail -30 /tmp/realtime-ton-hotkey.log
+```
+
+If the agent is missing or stopped, reinstall it:
+
+```bash
+./install_hotkey_agent.sh
+```
+
+Each press should add `[Shortcut] Activated Control + S`. The agent is the only
+hotkey owner; the Dashboard deliberately avoids a duplicate handler, preventing
+a single press from pausing and immediately resuming.
 
 ### Speech works from a phone but not from a browser video
 

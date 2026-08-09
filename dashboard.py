@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QSize, pyqtSignal, QThread, QTimer
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtGui import QFont, QIcon, QColor
 import sys
+import os
 import sounddevice as sd
 from config import config
 from runtime_version import current_version
@@ -139,7 +140,11 @@ class Dashboard(QWidget):
     stop_requested = pyqtSignal()
 
     def closeEvent(self, event):
-        """Ensure total program quit when dashboard is closed"""
+        """Keep the shortcut resident when the control center is closed."""
+        if not getattr(self, "_force_quit", False):
+            event.ignore()
+            self.hide()
+            return
         self.status_label.setText("Stopping...")
         self.on_stop()
         audio_test = getattr(self, "audio_test_worker", None)
@@ -155,6 +160,11 @@ class Dashboard(QWidget):
         # Force application exit
         QApplication.quit()
         event.accept()
+
+    def request_full_quit(self):
+        """Quit for upgrades or an explicit application-level exit."""
+        self._force_quit = True
+        self.close()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -241,7 +251,9 @@ class Dashboard(QWidget):
         self.pipeline = None
         self.overlay_window = None
         self.shortcut_enabled = config.shortcut_enabled
-        self.shortcut_interval = config.shortcut_interval
+        # 320 ms proved too strict for normal human double taps. Preserve any
+        # explicitly slower setting while migrating the old default to 450 ms.
+        self.shortcut_interval = max(0.45, config.shortcut_interval)
         self.setWindowTitle("Real-Time Translator - Control Center")
         self.setMinimumSize(760, 540)
         self.setStyleSheet(STYLESHEET)
@@ -267,14 +279,19 @@ class Dashboard(QWidget):
         self.init_translation_tab()
         self.update_home_summary()
 
-        from global_shortcut import MacDoubleOptionShortcut
-        self.global_shortcut = MacDoubleOptionShortcut(
+        from global_shortcut import MacCarbonHotkeyShortcut
+        self.global_shortcut = MacCarbonHotkeyShortcut(
             enabled=self.shortcut_enabled,
-            interval_seconds=self.shortcut_interval,
             parent=self,
         )
         self.global_shortcut.activated.connect(self.on_global_shortcut)
-        self.global_shortcut.start()
+        hotkey_agent_plist = os.path.expanduser(
+            "~/Library/LaunchAgents/com.nyarlathotep.realtime-ton.hotkey.plist"
+        )
+        if os.path.exists(hotkey_agent_plist):
+            print("[Shortcut] External hotkey agent owns Control + S", flush=True)
+        else:
+            self.global_shortcut.start()
         self._update_shortcut_button()
         
         # Footer Actions
@@ -400,7 +417,7 @@ class Dashboard(QWidget):
         self.log_btn.setFixedSize(200, 38)
         self.log_btn.clicked.connect(self.open_runtime_log)
 
-        self.shortcut_btn = QPushButton("⌥⌥ Shortcut Settings")
+        self.shortcut_btn = QPushButton("⌃S Shortcut Settings")
         self.shortcut_btn.setFixedSize(240, 38)
         self.shortcut_btn.clicked.connect(self.open_shortcut_settings)
         
@@ -435,10 +452,7 @@ class Dashboard(QWidget):
         if not hasattr(self, "shortcut_btn"):
             return
         state = "On" if self.shortcut_enabled else "Off"
-        interval_ms = int(round(self.shortcut_interval * 1000))
-        self.shortcut_btn.setText(
-            f"⌥⌥ Double Option · {state} · {interval_ms} ms"
-        )
+        self.shortcut_btn.setText(f"⌃S · {state}")
 
     def open_shortcut_settings(self):
         dialog = QDialog(self)
@@ -447,7 +461,7 @@ class Dashboard(QWidget):
         dialog.setStyleSheet(STYLESHEET)
         layout = QVBoxLayout(dialog)
 
-        title = QLabel("⌥⌥ Double Option（双击 Option）")
+        title = QLabel("⌃S（Control + S）")
         title.setStyleSheet("font-size: 17px; font-weight: 700; color: #89b4fa;")
         layout.addWidget(title)
 
@@ -455,21 +469,11 @@ class Dashboard(QWidget):
         enabled.setChecked(self.shortcut_enabled)
         layout.addWidget(enabled)
 
-        interval_row = QHBoxLayout()
-        interval_row.addWidget(QLabel("Double-tap interval（双击间隔）:"))
-        interval = QSpinBox()
-        interval.setRange(200, 600)
-        interval.setSingleStep(20)
-        interval.setSuffix(" ms")
-        interval.setValue(int(round(self.shortcut_interval * 1000)))
-        interval_row.addWidget(interval)
-        layout.addLayout(interval_row)
-
         explanation = QLabel(
             "Idle: launch directly in Physical MacBook Notch mode.\n"
             "Running: pause. Paused: resume.\n"
-            "Option combined with any other key is ignored. If it does not react "
-            "outside the app, allow Realtime Translator under macOS Accessibility."
+            "Uses the native macOS global hotkey API and does not require "
+            "Accessibility or Input Monitoring permission."
         )
         explanation.setWordWrap(True)
         explanation.setStyleSheet(
@@ -477,10 +481,6 @@ class Dashboard(QWidget):
             "padding: 10px; border-radius: 8px;"
         )
         layout.addWidget(explanation)
-
-        permission_btn = QPushButton("Open Accessibility Settings（打开辅助功能权限）")
-        permission_btn.clicked.connect(self.open_accessibility_settings)
-        layout.addWidget(permission_btn)
 
         actions = QHBoxLayout()
         cancel = QPushButton("Cancel")
@@ -495,12 +495,10 @@ class Dashboard(QWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self.shortcut_enabled = enabled.isChecked()
-        self.shortcut_interval = interval.value() / 1000.0
         self.global_shortcut.set_enabled(self.shortcut_enabled)
-        self.global_shortcut.set_interval(self.shortcut_interval)
         self._update_shortcut_button()
         self.save_config(show_status=False)
-        self.status_label.setText("Shortcut settings saved · Double Option")
+        self.status_label.setText("Shortcut settings saved · Control + S")
         self.status_label.setStyleSheet("font-size: 16px; color: #a6e3a1;")
 
     def open_accessibility_settings(self):
@@ -517,7 +515,7 @@ class Dashboard(QWidget):
             notch_index = self.display_mode.findData("notch")
             if notch_index >= 0:
                 self.display_mode.setCurrentIndex(notch_index)
-            self.status_label.setText("Double Option · launching notch translator…")
+            self.status_label.setText("⌃S · launching notch translator…")
             self.status_label.setStyleSheet("font-size: 16px; color: #89b4fa;")
             self.on_start()
             return
@@ -536,10 +534,10 @@ class Dashboard(QWidget):
         ):
             self.overlay_window.set_paused(paused)
         if paused:
-            self.status_label.setText("Paused · Double Option to resume")
+            self.status_label.setText("Paused · ⌃S to resume")
             self.status_label.setStyleSheet("font-size: 16px; color: #f9e2af;")
         else:
-            self.status_label.setText("Running · Double Option to pause")
+            self.status_label.setText("Running · ⌃S to pause")
             self.status_label.setStyleSheet("font-size: 16px; color: #a6e3a1;")
 
     def update_runtime_status(self, stage, status, detail):
@@ -1738,7 +1736,7 @@ def notify_existing_instance(command=b"activate"):
     return True
 
 
-def start_instance_server(on_activate, on_quit):
+def start_instance_server(on_activate, on_quit, on_toggle=None):
     """Own the process-wide singleton socket, recovering stale socket files."""
     server = QLocalServer()
     if not server.listen(INSTANCE_SERVER_NAME):
@@ -1757,6 +1755,8 @@ def start_instance_server(on_activate, on_quit):
             command = bytes(connection.readAll()).strip()
             if command == b"quit":
                 on_quit()
+            elif command == b"toggle" and on_toggle is not None:
+                on_toggle()
             else:
                 on_activate()
             connection.disconnectFromServer()
@@ -1782,6 +1782,7 @@ if __name__ == "__main__":
     sys.excepthook = exception_hook
 
     app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
 
     if "--quit-existing" in sys.argv:
         sys.exit(0 if notify_existing_instance(b"quit") else 1)
@@ -1796,7 +1797,11 @@ if __name__ == "__main__":
         w.raise_()
         w.activateWindow()
 
-    instance_server = start_instance_server(activate_dashboard, w.close)
+    instance_server = start_instance_server(
+        activate_dashboard,
+        w.request_full_quit,
+        w.on_global_shortcut,
+    )
     if instance_server is None:
         # Another instance won a simultaneous-launch race after our first probe.
         notify_existing_instance()

@@ -38,4 +38,7 @@ if [ -n "$previous_version" ] && [ "$previous_version" != "$current_version" ]; 
 fi
 
 printf '%s\n' "$current_version" > "$state_path"
+# The AppleScript launcher must return immediately; blocking its main thread
+# makes Finder report the wrapper app as unresponsive. The dashboard remains a
+# resident single instance and owns its own global-shortcut lifecycle.
 nohup ./start_mac.sh > "$log_path" 2>&1 < /dev/null &

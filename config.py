@@ -112,7 +112,7 @@ class Config:
 
         # Global shortcut settings
         self.shortcut_enabled = self._getbool("shortcut", "enabled", True)
-        self.shortcut_interval = self._getfloat("shortcut", "double_tap_interval", 0.32)
+        self.shortcut_interval = self._getfloat("shortcut", "double_tap_interval", 0.45)
 
     def reload(self):
         """Reload config.ini in place so existing module references stay valid."""
