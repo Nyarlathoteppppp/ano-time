@@ -94,6 +94,28 @@ class LogItem(QFrame):
 
     def refresh_layout(self):
         """Recompute wrapped-label heights after text or width changes."""
+        margins = self.layout.contentsMargins()
+        available_width = max(
+            1,
+            self.width() - margins.left() - margins.right(),
+        )
+        original_height = max(
+            self.original_label.fontMetrics().height(),
+            self.original_label.heightForWidth(available_width),
+        )
+        translated_height = max(
+            self.translated_label.fontMetrics().height(),
+            self.translated_label.heightForWidth(available_width),
+        )
+        self.original_label.setFixedHeight(original_height)
+        self.translated_label.setFixedHeight(translated_height)
+
+        spacing = max(0, self.layout.spacing())
+        total_height = (
+            margins.top() + margins.bottom()
+            + original_height + translated_height + spacing
+        )
+        self.setFixedHeight(total_height)
         self.original_label.updateGeometry()
         self.translated_label.updateGeometry()
         self.layout.invalidate()
