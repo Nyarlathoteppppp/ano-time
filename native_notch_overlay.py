@@ -329,6 +329,11 @@ class NativeNotchOverlay(QObject):
             process.wait(timeout=2)
         except subprocess.TimeoutExpired:
             process.terminate()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1)
         self._writer_stop.set()
         if self._writer_thread and self._writer_thread.is_alive():
             self._writer_thread.join(timeout=0.2)

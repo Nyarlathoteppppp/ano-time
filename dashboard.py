@@ -52,7 +52,9 @@ QTabWidget::pane {
 QTabBar::tab {
     background: rgba(255, 220, 232, 28);
     color: #a6adc8;
-    padding: 10px 20px;
+    padding: 9px 15px;
+    min-height: 56px;
+    font-size: 16px;
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
     margin-right: 2px;
@@ -154,12 +156,19 @@ class Dashboard(QWidget):
     start_requested = pyqtSignal()
     stop_requested = pyqtSignal()
 
+    def _should_quit_for_close_event(self, event):
+        return bool(getattr(self, "_force_quit", False) or event.spontaneous())
+
     def closeEvent(self, event):
-        """Keep the shortcut resident when the control center is closed."""
-        if not getattr(self, "_force_quit", False):
+        """Treat the macOS red close button as an explicit application quit."""
+        # QWidget.close() creates a non-spontaneous event and is also used by
+        # embedded launchers/tests for ownership cleanup. A title-bar close is
+        # delivered by the window system as a spontaneous event.
+        if not self._should_quit_for_close_event(event):
             event.ignore()
             self.hide()
             return
+        self._force_quit = True
         self.status_label.setText("Stopping...")
         self.on_stop()
         audio_test = getattr(self, "audio_test_worker", None)
@@ -180,8 +189,9 @@ class Dashboard(QWidget):
             self._native_blur_window.close()
             self._native_blur_window = None
             self._native_blur_view = None
-        # Force application exit
-        QApplication.quit()
+        # Exit after Qt has finished dispatching this close event. Immediate
+        # teardown here can destroy the shared QApplication re-entrantly.
+        QTimer.singleShot(0, QApplication.quit)
         event.accept()
 
     def request_full_quit(self):
@@ -326,7 +336,7 @@ class Dashboard(QWidget):
         # explicitly slower setting while migrating the old default to 450 ms.
         self.shortcut_interval = max(0.45, config.shortcut_interval)
         self.setWindowTitle("Anotime - Control Center")
-        self.setMinimumSize(760, 540)
+        self.setMinimumSize(900, 600)
         self.setStyleSheet(STYLESHEET)
         
         # Main Layout
@@ -354,10 +364,22 @@ class Dashboard(QWidget):
         header_row.addWidget(mascot)
         header_row.addWidget(header)
         header_row.addStretch()
+        trailing_mascot = QLabel()
+        trailing_mascot.setFixedSize(90, 101)
+        trailing_mascot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        trailing_path = os.path.join(
+            os.path.dirname(__file__), "assets", "ano2-mascot.png"
+        )
+        trailing_pixmap = QPixmap(trailing_path)
+        if not trailing_pixmap.isNull():
+            trailing_mascot.setPixmap(trailing_pixmap)
+            trailing_mascot.setScaledContents(True)
+        header_row.addWidget(trailing_mascot)
         self.layout.addLayout(header_row)
         
         # Tabs
         self.tabs = QTabWidget()
+        self.tabs.setIconSize(QSize(48, 48))
         self.layout.addWidget(self.tabs)
         
         self.init_home_tab()
@@ -565,7 +587,11 @@ class Dashboard(QWidget):
         )
         scroll.setWidget(tab)
         self.home_scroll = scroll
-        self.tabs.addTab(scroll, "🏠 Home")
+        self.tabs.addTab(
+            scroll,
+            QIcon(os.path.join(os.path.dirname(__file__), "assets", "tab-home-ano.png")),
+            "Home",
+        )
 
     def open_runtime_log(self):
         import subprocess
@@ -832,7 +858,11 @@ class Dashboard(QWidget):
         layout.setRowStretch(8, 1) # Push to top
         
         tab.setLayout(layout)
-        self.tabs.addTab(tab, "🎤 Audio")
+        self.tabs.addTab(
+            tab,
+            QIcon(os.path.join(os.path.dirname(__file__), "assets", "tab-audio-ano.png")),
+            "Audio",
+        )
 
     def restore_audio_defaults(self):
         """Restore only documented Audio defaults; Save remains explicit."""
@@ -1301,7 +1331,11 @@ class Dashboard(QWidget):
         self._on_backend_changed(config.asr_backend)
         
         tab.setLayout(layout)
-        self.tabs.addTab(tab, "📝 ASR · 语音识别")
+        self.tabs.addTab(
+            tab,
+            QIcon(os.path.join(os.path.dirname(__file__), "assets", "tab-asr-ano.png")),
+            "ASR · 语音识别",
+        )
     
     def _on_backend_changed(self, backend):
         """Show only settings consumed by the selected ASR backend."""
@@ -1600,7 +1634,15 @@ class Dashboard(QWidget):
         tab_layout = QVBoxLayout(tab)
         tab_layout.setContentsMargins(0, 0, 0, 0)
         tab_layout.addWidget(scroll)
-        self.tabs.addTab(tab, "🌐 AI · 翻译")
+        self.tabs.addTab(
+            tab,
+            QIcon(
+                os.path.join(
+                    os.path.dirname(__file__), "assets", "tab-translation-ano.png"
+                )
+            ),
+            "AI · 翻译",
+        )
 
     def _on_translation_provider_changed(self, provider):
         if hasattr(self, "api_key"):

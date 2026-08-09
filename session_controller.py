@@ -20,7 +20,16 @@ class SessionController:
         view._session_generation += 1
         generation = view._session_generation
         view._session_state = "starting"
-        view.save_config(show_status=False)
+        try:
+            view.save_config(show_status=False)
+        except Exception as exc:
+            view._session_state = "idle"
+            view.status_label.setText(f"Unable to save settings: {exc}")
+            view.status_label.setStyleSheet("font-size: 18px; color: #f38ba8;")
+            view.start_btn.setEnabled(True)
+            view.start_btn.setText("▶ Launch Translator")
+            log_stage("session_start", status="error", detail=f"settings: {exc}")
+            return
         view.status_label.setText("Initializing Pipeline... (This may take a moment)")
         view.status_label.setStyleSheet("font-size: 18px; color: #fab387;")
         view.start_btn.setEnabled(False)

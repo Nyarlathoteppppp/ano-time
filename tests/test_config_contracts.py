@@ -19,6 +19,24 @@ class ConfigContractTests(unittest.TestCase):
         self.assertEqual(loaded.display_mode, "notch")
         self.assertEqual(loaded.model, "qwen-mt-flash")
         self.assertEqual(loaded.api_key, "")
+        self.assertIsNone(loaded.device_index)
+
+    def test_auto_audio_uses_macos_default_instead_of_blackhole(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.ini")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("[audio]\ndevice_index = auto\n")
+            with (
+                patch.object(config_module.keychain, "resolve", return_value=""),
+                patch.object(
+                    config_module.Config,
+                    "_find_blackhole_device",
+                    side_effect=AssertionError("BlackHole must not be auto-selected"),
+                ),
+            ):
+                loaded = config_module.Config(path)
+
+        self.assertIsNone(loaded.device_index)
 
     def test_system_audio_deadline_and_relative_profiles_load_together(self):
         with tempfile.TemporaryDirectory() as directory:

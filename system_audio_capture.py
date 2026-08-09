@@ -102,6 +102,11 @@ class SystemAudioCapture:
             self.running = False
             if process.poll() is None:
                 process.terminate()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=1)
             print("[System Audio] Generator stopped")
 
         if process.returncode not in (None, 0, -15):
@@ -125,5 +130,10 @@ class SystemAudioCapture:
             except (BrokenPipeError, OSError, subprocess.TimeoutExpired):
                 if process.poll() is None:
                     process.terminate()
+                    try:
+                        process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=1)
         self.process = None
         print("[System Audio] Capture stopped")

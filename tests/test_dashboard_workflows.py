@@ -34,6 +34,36 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.translation_workflow.findData(value)
         )
 
+    def test_dashboard_tabs_use_large_ano_icons_without_shortening_labels(self):
+        self.assertEqual(self.dashboard.tabs.iconSize().width(), 48)
+        self.assertEqual(
+            [
+                self.dashboard.tabs.tabText(index)
+                for index in range(self.dashboard.tabs.count())
+            ],
+            ["Home", "Audio", "ASR · 语音识别", "AI · 翻译"],
+        )
+        self.assertTrue(
+            all(
+                not self.dashboard.tabs.tabIcon(index).isNull()
+                for index in range(self.dashboard.tabs.count())
+            )
+        )
+
+    def test_user_titlebar_close_requests_full_quit(self):
+        spontaneous = MagicMock()
+        spontaneous.spontaneous.return_value = True
+        programmatic = MagicMock()
+        programmatic.spontaneous.return_value = False
+
+        self.dashboard._force_quit = False
+        self.assertTrue(self.dashboard._should_quit_for_close_event(spontaneous))
+        self.assertFalse(self.dashboard._should_quit_for_close_event(programmatic))
+
+        self.dashboard._force_quit = True
+        self.assertTrue(self.dashboard._should_quit_for_close_event(programmatic))
+        self.dashboard._force_quit = False
+
     def test_existing_install_opens_on_frozen_smart_hybrid_chain(self):
         self.assertEqual(
             self.dashboard.translation_workflow.currentData(), "smart_hybrid"

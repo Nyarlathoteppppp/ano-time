@@ -128,5 +128,10 @@ class AppleTranslator:
             process.wait(timeout=2)
         except subprocess.TimeoutExpired:
             process.terminate()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1)
         finally:
             self.process = None

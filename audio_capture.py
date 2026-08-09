@@ -104,8 +104,7 @@ class AudioCapture:
             print(f"2. Sample rate {self.sample_rate}Hz not supported by device (Try 44100 or 48000)")
             print("3. Invalid device index in config.ini (Try 'auto' or check 'python audio_capture.py')")
             self.running = False
-            # Yield silence to prevent immediate crash if running in loop
-            yield np.zeros(block_size, dtype=np.float32)
+            raise RuntimeError(f"Audio device initialization failed: {e}") from e
             
         print("[Audio] Generator stopped.")
 

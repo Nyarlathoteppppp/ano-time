@@ -39,6 +39,25 @@ class ControllerTests(unittest.TestCase):
         SessionController(view, lambda _generation: self.fail("worker created")).start()
         self.assertEqual(calls, ["show"])
 
+    def test_save_failure_rolls_starting_state_back_to_idle(self):
+        view = SimpleNamespace(
+            _session_generation=0,
+            _session_state="idle",
+            overlay_window=None,
+            save_config=lambda **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("Keychain unavailable")
+            ),
+            status_label=FakeWidget(),
+            start_btn=FakeWidget(),
+        )
+
+        SessionController(view, lambda _generation: self.fail("worker created")).start()
+
+        self.assertEqual(view._session_state, "idle")
+        self.assertTrue(view.start_btn.enabled)
+        self.assertEqual(view.start_btn.text, "▶ Launch Translator")
+        self.assertIn("Keychain unavailable", view.status_label.text)
+
     def test_stale_startup_result_is_disposed_without_creating_window(self):
         calls = []
         pipeline = SimpleNamespace(stop=lambda: calls.append("pipeline stopped"))

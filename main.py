@@ -546,9 +546,15 @@ class Pipeline(QObject):
             self._emit_subtitle(
                 chunk_id, text, "", "final", SubtitleStage.ASR_FINAL
             )
+            self._schedule_final_remote(
+                text,
+                chunk_id,
+                bridge_executor,
+                refine_executor,
+                context_text,
+            )
             final_args = (
-                text, chunk_id, bridge_executor, refine_executor, context_text,
-                segment_started_at, first_partial_at,
+                text, chunk_id, segment_started_at, first_partial_at,
             )
             if fast_path:
                 fast_path.submit_final(
@@ -953,17 +959,53 @@ class Pipeline(QObject):
             }
         future.add_done_callback(self._forget_refinement)
 
-    def _run_fast_final_translation(
+    def _schedule_final_remote(
         self,
         text,
         chunk_id,
         bridge_executor,
         refine_executor,
         context_text,
+    ):
+        """Submit network finalization without entering the Apple work queue."""
+        paused = self.__dict__.get("_paused")
+        if not self.running or (paused is not None and paused.is_set()):
+            return
+        if not should_request_remote(text):
+            log_stage(
+                "remote_refine", chunk_id=chunk_id, status="skipped",
+                words=len(text.split()), detail="short or low-value final",
+            )
+            return
+
+        try:
+            if self._final_translation_client() is None:
+                raise RuntimeError("final model is off")
+            self._submit_latest_ai(
+                refine_executor,
+                self._run_refinement,
+                text,
+                chunk_id,
+                context_text,
+            )
+        except RuntimeError as exc:
+            log_stage("llm_refine", chunk_id=chunk_id, status="skipped", detail=str(exc))
+
+        try:
+            if self._bridge_translation_client() is None:
+                raise RuntimeError("bridge is off")
+            self._submit_latest_bridge(bridge_executor, text, chunk_id, None)
+        except RuntimeError as exc:
+            log_stage("groq_bridge", chunk_id=chunk_id, status="skipped", detail=str(exc))
+
+    def _run_fast_final_translation(
+        self,
+        text,
+        chunk_id,
         segment_started_at=None,
         first_partial_at=None,
     ):
-        """Publish the local draft immediately, then schedule best-effort refinement."""
+        """Publish Apple final independently of already-scheduled network work."""
         paused = self.__dict__.get("_paused")
         if not self.running or (paused is not None and paused.is_set()):
             return
@@ -998,36 +1040,6 @@ class Pipeline(QObject):
 
         if paused is not None and paused.is_set():
             return
-
-        if not should_request_remote(text):
-            log_stage(
-                "remote_refine", chunk_id=chunk_id, status="skipped",
-                words=len(text.split()), detail="short or low-value final",
-            )
-            return
-
-        try:
-            if self._final_translation_client() is None:
-                raise RuntimeError("final model is off")
-            self._submit_latest_ai(
-                refine_executor,
-                self._run_refinement,
-                text,
-                chunk_id,
-                context_text,
-            )
-        except RuntimeError as exc:
-            log_stage("llm_refine", chunk_id=chunk_id, status="skipped", detail=str(exc))
-
-        # Network enhancement must not occupy the latency-critical Apple draft
-        # executor. A dedicated executor also prevents Groq from delaying the
-        # next utterance's provisional translation.
-        try:
-            if self._bridge_translation_client() is None:
-                raise RuntimeError("bridge is off")
-            self._submit_latest_bridge(bridge_executor, text, chunk_id, draft)
-        except RuntimeError as exc:
-            log_stage("groq_bridge", chunk_id=chunk_id, status="skipped", detail=str(exc))
 
     def _run_groq_bridge(self, text, chunk_id, draft, deadline):
         """Best-effort bridge isolated from Apple drafts and final refinement."""

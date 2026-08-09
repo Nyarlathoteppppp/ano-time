@@ -108,7 +108,10 @@ class Config:
         elif device_idx_str.lower() in ("system", "system_audio"):
             self.device_index = "system"
         elif device_idx_str.lower() in ("auto", ""):
-            self.device_index = self._find_blackhole_device()
+            # None is sounddevice's explicit representation of the current
+            # macOS default input. BlackHole remains available by selecting its
+            # concrete device entry in the Dashboard.
+            self.device_index = None
         else:
             self.device_index = None
             

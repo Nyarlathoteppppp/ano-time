@@ -17,6 +17,17 @@ class _AppleDraft:
         return f"draft:{text}"
 
 
+class _BlockingAppleDraft:
+    def __init__(self, started, release):
+        self.started = started
+        self.release = release
+
+    def translate(self, text):
+        self.started.set()
+        self.release.wait(timeout=1)
+        return f"draft:{text}"
+
+
 class RealtimePriorityTests(unittest.TestCase):
     def test_final_translation_does_not_wait_for_groq_bridge(self):
         pipeline = Pipeline.__new__(Pipeline)
@@ -43,7 +54,7 @@ class RealtimePriorityTests(unittest.TestCase):
         refine_executor = ThreadPoolExecutor(max_workers=1)
         try:
             started = time.perf_counter()
-            pipeline._run_fast_final_translation(
+            pipeline._schedule_final_remote(
                 "A useful finalized sentence",
                 1,
                 bridge_executor,
@@ -56,6 +67,46 @@ class RealtimePriorityTests(unittest.TestCase):
             self.assertFalse(release_bridge.is_set())
         finally:
             release_bridge.set()
+            bridge_executor.shutdown(wait=True)
+            refine_executor.shutdown(wait=True)
+
+    def test_remote_paths_start_before_blocking_apple_final_returns(self):
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.running = True
+        apple_started = threading.Event()
+        release_apple = threading.Event()
+        ai_submitted = threading.Event()
+        bridge_submitted = threading.Event()
+        pipeline.fast_translator = _BlockingAppleDraft(apple_started, release_apple)
+        pipeline.final_translator = object()
+        pipeline.bridge_translator = object()
+        pipeline.signals = SimpleNamespace(runtime_status=_Signal())
+        pipeline._emit_ranked_translation = lambda *args: True
+        pipeline._submit_latest_ai = lambda *args: ai_submitted.set()
+        pipeline._submit_latest_bridge = lambda *args: bridge_submitted.set()
+
+        bridge_executor = ThreadPoolExecutor(max_workers=1)
+        refine_executor = ThreadPoolExecutor(max_workers=1)
+        pipeline._schedule_final_remote(
+            "A useful finalized sentence",
+            1,
+            bridge_executor,
+            refine_executor,
+            "",
+        )
+        thread = threading.Thread(
+            target=pipeline._run_fast_final_translation,
+            args=("A useful finalized sentence", 1),
+        )
+        try:
+            thread.start()
+            self.assertTrue(ai_submitted.wait(timeout=0.2))
+            self.assertTrue(bridge_submitted.wait(timeout=0.2))
+            self.assertTrue(apple_started.wait(timeout=0.2))
+            self.assertTrue(thread.is_alive())
+        finally:
+            release_apple.set()
+            thread.join(timeout=1)
             bridge_executor.shutdown(wait=True)
             refine_executor.shutdown(wait=True)
 
