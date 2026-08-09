@@ -268,18 +268,16 @@ class Dashboard(QWidget):
         header_row = QHBoxLayout()
         header_row.setSpacing(10)
         mascot = QLabel()
-        mascot.setFixedSize(44, 52)
+        mascot.setFixedSize(40, 52)
         mascot.setAlignment(Qt.AlignmentFlag.AlignCenter)
         mascot_path = os.path.join(os.path.dirname(__file__), "assets", "ano-mascot.png")
         mascot_pixmap = QPixmap(mascot_path)
         if not mascot_pixmap.isNull():
-            mascot.setPixmap(
-                mascot_pixmap.scaled(
-                    mascot.size(),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
+            # Keep the full-resolution source. Pre-scaling to the label's
+            # logical size makes Retina displays upscale a tiny 1x bitmap and
+            # visibly blurs the mascot.
+            mascot.setPixmap(mascot_pixmap)
+            mascot.setScaledContents(True)
         header = QLabel(f"Ano Time  ·  {current_version()}")
         header.setStyleSheet("font-size: 24px; font-weight: bold; color: #89b4fa;")
         header_row.addWidget(mascot)
