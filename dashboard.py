@@ -9,8 +9,10 @@ from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap
 import sys
 import os
+import time
 import sounddevice as sd
 from config import config
+from runtime_log import log_stage
 from runtime_version import current_version
 
 try:
@@ -549,6 +551,7 @@ class Dashboard(QWidget):
     def _set_pipeline_paused(self, paused, update_overlay=True):
         if not self.pipeline:
             return
+        started = time.perf_counter()
         self.pipeline.set_paused(paused)
         if update_overlay and self.overlay_window and hasattr(
             self.overlay_window, "set_paused"
@@ -560,6 +563,10 @@ class Dashboard(QWidget):
         else:
             self.status_label.setText("Running · ⌃S to pause")
             self.status_label.setStyleSheet("font-size: 16px; color: #a6e3a1;")
+        log_stage(
+            "session_pause" if paused else "session_resume",
+            elapsed_ms=(time.perf_counter() - started) * 1000,
+        )
 
     def update_runtime_status(self, stage, status, detail):
         label = self.runtime_labels.get(stage)
@@ -1670,6 +1677,7 @@ class Dashboard(QWidget):
         self.showNormal()
 
     def on_stop(self):
+        started = time.perf_counter()
         self._session_generation += 1
         self._session_state = "idle"
 
@@ -1687,6 +1695,10 @@ class Dashboard(QWidget):
         self.start_btn.setEnabled(True)
         self.start_btn.setText("▶ Launch Translator")
         self.showNormal()
+        log_stage(
+            "session_stop",
+            elapsed_ms=(time.perf_counter() - started) * 1000,
+        )
 
 class SystemAudioTestWorker(QThread):
     result = pyqtSignal(bool, str, float)

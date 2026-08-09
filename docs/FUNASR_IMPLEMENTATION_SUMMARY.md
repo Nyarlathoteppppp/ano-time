@@ -159,7 +159,7 @@ whisper  whisper
 
 ### Manual Testing Checklist
 - [ ] Install dependencies: `pip install -r requirements.txt`
-- [ ] Run test suite: `python test_funasr.py`
+- [ ] Run test suite: `python -m unittest tests.test_funasr`
 - [ ] Set backend to `funasr` in config
 - [ ] Launch application: `python dashboard.py`
 - [ ] Test transcription with real audio

@@ -369,15 +369,17 @@ MLX/Whisper models download on first use. Apple Speech may also need language as
 ./build_native_notch.sh
 
 # Tests
-./.venv/bin/python -m unittest -q \
-  test_groq_bridge.py \
-  test_hybrid_translator.py \
-  test_glossary.py \
-  test_stable_prefix.py
+./tools/run_tests.sh
+
+# Latency baseline from the asynchronous runtime log
+.venv/bin/python tools/latency_baseline.py
 
 # Optional source-file hot reload
 REALTIME_TON_DEV_RELOAD=1 ./start_mac.sh
 ```
+
+完整测试范围、延迟指标和人工验收项见
+[`docs/REFACTORING_SAFETY_NET.md`](docs/REFACTORING_SAFETY_NET.md)。
 
 ## Platform support
 

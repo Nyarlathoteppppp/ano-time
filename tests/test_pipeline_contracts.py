@@ -1,0 +1,134 @@
+import threading
+import time
+import unittest
+from concurrent.futures import ThreadPoolExecutor
+from types import MethodType, SimpleNamespace
+
+from main import Pipeline
+
+
+class RecordingSignal:
+    def __init__(self):
+        self.events = []
+
+    def emit(self, *args):
+        self.events.append(args)
+
+
+class PipelineContractTests(unittest.TestCase):
+    def test_start_runs_processing_loop_on_daemon_thread(self):
+        pipeline = Pipeline.__new__(Pipeline)
+        ran = threading.Event()
+        pipeline.processing_loop = ran.set
+
+        pipeline.start()
+
+        self.assertTrue(ran.wait(timeout=0.5))
+        pipeline.thread.join(timeout=0.5)
+        self.assertTrue(pipeline.thread.daemon)
+
+    def test_stop_releases_audio_thread_and_fast_translator(self):
+        calls = []
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.running = True
+        pipeline.audio = SimpleNamespace(stop=lambda: calls.append("audio"))
+        pipeline.fast_translator = SimpleNamespace(
+            stop=lambda: calls.append("fast_translator")
+        )
+        pipeline.thread = SimpleNamespace(
+            is_alive=lambda: True,
+            join=lambda timeout: calls.append(("join", timeout)),
+        )
+
+        pipeline.stop()
+
+        self.assertFalse(pipeline.running)
+        self.assertEqual(
+            calls,
+            ["audio", ("join", 2), "fast_translator"],
+        )
+
+    def test_pause_and_resume_are_immediate_and_monotonic(self):
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline._paused = threading.Event()
+
+        pipeline.set_paused(True)
+        self.assertTrue(pipeline.is_paused)
+        pipeline.set_paused(False)
+        self.assertFalse(pipeline.is_paused)
+
+    def test_partial_apple_groq_ai_order_cannot_regress(self):
+        updates = RecordingSignal()
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline._paused = threading.Event()
+        pipeline._translation_state_lock = threading.Lock()
+        pipeline._translation_ranks = {}
+        pipeline.signals = SimpleNamespace(update_text=updates)
+
+        updates.emit(7, "partial English", "Apple partial", "partial")
+        self.assertTrue(pipeline._emit_ranked_translation(7, "final", "Apple", "final", 1))
+        self.assertTrue(pipeline._emit_ranked_translation(7, "final", "Groq", "final", 2))
+        self.assertTrue(pipeline._emit_ranked_translation(7, "final", "AI", "final", 3))
+        self.assertFalse(pipeline._emit_ranked_translation(7, "final", "late Groq", "final", 2))
+        self.assertFalse(pipeline._emit_ranked_translation(7, "final", "late Apple", "final", 1))
+
+        self.assertEqual(
+            [event[2] for event in updates.events],
+            ["Apple partial", "Apple", "Groq", "AI"],
+        )
+
+    def test_ai_queue_keeps_two_active_and_only_latest_pending(self):
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline._refine_queue_lock = threading.RLock()
+        pipeline._refine_futures = {}
+        started = []
+        both_started = threading.Event()
+        release = threading.Event()
+        completed = []
+
+        def worker(self, text, chunk_id, context, deadline):
+            started.append(chunk_id)
+            if len(started) == 2:
+                both_started.set()
+            release.wait(timeout=1)
+            completed.append(chunk_id)
+
+        pipeline._run_refinement = MethodType(worker, pipeline)
+        executor = ThreadPoolExecutor(max_workers=2)
+        try:
+            pipeline._submit_latest_ai(executor, pipeline._run_refinement, "one", 1, "")
+            pipeline._submit_latest_ai(executor, pipeline._run_refinement, "two", 2, "")
+            self.assertTrue(both_started.wait(timeout=0.5))
+            pipeline._submit_latest_ai(executor, pipeline._run_refinement, "obsolete", 3, "")
+            pipeline._submit_latest_ai(executor, pipeline._run_refinement, "latest", 4, "")
+            release.set()
+            executor.shutdown(wait=True)
+            self.assertEqual(sorted(completed), [1, 2, 4])
+        finally:
+            release.set()
+
+    def test_expired_ai_deadline_never_calls_provider_or_updates_ui(self):
+        updates = RecordingSignal()
+        provider = SimpleNamespace(
+            translate=lambda *_args, **_kwargs: self.fail("provider called after deadline")
+        )
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.running = True
+        pipeline.translator = provider
+        pipeline.signals = SimpleNamespace(
+            update_text=updates,
+            runtime_status=RecordingSignal(),
+        )
+
+        pipeline._run_refinement(
+            "A finalized sentence",
+            9,
+            "",
+            time.monotonic() - 0.001,
+        )
+
+        self.assertEqual(updates.events, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

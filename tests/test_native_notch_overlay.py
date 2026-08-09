@@ -1,7 +1,10 @@
-import unittest
 import json
+import os
+import unittest
 
-from PyQt6.QtCore import QCoreApplication
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PyQt6.QtWidgets import QApplication
 
 from native_notch_overlay import NativeNotchOverlay
 
@@ -18,7 +21,7 @@ class RecordingNotchOverlay(NativeNotchOverlay):
 class NativeNotchOverlayTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = QCoreApplication.instance() or QCoreApplication([])
+        cls.app = QApplication.instance() or QApplication([])
 
     def test_scrolled_out_update_is_saved_without_redrawing_notch(self):
         overlay = RecordingNotchOverlay()
@@ -57,6 +60,27 @@ class NativeNotchOverlayTest(unittest.TestCase):
         self.assertEqual(list(overlay.transcript_data), [7])
         self.assertEqual(overlay.transcript_data[7]["translated"], translation)
         self.assertGreater(len(rendered), 1)
+
+    def test_pause_resume_and_quit_events_follow_native_protocol(self):
+        overlay = RecordingNotchOverlay()
+        paused = []
+        stopped = []
+        overlay.pause_requested.connect(paused.append)
+        overlay.stop_requested.connect(lambda: stopped.append(True))
+
+        overlay._handle_event("pause")
+        self.app.processEvents()
+        self.assertTrue(overlay._paused)
+        self.assertEqual(paused, [True])
+
+        overlay._handle_event("resume")
+        self.app.processEvents()
+        self.assertFalse(overlay._paused)
+        self.assertEqual(paused, [True, False])
+
+        overlay._handle_event("exit")
+        self.app.processEvents()
+        self.assertEqual(stopped, [True])
 
 
 if __name__ == "__main__":
