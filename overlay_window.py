@@ -516,7 +516,7 @@ class OverlayWindow(QWidget):
         
         # Stop Button
         self.stop_btn = QPushButton("⏹")
-        self.stop_btn.setToolTip("Stop Translator")
+        self.stop_btn.setToolTip("退出翻译并返回控制中心")
         self.stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.stop_btn.setFixedSize(30, 30)
         self.stop_btn.setStyleSheet("""

@@ -1640,7 +1640,10 @@ class Dashboard(QWidget):
         self.pipeline.signals.pipeline_error.connect(self.on_pipeline_error)
         self.pipeline.signals.runtime_status.connect(self.update_runtime_status)
         if hasattr(self.overlay_window, 'stop_requested'):
-             self.overlay_window.stop_requested.connect(self.close)
+             # Closing the Dashboard normally only hides it so the global
+             # shortcut can remain resident. The overlay's stop/exit control
+             # must stop the active session instead of taking that hide path.
+             self.overlay_window.stop_requested.connect(self.on_stop)
         if hasattr(self.overlay_window, 'pause_requested'):
              self.overlay_window.pause_requested.connect(
                  lambda paused: self._set_pipeline_paused(paused, update_overlay=False)
