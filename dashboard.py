@@ -175,6 +175,12 @@ class Dashboard(QWidget):
         QTimer.singleShot(0, self._install_native_glass)
         QTimer.singleShot(200, self._install_native_glass)
 
+    def hideEvent(self, event):
+        blur_window = getattr(self, "_native_blur_window", None)
+        if blur_window is not None:
+            blur_window.orderOut_(None)
+        super().hideEvent(event)
+
     def moveEvent(self, event):
         super().moveEvent(event)
         self._sync_native_glass()
@@ -243,8 +249,11 @@ class Dashboard(QWidget):
         if ns_window is None:
             return
         blur_window.setFrame_display_(ns_window.frame(), True)
-        blur_window.orderFrontRegardless()
-        ns_window.orderFrontRegardless()
+        if self.isVisible() and not self.isMinimized():
+            blur_window.orderFrontRegardless()
+            ns_window.orderFrontRegardless()
+        else:
+            blur_window.orderOut_(None)
 
     def __init__(self):
         super().__init__()

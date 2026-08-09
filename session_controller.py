@@ -93,7 +93,9 @@ class SessionController:
         view.status_label.setStyleSheet("font-size: 18px; color: #a6e3a1;")
         view.start_btn.hide()
         view.stop_btn.show()
-        view.showMinimized()
+        # A hidden control center needs no continuous AppKit vibrancy
+        # composition while subtitles are running. Stop restores it.
+        view.hide()
 
     def pipeline_error(self, message):
         view = self.view

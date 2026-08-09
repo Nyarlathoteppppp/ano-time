@@ -24,6 +24,7 @@ from live_segmenter import IncrementalSegmenter
 from glossary import ASRCorrections
 from finalized_text import clean_finalized_text, is_meaningful_final, should_request_remote
 from subtitle_event import SubtitleEvent, SubtitleStage
+from runtime_performance import RuntimePerformanceSampler
 
 class WorkerSignals(QObject):
     subtitle_event = pyqtSignal(object)
@@ -58,6 +59,10 @@ class Pipeline(QObject):
         self._translation_ranks = {}
         self._subtitle_revision_lock = threading.Lock()
         self._subtitle_revisions = {}
+        self._subtitle_events_since_sample = 0
+        self._performance_sampler = RuntimePerformanceSampler(
+            self._take_subtitle_event_count
+        )
         self._context_lock = threading.Lock()
         self._last_finalized_segment = ""
         self._refine_queue_lock = threading.RLock()
@@ -269,6 +274,9 @@ class Pipeline(QObject):
         with lock:
             revision = self._subtitle_revisions.get(chunk_id, 0) + 1
             self._subtitle_revisions[chunk_id] = revision
+            self._subtitle_events_since_sample = (
+                self.__dict__.get("_subtitle_events_since_sample", 0) + 1
+            )
         event = SubtitleEvent.create(
             chunk_id,
             revision,
@@ -285,11 +293,20 @@ class Pipeline(QObject):
             self.signals.update_text.emit(chunk_id, text, translated, state)
         return event
 
+    def _take_subtitle_event_count(self):
+        with self._subtitle_revision_lock:
+            count = self._subtitle_events_since_sample
+            self._subtitle_events_since_sample = 0
+        return count
+
     def start(self):
         """Start the processing pipeline in a dedicated thread"""
         # self.audio.start() # DISABLE: Generator manages its own stream. calling this causes double-stream error on macOS
         self.thread = threading.Thread(target=self.processing_loop)
         self.thread.daemon = True
+        sampler = self.__dict__.get("_performance_sampler")
+        if sampler:
+            sampler.start()
         self.thread.start()
 
     def stop(self):
@@ -300,6 +317,9 @@ class Pipeline(QObject):
             self.thread.join(timeout=2)
         if self.fast_translator:
             self.fast_translator.stop()
+        sampler = self.__dict__.get("_performance_sampler")
+        if sampler:
+            sampler.stop()
         print("[Pipeline] Stopped.")
 
     def set_paused(self, paused):
@@ -491,6 +511,7 @@ class Pipeline(QObject):
                 min_growth_words=config.stable_prefix_min_words,
             ),
             "segmenter": IncrementalSegmenter(),
+            "stream_ready_logged": False,
         }
 
         def publish_final(text, chunk_id, segment_started_at, first_partial_at,
@@ -647,11 +668,23 @@ class Pipeline(QObject):
                     continue
                 audio_marker = None
                 with state_lock:
-                    if state["audio_started_at"] is None:
+                    if not state["stream_ready_logged"]:
+                        state["stream_ready_logged"] = True
+                        log_stage("audio_stream_ready", elapsed_ms=0)
+                    rms = float((audio_chunk ** 2).mean() ** 0.5)
+                    if (
+                        state["audio_started_at"] is None
+                        and rms >= max(0.0001, config.silence_threshold)
+                    ):
                         state["audio_started_at"] = time.monotonic()
                         audio_marker = (state["chunk_id"], state["audio_started_at"])
                 if audio_marker:
-                    log_stage("audio_received", chunk_id=audio_marker[0], elapsed_ms=0)
+                    log_stage(
+                        "speech_audio_detected",
+                        chunk_id=audio_marker[0],
+                        elapsed_ms=0,
+                        rms=f"{rms:.5f}",
+                    )
                 self.apple_transcriber.feed(audio_chunk)
         except Exception as exc:
             print(f"[Pipeline] Apple Speech error: {exc}")

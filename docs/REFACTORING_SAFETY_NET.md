@@ -60,6 +60,11 @@ launch. The previous session is moved to `logs/history/`; at most five sessions
 and seven days are retained. Reopening the desktop launcher while Ano Time is
 already running does not rotate or interrupt the active log.
 
+While a Pipeline is active, `runtime_performance` records process CPU, peak
+resident memory, thread count and subtitle event rate every two seconds. The
+sampler uses process counters only; it does not execute `ps`, inspect other
+applications or run on the latency-critical audio callback.
+
 ## Manual release gate
 
 After automated tests, verify on a real Mac:

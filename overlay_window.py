@@ -300,7 +300,7 @@ class OverlayWindow(QWidget):
         self._topmost_timer = QTimer(self)
         self._topmost_timer.setInterval(1000)
         self._topmost_timer.timeout.connect(
-            lambda: self._set_all_spaces(log_ready=False)
+            self._maintain_topmost
         )
         self._last_native_visibility = None
         self._native_blur_window = None
@@ -443,6 +443,30 @@ class OverlayWindow(QWidget):
                 )
         except Exception as e:
             print(f"Could not set all-spaces behavior: {e}")
+
+    def _maintain_topmost(self):
+        """Reassert fullscreen behavior only when macOS changed native state."""
+        if not HAS_APPKIT or not self.isVisible():
+            return
+        try:
+            ns_view = objc.objc_object(c_void_p=c_void_p(int(self.winId())))
+            ns_window = ns_view.window()
+            behavior = int(ns_window.collectionBehavior())
+            required = (
+                NSWindowCollectionBehaviorCanJoinAllApplications
+                | NSWindowCollectionBehaviorCanJoinAllSpaces
+                | NSWindowCollectionBehaviorIgnoresCycle
+            )
+            needs_repair = (
+                int(ns_window.level()) != FULLSCREEN_OVERLAY_LEVEL
+                or behavior & required != required
+                or not bool(ns_window.isVisible())
+                or not bool(ns_window.isOnActiveSpace())
+            )
+            if needs_repair:
+                self._set_all_spaces(log_ready=False)
+        except Exception:
+            self._set_all_spaces(log_ready=False)
 
     def initUI(self):
         # Window flags for transparency and staying on top
