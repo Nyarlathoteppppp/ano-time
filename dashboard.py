@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QFrame, QComboBox, QLineEdit, 
                              QTabWidget, QSpinBox, QDoubleSpinBox, QGridLayout,
                              QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
-                             QMessageBox, QTextEdit, QDialog)
+                             QMessageBox, QTextEdit, QDialog, QLayout)
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QThread, QTimer
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtGui import QFont, QIcon, QColor
@@ -275,6 +275,7 @@ class Dashboard(QWidget):
     def init_home_tab(self):
         tab = QWidget()
         layout = QVBoxLayout()
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(20)
         
@@ -309,6 +310,10 @@ class Dashboard(QWidget):
 
         runtime = QFrame()
         runtime.setObjectName("RuntimeStatus")
+        runtime.setMinimumHeight(164)
+        runtime.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
         runtime.setStyleSheet("""
             QFrame#RuntimeStatus {
                 background-color: rgba(255, 255, 255, 10);
@@ -326,8 +331,12 @@ class Dashboard(QWidget):
             ("Remote", "Remote Model（远程模型）"),
             ("Network", "Network（网络）"),
         )):
-            runtime_layout.addWidget(QLabel(title), row, 0)
+            runtime_layout.setRowMinimumHeight(row, 30)
+            title_label = QLabel(title)
+            title_label.setMinimumHeight(26)
+            runtime_layout.addWidget(title_label, row, 0)
             value = QLabel("Waiting")
+            value.setMinimumHeight(26)
             value.setStyleSheet("color: #6c7086; font-weight: 600;")
             runtime_layout.addWidget(value, row, 1)
             self.runtime_labels[key] = value
@@ -370,7 +379,16 @@ class Dashboard(QWidget):
         layout.addWidget(info)
         
         tab.setLayout(layout)
-        self.tabs.addTab(tab, "🏠 Home")
+        scroll = QScrollArea()
+        scroll.setObjectName("HomeScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        scroll.setWidget(tab)
+        self.home_scroll = scroll
+        self.tabs.addTab(scroll, "🏠 Home")
 
     def open_runtime_log(self):
         import subprocess
