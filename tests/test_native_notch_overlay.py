@@ -1,5 +1,6 @@
 import json
 import os
+import struct
 import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -23,7 +24,7 @@ class NativeNotchOverlayTest(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_mascot_is_fixed_to_expanded_notch_top_right(self):
+    def test_mascots_are_fixed_to_both_expanded_notch_edges(self):
         source = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "native_notch",
@@ -33,9 +34,19 @@ class NativeNotchOverlayTest(unittest.TestCase):
         )
         with open(source, encoding="utf-8") as handle:
             swift = handle.read()
-        self.assertIn("ZStack(alignment: .topTrailing)", swift)
-        self.assertIn(".padding(.trailing, 8)", swift)
-        self.assertNotIn(".padding(.leading, 8)", swift)
+        self.assertIn("ZStack(alignment: .top)", swift)
+        self.assertIn("HStack(spacing: 0)", swift)
+        self.assertIn("TrailingMascotAsset.image", swift)
+        self.assertIn('Resources/lgcr@2x.png', swift)
+        self.assertIn(".padding(.horizontal, 8)", swift)
+
+        resource = os.path.join(
+            os.path.dirname(source), "Resources", "lgcr@2x.png"
+        )
+        with open(resource, "rb") as handle:
+            header = handle.read(24)
+        self.assertEqual(header[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(struct.unpack(">II", header[16:24]), (52, 52))
 
     def test_scrolled_out_update_is_saved_without_redrawing_notch(self):
         overlay = RecordingNotchOverlay()

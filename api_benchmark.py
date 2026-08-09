@@ -42,6 +42,32 @@ class BenchmarkSummary:
         values = [sample.total_ms for sample in self.successes]
         return statistics.fmean(values) if values else 0.0
 
+    @property
+    def attempted(self):
+        return len(self.samples)
+
+    @property
+    def stopped_early(self):
+        return self.attempted < len(BENCHMARK_SENTENCES)
+
+
+def is_terminal_configuration_error(exc):
+    """Return true when repeating the same benchmark request cannot help."""
+    status_code = getattr(exc, "status_code", None)
+    if status_code in {400, 401, 403, 404}:
+        return True
+    if isinstance(exc, ValueError):
+        return True
+    message = str(exc).lower()
+    return any(marker in message for marker in (
+        "invalid url",
+        "unsupported protocol",
+        "api key",
+        "authentication",
+        "unauthorized",
+        "forbidden",
+    ))
+
 
 def run_translation_benchmark(
     translator,
@@ -81,15 +107,19 @@ def run_translation_benchmark(
             )
         except Exception as exc:
             finished = time.perf_counter()
+            terminal = is_terminal_configuration_error(exc)
+            prefix = "Configuration error — test stopped: " if terminal else ""
             sample = BenchmarkSample(
                 index=index,
                 source=source,
                 translation="",
                 first_token_ms=0.0,
                 total_ms=(finished - started) * 1000,
-                error=f"{type(exc).__name__}: {exc}",
+                error=f"{prefix}{type(exc).__name__}: {exc}",
             )
         samples.append(sample)
         if progress:
             progress(sample)
+        if sample.error.startswith("Configuration error — test stopped:"):
+            break
     return BenchmarkSummary(tuple(samples))

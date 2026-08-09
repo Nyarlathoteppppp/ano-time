@@ -7,6 +7,19 @@ import config as config_module
 
 
 class ConfigContractTests(unittest.TestCase):
+    def test_missing_config_uses_current_realtime_classroom_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "missing.ini")
+            with patch.object(config_module.keychain, "resolve", return_value=""):
+                loaded = config_module.Config(path)
+
+        self.assertEqual(loaded.asr_backend, "apple")
+        self.assertEqual(loaded.source_language, "en")
+        self.assertEqual(loaded.fast_translation_backend, "apple")
+        self.assertEqual(loaded.display_mode, "notch")
+        self.assertEqual(loaded.model, "qwen-mt-flash")
+        self.assertEqual(loaded.api_key, "")
+
     def test_system_audio_deadline_and_relative_profiles_load_together(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "config.ini")

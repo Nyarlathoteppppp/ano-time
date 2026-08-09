@@ -7,7 +7,7 @@ from config import config
 
 class ApiSpeedTestWorker(QThread):
     sample_ready = pyqtSignal(int, float, float, str, str)
-    completed = pyqtSignal(int, float, float)
+    completed = pyqtSignal(int, float, float, int, bool)
 
     def __init__(self, spec):
         super().__init__()
@@ -41,12 +41,14 @@ class ApiSpeedTestWorker(QThread):
                 len(summary.successes),
                 summary.average_first_token_ms,
                 summary.average_total_ms,
+                summary.attempted,
+                summary.stopped_early,
             )
         except Exception as exc:
             self.sample_ready.emit(
                 1, 0.0, 0.0, "", f"{type(exc).__name__}: {exc}"
             )
-            self.completed.emit(0, 0.0, 0.0)
+            self.completed.emit(0, 0.0, 0.0, 1, True)
 
 
 class ApiTestController:
@@ -169,11 +171,19 @@ class ApiTestController:
             )
         self.view.api_test_results.append(line)
 
-    def _completed(self, successes, average_first_ms, average_total_ms):
+    def _completed(
+        self,
+        successes,
+        average_first_ms,
+        average_total_ms,
+        attempted=5,
+        stopped_early=False,
+    ):
+        suffix = " · 已提前停止" if stopped_early else ""
         self.view.api_test_results.append(
             "\n—— 汇总 ——\n"
-            f"成功 {successes}/5 · 平均首字 {average_first_ms:.0f} ms · "
-            f"平均单次总耗时 {average_total_ms:.0f} ms"
+            f"成功 {successes}/{attempted} · 平均首字 {average_first_ms:.0f} ms · "
+            f"平均单次总耗时 {average_total_ms:.0f} ms{suffix}"
         )
 
     def _finished(self):

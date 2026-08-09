@@ -645,7 +645,7 @@ class Pipeline(QObject):
                 return
             with self._translation_state_lock:
                 previous = self._last_partial_text.get(current_chunk_id)
-                if previous == remainder or len(remainder) < 6:
+                if previous == remainder:
                     return
                 self._last_partial_text[current_chunk_id] = remainder
                 if fast_path:

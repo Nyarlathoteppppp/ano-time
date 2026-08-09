@@ -2,7 +2,8 @@ import os
 import configparser
 import tempfile
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -10,6 +11,7 @@ from PyQt6.QtWidgets import QApplication
 
 from dashboard import Dashboard
 from dashboard import DEFAULT_AUDIO_SETTINGS
+from dashboard import ModelListWorker
 import dashboard as dashboard_module
 from keychain_store import store as keychain_store
 from shortcut_controller import ShortcutController
@@ -143,6 +145,80 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertEqual(self.dashboard.target_lang.currentData(), original_target)
         self.assertEqual(self.dashboard.display_mode.currentData(), original_display)
         self.assertIn("Click Save Settings", self.dashboard.audio_test_status.text())
+
+    def test_running_setting_change_shows_restart_notice(self):
+        self.dashboard._session_state = "running"
+        self.dashboard.target_lang.setCurrentIndex(
+            (self.dashboard.target_lang.currentIndex() + 1)
+            % self.dashboard.target_lang.count()
+        )
+
+        self.assertFalse(self.dashboard.pending_settings_label.isHidden())
+        self.assertIn(
+            "Stop and Launch again",
+            self.dashboard.pending_settings_label.text(),
+        )
+
+    def test_unchanged_secrets_are_not_rewritten_to_keychain(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake_module = os.path.join(directory, "dashboard.py")
+            with (
+                patch.object(dashboard_module, "__file__", fake_module),
+                patch.object(dashboard_module.config, "reload"),
+                patch.object(
+                    keychain_store,
+                    "store_for_config",
+                    side_effect=lambda account, value: f"keychain://test/{account}",
+                ) as store_secret,
+            ):
+                self.dashboard.save_config(show_status=False)
+
+        store_secret.assert_not_called()
+
+    def test_only_edited_secret_is_rewritten_to_keychain(self):
+        self.dashboard.groq_api_key.setText(
+            self.dashboard.groq_api_key.text() + "-edited"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            fake_module = os.path.join(directory, "dashboard.py")
+            with (
+                patch.object(dashboard_module, "__file__", fake_module),
+                patch.object(dashboard_module.config, "reload"),
+                patch.object(
+                    keychain_store,
+                    "store_for_config",
+                    side_effect=lambda account, value: f"keychain://test/{account}",
+                ) as store_secret,
+            ):
+                self.dashboard.save_config(show_status=False)
+
+        self.assertEqual(store_secret.call_count, 1)
+        self.assertEqual(store_secret.call_args.args[0], "providers.groq")
+
+    def test_model_list_worker_uses_verified_bounded_http_client(self):
+        response = SimpleNamespace(
+            data=[SimpleNamespace(id="model-b"), SimpleNamespace(id="model-a")]
+        )
+        client = MagicMock()
+        client.models.list.return_value = response
+        http_client = MagicMock()
+        http_client.__enter__.return_value = http_client
+        loaded = []
+        failed = []
+        worker = ModelListWorker("secret", "https://example.test/v1")
+        worker.loaded.connect(loaded.append)
+        worker.failed.connect(failed.append)
+
+        with (
+            patch("httpx.Client", return_value=http_client) as client_factory,
+            patch("openai.OpenAI", return_value=client) as openai_factory,
+        ):
+            worker.run()
+
+        self.assertEqual(loaded, [["model-b", "model-a"]])
+        self.assertEqual(failed, [])
+        self.assertTrue(client_factory.call_args.kwargs["verify"])
+        self.assertEqual(openai_factory.call_args.kwargs["max_retries"], 0)
 
 
 if __name__ == "__main__":

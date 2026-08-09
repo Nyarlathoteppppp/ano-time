@@ -1,9 +1,9 @@
 [api]
-base_url = http://localhost:11434/v1/
-api_key = your-api-key
+base_url =
+api_key =
 
 [translation]
-model = qwen2.5:7b
+model = qwen-mt-flash
 target_lang = Chinese
 domain = Postgraduate Computer Science–AI coursework. Preserve standard terminology in AI, machine learning, probability and statistics, linear algebra, optimization, and software engineering.
 threads = 4
@@ -32,11 +32,11 @@ cloudflare_api_token =
 display_duration = 10
 window_width = 800
 window_height = 120
-mode = glass
+mode = notch
 
 [shortcut]
 enabled = true
-double_tap_interval = 0.32
+double_tap_interval = 0.45
 
 [diagnostics]
 # Enable temporarily only while troubleshooting; restart after changing it.
@@ -47,12 +47,12 @@ enabled = false
 split_fast_path = true
 
 [transcription]
-backend = whisper
+backend = apple
 whisper_model = base
 funasr_model = iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch
 device = auto
 compute_type = float16
-source_language = auto
+source_language = en
 transcription_workers = 4
 
 [audio]

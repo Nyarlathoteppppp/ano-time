@@ -15,6 +15,19 @@ private enum MascotAsset {
     }()
 }
 
+@MainActor
+private enum TrailingMascotAsset {
+    static let image: NSImage? = {
+        let sourceFile = URL(fileURLWithPath: #filePath)
+        let imageURL = sourceFile
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/lgcr@2x.png")
+        guard let image = NSImage(contentsOf: imageURL) else { return nil }
+        image.size = NSSize(width: 26, height: 26)
+        return image
+    }()
+}
+
 private struct InputMessage: Decodable {
     let command: String?
     let original: String?
@@ -94,8 +107,8 @@ private final class SubtitleState: ObservableObject {
         let minimumWidth: CGFloat = 360
         let maximumWidth: CGFloat = 560
         let widthStep: CGFloat = 20
-        // Reserve equal space on both sides so the top-right mascot does not
-        // move the centered subtitles or cover their trailing text.
+        // Reserve equal space for the two edge mascots so subtitles remain
+        // centered and never run underneath either image.
         let desired = max(minimumWidth, measured + 80)
         let stepped = ceil(desired / widthStep) * widthStep
         return min(maximumWidth, stepped)
@@ -153,7 +166,7 @@ private struct SubtitleContent: View {
     @ObservedObject var state: SubtitleState
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .top) {
             VStack(alignment: .center, spacing: 5) {
                 ForEach(state.items.suffix(state.displayCount)) { item in
                     VStack(alignment: .center, spacing: 2) {
@@ -182,13 +195,20 @@ private struct SubtitleContent: View {
             }
             .padding(.horizontal, 40)
 
-            if let mascotImage = MascotAsset.image {
-                Image(nsImage: mascotImage)
-                    .frame(width: 26, height: 26)
-                    .padding(.top, 4)
-                    .padding(.trailing, 8)
-                    .allowsHitTesting(false)
+            HStack(spacing: 0) {
+                if let mascotImage = MascotAsset.image {
+                    Image(nsImage: mascotImage)
+                        .frame(width: 26, height: 26)
+                }
+                Spacer(minLength: 0)
+                if let trailingImage = TrailingMascotAsset.image {
+                    Image(nsImage: trailingImage)
+                        .frame(width: 26, height: 26)
+                }
             }
+            .padding(.horizontal, 8)
+            .padding(.top, 4)
+            .allowsHitTesting(false)
         }
         .frame(
             width: state.contentWidth,

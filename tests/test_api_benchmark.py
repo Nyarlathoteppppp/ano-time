@@ -43,6 +43,25 @@ class ApiBenchmarkTests(unittest.TestCase):
         self.assertEqual(len(summary.successes), 4)
         self.assertIn("TimeoutError", summary.samples[1].error)
 
+    def test_authentication_failure_stops_after_first_request(self):
+        class AuthenticationFailure(Exception):
+            status_code = 401
+
+        class Translator:
+            calls = 0
+
+            def translate(self, _text, **_kwargs):
+                self.calls += 1
+                raise AuthenticationFailure("Incorrect API key")
+
+        translator = Translator()
+        summary = run_translation_benchmark(translator)
+
+        self.assertEqual(translator.calls, 1)
+        self.assertEqual(summary.attempted, 1)
+        self.assertTrue(summary.stopped_early)
+        self.assertIn("Configuration error", summary.samples[0].error)
+
     def test_summary_labels_total_latency_as_per_request_average(self):
         class Results:
             text = ""
@@ -57,6 +76,22 @@ class ApiBenchmarkTests(unittest.TestCase):
         controller._completed(5, 420.0, 810.0)
 
         self.assertIn("平均单次总耗时 810 ms", results.text)
+
+    def test_early_stop_summary_uses_attempted_request_count(self):
+        class Results:
+            text = ""
+
+            def append(self, value):
+                self.text += value
+
+        results = Results()
+        controller = ApiTestController(
+            SimpleNamespace(api_test_results=results)
+        )
+        controller._completed(0, 0.0, 0.0, attempted=1, stopped_early=True)
+
+        self.assertIn("成功 0/1", results.text)
+        self.assertIn("已提前停止", results.text)
 
 
 if __name__ == "__main__":

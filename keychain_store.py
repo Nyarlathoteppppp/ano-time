@@ -110,7 +110,7 @@ def migrate_plaintext_secrets(parser, config_path, secret_store=store):
         value = parser.get(section, option).strip()
         if not value or secret_store.is_reference(value):
             continue
-        if value == "dummy-key-for-local":
+        if value in {"dummy-key-for-local", "your-api-key"}:
             continue
         if secret_store.set(account, value):
             parser.set(section, option, secret_store.reference(account))

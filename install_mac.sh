@@ -10,7 +10,7 @@
 #   3. Install all required Python packages
 #   4. Install Apple Silicon optimizations (if applicable)
 #   5. Check for required system tools (ffmpeg)
-#   6. Verify BlackHole virtual audio device installation
+#   6. Explain the optional legacy BlackHole path
 #   7. Check for optional audio management tools
 
 echo "==================================================="
@@ -96,24 +96,15 @@ if [ $MISSING_TOOLS -eq 1 ]; then
 fi
 
 # ==================================================
-# Step 6: Check BlackHole Virtual Audio Device
+# Step 6: Optional Legacy BlackHole Path
 # ==================================================
-# BlackHole is a virtual audio driver that allows you to capture
-# system audio output (e.g., from Zoom, YouTube, games) as if it
-# were a microphone input. This is essential for real-time
-# transcription of audio playing on your Mac.
-#
-# Without BlackHole, you can only transcribe from physical microphones.
-# Installation: brew install blackhole-2ch
-echo "[5/5] Checking virtual audio device..."
-if [ -d "/Library/Audio/Plug-Ins/HAL/BlackHole2ch.driver" ] || [ -d "/Library/Audio/Plug-Ins/HAL/BlackHole2ch.driver" ]; then
-    echo "  [OK] BlackHole virtual audio device found."
+# Anotime captures videos/apps through native ScreenCaptureKit and does not
+# require BlackHole. Keep this check only for users of the legacy audio route.
+echo "[5/5] Checking optional legacy audio tools..."
+if [ -d "/Library/Audio/Plug-Ins/HAL/BlackHole2ch.driver" ]; then
+    echo "  [INFO] BlackHole found (optional legacy route)."
 else
-    echo "  [WARNING] BlackHole virtual audio device is NOT installed."
-    echo "  -> BlackHole is required to capture system audio (e.g., from games, meetings, videos)."
-    echo "  -> Install via Homebrew: brew install blackhole-2ch"
-    echo "  -> Or download from: https://existential.audio/blackhole/"
-    echo ""
+    echo "  [OK] BlackHole is not installed; native ScreenCaptureKit system audio is supported."
 fi
 
 # ==================================================

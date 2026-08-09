@@ -25,12 +25,11 @@ class Config:
         # API settings (env vars take precedence)
         self.api_base_url = os.getenv("OPENAI_BASE_URL") or self._get("api", "base_url") or None
         self.api_key = os.getenv("OPENAI_API_KEY") or self._secret(
-            "api", "api_key", "dummy-key-for-local"
+            "api", "api_key", ""
         )
         
         # Translation settings
-        self.model = self._get("translation", "model", "gpt-3.5-turbo")
-        self.model = self._get("translation", "model", "gpt-3.5-turbo")
+        self.model = self._get("translation", "model", "qwen-mt-flash")
         self.target_lang = self._get("translation", "target_lang", "Chinese")
         self.translation_domain = self._get(
             "translation",
@@ -41,7 +40,9 @@ class Config:
         )
         self.translation_threads = self._getint("translation", "threads", 4)
         self.ai_deadline_seconds = self._getfloat("translation", "ai_deadline_seconds", 3.0)
-        self.fast_translation_backend = self._get("translation", "fast_backend", "off").lower()
+        self.fast_translation_backend = self._get(
+            "translation", "fast_backend", "apple"
+        ).lower()
         self.translation_provider = self._get(
             "translation", "provider", "Fast Free Pool → Qwen-MT"
         )
@@ -84,21 +85,21 @@ class Config:
         self.cloudflare_api_token = self._secret("providers", "cloudflare_api_token")
         
         # Transcription settings
-        self.asr_backend = self._get("transcription", "backend", "whisper").lower()
+        self.asr_backend = self._get("transcription", "backend", "apple").lower()
         self.whisper_model = self._get("transcription", "whisper_model", "base")
         self.funasr_model = self._get("transcription", "funasr_model", "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch")
-        self.whisper_device = self._get("transcription", "device", "cpu")
-        self.whisper_compute_type = self._get("transcription", "compute_type", "int8")
-        self.source_language = self._get("transcription", "source_language", "auto")
+        self.whisper_device = self._get("transcription", "device", "auto")
+        self.whisper_compute_type = self._get("transcription", "compute_type", "float16")
+        self.source_language = self._get("transcription", "source_language", "en")
         if self.source_language == "auto":
             self.source_language = None  # Whisper uses None for auto-detect
-        self.transcription_workers = self._getint("transcription", "transcription_workers", 2)
+        self.transcription_workers = self._getint("transcription", "transcription_workers", 4)
         
         # Audio settings
         self.sample_rate = self._getint("audio", "sample_rate", 16000)
-        self.silence_threshold = self._getfloat("audio", "silence_threshold", 0.01)
-        self.silence_duration = self._getfloat("audio", "silence_duration", 1.0)
-        self.chunk_duration = self._getfloat("audio", "chunk_duration", 0.5)
+        self.silence_threshold = self._getfloat("audio", "silence_threshold", 0.005)
+        self.silence_duration = self._getfloat("audio", "silence_duration", 0.5)
+        self.chunk_duration = self._getfloat("audio", "chunk_duration", 0.1)
         
         # Device index: 'system' = ScreenCaptureKit system audio; otherwise a mic index/auto.
         device_idx_str = self._get("audio", "device_index", "auto")
@@ -112,11 +113,11 @@ class Config:
             self.device_index = None
             
         # Max phrase duration - force processing after N seconds
-        self.max_phrase_duration = self._getfloat("audio", "max_phrase_duration", 5.0)
+        self.max_phrase_duration = self._getfloat("audio", "max_phrase_duration", 30.0)
         
         # Streaming mode settings
-        self.streaming_mode = self._get("audio", "streaming_mode", "false").lower() == "true"
-        self.streaming_interval = self._getfloat("audio", "streaming_interval", 1.5)
+        self.streaming_mode = self._get("audio", "streaming_mode", "true").lower() == "true"
+        self.streaming_interval = self._getfloat("audio", "streaming_interval", 3.0)
         self.streaming_step_size = self._getfloat("audio", "streaming_step_size", 0.2)
         self.update_interval = self._getfloat("audio", "update_interval", 0.5)
         self.streaming_overlap = self._getfloat("audio", "streaming_overlap", 0.3)
@@ -124,10 +125,10 @@ class Config:
         self.stable_prefix_min_words = self._getint("audio", "stable_prefix_min_words", 3)
         
         # Display settings
-        self.display_duration = self._getfloat("display", "display_duration", 3.0)
+        self.display_duration = self._getfloat("display", "display_duration", 10.0)
         self.window_width = self._getint("display", "window_width", 800)
         self.window_height = self._getint("display", "window_height", 120)
-        self.display_mode = self._get("display", "mode", "glass").lower()
+        self.display_mode = self._get("display", "mode", "notch").lower()
 
         # Global shortcut settings
         self.shortcut_enabled = self._getbool("shortcut", "enabled", True)
@@ -175,6 +176,8 @@ class Config:
         raw = self._get(section, key, "")
         account = SECRET_FIELDS[(section, key)]
         resolved = keychain.resolve(raw, account)
+        if resolved in {"dummy-key-for-local", "your-api-key"}:
+            return fallback
         return resolved or fallback
     
     def _find_blackhole_device(self):

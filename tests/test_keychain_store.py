@@ -70,6 +70,18 @@ class KeychainStoreTest(unittest.TestCase):
                 contents = handle.read()
             self.assertIn("must-not-disappear", contents)
 
+    def test_template_placeholder_is_not_saved_as_a_real_secret(self):
+        store = MemoryKeychain()
+        parser = configparser.ConfigParser()
+        parser.read_dict({"api": {"api_key": "your-api-key"}})
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.ini")
+            with open(path, "w", encoding="utf-8") as handle:
+                parser.write(handle)
+            self.assertFalse(migrate_plaintext_secrets(parser, path, store))
+
+        self.assertEqual(store.values, {})
+
 
 if __name__ == "__main__":
     unittest.main()

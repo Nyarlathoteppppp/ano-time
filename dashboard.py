@@ -168,6 +168,10 @@ class Dashboard(QWidget):
         api_test_controller = getattr(self, "api_test_controller", None)
         if api_test_controller:
             api_test_controller.stop()
+        model_refresh_worker = getattr(self, "model_refresh_worker", None)
+        if model_refresh_worker and model_refresh_worker.isRunning():
+            model_refresh_worker.requestInterruption()
+            model_refresh_worker.wait(5500)
         shortcut_controller = getattr(self, "shortcut_controller", None)
         if shortcut_controller:
             shortcut_controller.stop()
@@ -311,8 +315,11 @@ class Dashboard(QWidget):
         self._session_generation = 0
         self._session_state = "idle"
         self._startup_workers = {}
+        self.model_refresh_worker = None
         self.pipeline = None
         self.overlay_window = None
+        self._settings_ready = False
+        self._settings_dirty = False
         self.shortcut_enabled = config.shortcut_enabled
         self._diagnostics_active = config.diagnostics_enabled
         # 320 ms proved too strict for normal human double taps. Preserve any
@@ -358,6 +365,17 @@ class Dashboard(QWidget):
         self.init_transcription_tab()
         self.init_translation_tab()
         self.update_home_summary()
+        self._saved_secrets = {
+            "api.default": config.api_key,
+            "providers.deepseek": self.provider_keys.get("DeepSeek Official", ""),
+            "providers.siliconflow": self.provider_keys.get("SiliconFlow", ""),
+            "providers.qwen_mt": self.qwen_fallback_key.text(),
+            "providers.groq": self.groq_api_key.text(),
+            "providers.gemini": self.gemini_api_key.text(),
+            "providers.cloudflare": self.cloudflare_api_token.text(),
+        }
+        self._connect_settings_dirty_signals()
+        self._settings_ready = True
 
         self.permission_controller = PermissionController(
             self, lambda sample_rate: SystemAudioTestWorker(sample_rate)
@@ -391,6 +409,14 @@ class Dashboard(QWidget):
         self.status_label = QLabel("Ready")
         self.status_label.setStyleSheet("font-size: 18px; color: #a6e3a1;")
         layout.addWidget(self.status_label)
+
+        self.pending_settings_label = QLabel()
+        self.pending_settings_label.setWordWrap(True)
+        self.pending_settings_label.setStyleSheet(
+            "font-size: 13px; color: #f9e2af; padding: 3px 0;"
+        )
+        self.pending_settings_label.hide()
+        layout.addWidget(self.pending_settings_label)
 
         summary = QFrame()
         summary.setObjectName("ClassroomSummary")
@@ -622,6 +648,75 @@ class Dashboard(QWidget):
         else:
             model = config.model
         self.translation_summary.setText(model)
+
+    def _connect_settings_dirty_signals(self):
+        """Mark saved runtime settings that differ from the active session."""
+        combos = (
+            self.device_combo,
+            self.home_device_combo,
+            self.display_mode,
+            self.asr_backend,
+            self.whisper_model,
+            self.funasr_model,
+            self.device_type,
+            self.compute_type,
+            self.source_language,
+            self.translation_workflow,
+            self.bridge_provider,
+            self.provider,
+            self.model,
+            self.target_lang,
+            self.fast_translation_backend,
+        )
+        for combo in combos:
+            combo.currentTextChanged.connect(self._mark_settings_dirty)
+
+        for spinbox in (
+            self.sample_rate,
+            self.silence_thresh,
+            self.silence_dur,
+            self.update_interval,
+        ):
+            spinbox.valueChanged.connect(self._mark_settings_dirty)
+
+        for field in (
+            self.api_key,
+            self.base_url,
+            self.groq_api_key,
+            self.gemini_api_key,
+            self.cloudflare_account_id,
+            self.cloudflare_api_token,
+            self.qwen_fallback_key,
+            self.qwen_fallback_url,
+            self.translation_domain,
+        ):
+            field.textChanged.connect(self._mark_settings_dirty)
+
+        self.diagnostics_checkbox.toggled.connect(self._mark_settings_dirty)
+
+    def _mark_settings_dirty(self, *_):
+        if not self._settings_ready:
+            return
+        self._settings_dirty = True
+        self.pending_settings_label.show()
+        if self._session_state == "running":
+            message = "Settings changed · Stop and Launch again to apply"
+        else:
+            message = "Unsaved settings · Launch saves and applies automatically"
+        self.pending_settings_label.setText(message)
+
+    def _settings_saved(self):
+        """Update the pending-settings hint without replacing runtime status."""
+        if self._session_state == "running" and self._settings_dirty:
+            self._settings_dirty = True
+            self.pending_settings_label.setText(
+                "Settings saved · Stop and Launch again to apply"
+            )
+            self.pending_settings_label.show()
+            return
+        self._settings_dirty = False
+        self.pending_settings_label.clear()
+        self.pending_settings_label.hide()
 
     def use_system_audio(self):
         index = self.device_combo.findData("system")
@@ -1058,62 +1153,53 @@ class Dashboard(QWidget):
             self.device_status.setStyleSheet("color: #f38ba8;")
 
     def refresh_model_list(self):
-        """Fetch available models from the API and populate the model dropdown"""
-        try:
-            from openai import OpenAI
-            import httpx
-            
-            api_key = self.api_key.text() or "dummy-key-for-local"
-            base_url = self.base_url.text() or None
-            
-            # Update button state
-            self.refresh_models_btn.setEnabled(False)
-            self.refresh_models_btn.setText("...")
-            
-            # Create client with SSL verification disabled
-            http_client = httpx.Client(verify=False)
-            client = OpenAI(api_key=api_key, base_url=base_url, http_client=http_client)
-            
-            # Fetch models
-            models_response = client.models.list()
-            model_ids = [model.id for model in models_response.data]
-            
-            # Update combo box
-            current_model = self.model.currentText()
-            self.model.clear()
-            
-            if model_ids:
-                self.model.addItems(sorted(model_ids))
-                # Try to restore previous selection
-                index = self.model.findText(current_model)
-                if index >= 0:
-                    self.model.setCurrentIndex(index)
-                    
-                # Show success in status label if we're on the home tab
-                if hasattr(self, 'status_label'):
-                    self.status_label.setText(f"✅ Loaded {len(model_ids)} models")
-                    self.status_label.setStyleSheet("font-size: 18px; color: #a6e3a1;")
+        """Fetch model names without blocking the Qt interface."""
+        if self.model_refresh_worker and self.model_refresh_worker.isRunning():
+            return
+        self.refresh_models_btn.setEnabled(False)
+        self.refresh_models_btn.setText("…")
+        worker = ModelListWorker(
+            api_key=self.api_key.text() or "dummy-key-for-local",
+            base_url=self.base_url.text() or None,
+        )
+        self.model_refresh_worker = worker
+        worker.loaded.connect(self._on_model_list_loaded)
+        worker.failed.connect(self._on_model_list_failed)
+        worker.finished.connect(self._on_model_list_finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _on_model_list_loaded(self, model_ids):
+        current_model = self.model.currentText()
+        self.model.blockSignals(True)
+        self.model.clear()
+        if model_ids:
+            self.model.addItems(sorted(model_ids))
+            index = self.model.findText(current_model)
+            if index >= 0:
+                self.model.setCurrentIndex(index)
             else:
-                self.model.addItem(current_model)
-                if hasattr(self, 'status_label'):
-                    self.status_label.setText("⚠️ No models found")
-                    self.status_label.setStyleSheet("font-size: 18px; color: #fab387;")
-            
-        except Exception as e:
-            # Restore original model on error
-            if not self.model.currentText():
-                self.model.addItem(config.model)
-            
-            error_msg = str(e)
-            if hasattr(self, 'status_label'):
-                self.status_label.setText(f"❌ Failed to fetch models: {error_msg[:50]}")
-                self.status_label.setStyleSheet("font-size: 18px; color: #f38ba8;")
-            print(f"[Dashboard] Model refresh error: {error_msg}")
-        
-        finally:
-            # Restore button state
-            self.refresh_models_btn.setEnabled(True)
-            self.refresh_models_btn.setText("🔄")
+                self.model.setCurrentText(current_model)
+            self.status_label.setText(f"✅ Loaded {len(model_ids)} models")
+            self.status_label.setStyleSheet("font-size: 18px; color: #a6e3a1;")
+        else:
+            self.model.addItem(current_model)
+            self.status_label.setText("⚠️ No models found")
+            self.status_label.setStyleSheet("font-size: 18px; color: #fab387;")
+        self.model.blockSignals(False)
+
+    def _on_model_list_failed(self, error_msg):
+        if not self.model.currentText():
+            self.model.addItem(config.model)
+        compact = " ".join(str(error_msg).split())
+        self.status_label.setText(f"❌ Model refresh failed: {compact[:80]}")
+        self.status_label.setStyleSheet("font-size: 16px; color: #f38ba8;")
+        print(f"[Dashboard] Model refresh error: {compact}")
+
+    def _on_model_list_finished(self):
+        self.model_refresh_worker = None
+        self.refresh_models_btn.setEnabled(True)
+        self.refresh_models_btn.setText("🔄")
 
     def init_transcription_tab(self):
         tab = QWidget()
@@ -1690,6 +1776,18 @@ class Dashboard(QWidget):
         cp = configparser.ConfigParser()
         config_path = os.path.join(os.path.dirname(__file__), "config.ini")
         cp.read(config_path)
+
+        saved_secret_updates = {}
+
+        def persist_secret(section, option, account, value):
+            """Preserve an existing Keychain reference until its value changes."""
+            value = str(value or "")
+            previous = self._saved_secrets.get(account)
+            if previous is not None and value == previous:
+                return cp.get(section, option, fallback="")
+            stored = keychain.store_for_config(account, value)
+            saved_secret_updates[account] = value
+            return stored
         
         if not cp.has_section("audio"): cp.add_section("audio")
         if not cp.has_section("api"): cp.add_section("api")
@@ -1728,7 +1826,8 @@ class Dashboard(QWidget):
         if workflow == "single_model":
             cp.set(
                 "api", "api_key",
-                keychain.store_for_config(
+                persist_secret(
+                    "api", "api_key",
                     SECRET_FIELDS[("api", "api_key")], self.api_key.text()
                 ),
             )
@@ -1755,11 +1854,13 @@ class Dashboard(QWidget):
         if workflow == "single_model":
             self.provider_keys[self.provider.currentText()] = self.api_key.text()
             self.provider_urls[self.provider.currentText()] = self.base_url.text()
-        cp.set("providers", "deepseek_api_key", keychain.store_for_config(
+        cp.set("providers", "deepseek_api_key", persist_secret(
+            "providers", "deepseek_api_key",
             SECRET_FIELDS[("providers", "deepseek_api_key")],
             self.provider_keys.get("DeepSeek Official", ""),
         ))
-        cp.set("providers", "siliconflow_api_key", keychain.store_for_config(
+        cp.set("providers", "siliconflow_api_key", persist_secret(
+            "providers", "siliconflow_api_key",
             SECRET_FIELDS[("providers", "siliconflow_api_key")],
             self.provider_keys.get("SiliconFlow", ""),
         ))
@@ -1775,19 +1876,22 @@ class Dashboard(QWidget):
             and self.provider.currentText() == "Alibaba Cloud Qwen-MT"
             else self.qwen_fallback_url.text()
         )
-        cp.set("providers", "qwen_mt_api_key", keychain.store_for_config(
-            SECRET_FIELDS[("providers", "qwen_mt_api_key")],
-            qwen_key,
+        cp.set("providers", "qwen_mt_api_key", persist_secret(
+            "providers", "qwen_mt_api_key",
+            SECRET_FIELDS[("providers", "qwen_mt_api_key")], qwen_key,
         ))
         cp.set("providers", "qwen_mt_base_url", qwen_url)
-        cp.set("providers", "groq_api_key", keychain.store_for_config(
-            SECRET_FIELDS[("providers", "groq_api_key")], self.groq_api_key.text()
+        cp.set("providers", "groq_api_key", persist_secret(
+            "providers", "groq_api_key",
+            SECRET_FIELDS[("providers", "groq_api_key")], self.groq_api_key.text(),
         ))
-        cp.set("providers", "gemini_api_key", keychain.store_for_config(
-            SECRET_FIELDS[("providers", "gemini_api_key")], self.gemini_api_key.text()
+        cp.set("providers", "gemini_api_key", persist_secret(
+            "providers", "gemini_api_key",
+            SECRET_FIELDS[("providers", "gemini_api_key")], self.gemini_api_key.text(),
         ))
         cp.set("providers", "cloudflare_account_id", self.cloudflare_account_id.text())
-        cp.set("providers", "cloudflare_api_token", keychain.store_for_config(
+        cp.set("providers", "cloudflare_api_token", persist_secret(
+            "providers", "cloudflare_api_token",
             SECRET_FIELDS[("providers", "cloudflare_api_token")],
             self.cloudflare_api_token.text(),
         ))
@@ -1803,7 +1907,9 @@ class Dashboard(QWidget):
             cp.write(f)
         os.chmod(config_path, 0o600)
 
+        self._saved_secrets.update(saved_secret_updates)
         config.reload()
+        self._settings_saved()
         if show_status:
             suffix = " Applies on next launch." if getattr(self, "pipeline", None) else ""
             self.status_label.setText(f"Saved.{suffix}")
@@ -1819,6 +1925,35 @@ class Dashboard(QWidget):
 
     def on_stop(self):
         self.session_controller.stop()
+
+class ModelListWorker(QThread):
+    loaded = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, api_key, base_url):
+        super().__init__()
+        self.api_key = api_key
+        self.base_url = base_url
+
+    def run(self):
+        try:
+            import httpx
+            from openai import OpenAI
+
+            timeout = httpx.Timeout(5.0)
+            with httpx.Client(timeout=timeout, verify=True) as http_client:
+                client = OpenAI(
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    http_client=http_client,
+                    max_retries=0,
+                )
+                response = client.models.list()
+                model_ids = [model.id for model in response.data]
+            self.loaded.emit(model_ids)
+        except Exception as exc:
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+
 
 class SystemAudioTestWorker(QThread):
     result = pyqtSignal(bool, str, float)
