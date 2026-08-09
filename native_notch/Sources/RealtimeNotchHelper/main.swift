@@ -24,9 +24,13 @@ private final class SubtitleState: ObservableObject {
 
     @Published var items = [
         SubtitleLine(id: 0, original: "Waiting for speech…", translated: "", finalized: false)
-    ]
+    ] {
+        didSet { refreshContentWidth() }
+    }
     @Published var displayCount: Int
+    @Published private(set) var contentWidth: CGFloat = 360
     var compactTask: Task<Void, Never>?
+    private var widthShrinkTask: Task<Void, Never>?
     var onExpand: (() -> Void)?
     var onCycleSize: (() -> Void)?
     var onGlass: (() -> Void)?
@@ -40,9 +44,10 @@ private final class SubtitleState: ObservableObject {
     func cycleSize() {
         displayCount = displayCount == 3 ? 1 : displayCount + 1
         Self.sizeDefaults?.set(displayCount, forKey: "displayCount")
+        refreshContentWidth(allowImmediateShrink: true)
     }
 
-    var contentWidth: CGFloat {
+    private func measuredContentWidth() -> CGFloat {
         let visibleItems = items.suffix(displayCount)
         let englishFont = NSFont.systemFont(ofSize: 11.5, weight: .regular)
         let translatedFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
@@ -61,6 +66,27 @@ private final class SubtitleState: ObservableObject {
         let desired = max(minimumWidth, measured + 8)
         let stepped = ceil(desired / widthStep) * widthStep
         return min(maximumWidth, stepped)
+    }
+
+    private func refreshContentWidth(allowImmediateShrink: Bool = false) {
+        let targetWidth = measuredContentWidth()
+        widthShrinkTask?.cancel()
+
+        if targetWidth >= contentWidth || allowImmediateShrink {
+            contentWidth = targetWidth
+            return
+        }
+
+        // Growing text must never be clipped. Shrinking is intentionally
+        // delayed so partial-ASR corrections do not make the notch breathe.
+        widthShrinkTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1.2))
+            guard let self, !Task.isCancelled else { return }
+            let latestTarget = self.measuredContentWidth()
+            if latestTarget < self.contentWidth {
+                self.contentWidth = latestTarget
+            }
+        }
     }
 
 }
