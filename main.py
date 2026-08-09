@@ -43,6 +43,8 @@ class Pipeline(QObject):
         self._last_finalized_segment = ""
         self._refine_queue_lock = threading.RLock()
         self._refine_futures = {}
+        self._bridge_queue_lock = threading.RLock()
+        self._bridge_futures = {}
         self._groq_bridge_gate = GroqBridgeGate(
             max_per_minute=15,
             duplicate_window=30.0,
@@ -420,7 +422,8 @@ class Pipeline(QObject):
             "segmenter": IncrementalSegmenter(),
         }
 
-        def publish_final(text, chunk_id, segment_started_at, first_partial_at):
+        def publish_final(text, chunk_id, segment_started_at, first_partial_at,
+                          cut_reason="native_final"):
             now = time.monotonic()
             with self._translation_state_lock:
                 self._finalized_chunks.add(chunk_id)
@@ -432,7 +435,7 @@ class Pipeline(QObject):
                 since_first_partial_ms=(
                     (now - first_partial_at) * 1000 if first_partial_at else None
                 ),
-                words=len(text.split()), detail=text,
+                words=len(text.split()), cut_reason=cut_reason, detail=text,
             )
             self.signals.runtime_status.emit(
                 "ASR", "ok", f"Apple · {elapsed_ms / 1000:.1f}s"
@@ -484,10 +487,12 @@ class Pipeline(QObject):
                 segments, remainder = state["segmenter"].observe(
                     text, stable_text=stable_text, is_final=is_final, now=now
                 )
-                for segment in segments:
+                cut_reasons = list(state["segmenter"].last_cut_reasons)
+                for index, segment in enumerate(segments):
                     finalized_segments.append((
                         state["chunk_id"], segment,
                         segment_started_at, first_partial_at,
+                        cut_reasons[index] if index < len(cut_reasons) else "unknown",
                     ))
                     state["chunk_id"] += 1
                     segment_started_at = now
@@ -504,8 +509,8 @@ class Pipeline(QObject):
                     state["audio_started_at"] = now
                     state["first_partial_at"] = now
 
-            for final_id, segment, started_at, partial_at in finalized_segments:
-                publish_final(segment, final_id, started_at, partial_at)
+            for final_id, segment, started_at, partial_at, cut_reason in finalized_segments:
+                publish_final(segment, final_id, started_at, partial_at, cut_reason)
 
             if is_final:
                 return
@@ -697,6 +702,35 @@ class Pipeline(QObject):
         with self._refine_queue_lock:
             self._refine_futures.pop(future, None)
 
+    def _forget_bridge(self, future):
+        with self._bridge_queue_lock:
+            self._bridge_futures.pop(future, None)
+
+    def _submit_latest_bridge(self, executor, text, chunk_id, draft):
+        """Run one Groq bridge request and retain only the latest pending one."""
+        deadline = time.monotonic() + 1.0
+        with self._bridge_queue_lock:
+            finished = [future for future in self._bridge_futures if future.done()]
+            for future in finished:
+                self._bridge_futures.pop(future, None)
+            for future, metadata in list(self._bridge_futures.items()):
+                if not future.running() and future.cancel():
+                    self._bridge_futures.pop(future, None)
+                    log_stage(
+                        "groq_bridge",
+                        chunk_id=metadata["chunk_id"],
+                        status="dropped",
+                        detail="replaced by newer finalized segment",
+                    )
+            future = executor.submit(
+                self._run_groq_bridge, text, chunk_id, draft, deadline
+            )
+            self._bridge_futures[future] = {
+                "chunk_id": chunk_id,
+                "deadline": deadline,
+            }
+        future.add_done_callback(self._forget_bridge)
+
     def _submit_latest_ai(self, executor, worker, text, chunk_id, context_text):
         """Keep two active AI jobs and at most one latest pending job."""
         deadline = time.monotonic() + config.ai_deadline_seconds
@@ -788,12 +822,15 @@ class Pipeline(QObject):
         # executor. A dedicated executor also prevents Groq from delaying the
         # next utterance's provisional translation.
         try:
-            bridge_executor.submit(self._run_groq_bridge, text, chunk_id, draft)
+            self._submit_latest_bridge(bridge_executor, text, chunk_id, draft)
         except RuntimeError as exc:
             log_stage("groq_bridge", chunk_id=chunk_id, status="skipped", detail=str(exc))
 
-    def _run_groq_bridge(self, text, chunk_id, draft):
+    def _run_groq_bridge(self, text, chunk_id, draft, deadline):
         """Best-effort bridge isolated from Apple drafts and final refinement."""
+        if not self.running or time.monotonic() >= deadline:
+            log_stage("groq_bridge", chunk_id=chunk_id, status="expired")
+            return
         # Groq cannot overwrite a final-model result that arrived first.
         groq_available = (
             isinstance(self.translator, HybridTranslator) and config.groq_api_key
@@ -814,10 +851,7 @@ class Pipeline(QObject):
         else:
             try:
                 started = time.perf_counter()
-                bridge_deadline = min(
-                    time.monotonic() + 1.0,
-                    time.monotonic() + config.ai_deadline_seconds,
-                )
+                bridge_deadline = min(deadline, time.monotonic() + config.ai_deadline_seconds)
                 translated = self.translator.translate_only(
                     {"Groq GPT-OSS 20B"},
                     text,

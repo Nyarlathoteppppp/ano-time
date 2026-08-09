@@ -1,5 +1,6 @@
 import json
 import os
+import queue
 import re
 import subprocess
 import threading
@@ -26,6 +27,9 @@ class NativeNotchOverlay(QObject):
         self.transcript_data = {}
         self._last_native_items = None
         self._write_lock = threading.Lock()
+        self._write_queue = queue.Queue(maxsize=1)
+        self._writer_stop = threading.Event()
+        self._writer_thread = None
         self._event_received.connect(self._handle_event)
 
         root = os.path.dirname(os.path.abspath(__file__))
@@ -60,7 +64,35 @@ class NativeNotchOverlay(QObject):
         )
         threading.Thread(target=self._read_stdout, daemon=True).start()
         threading.Thread(target=self._read_stderr, daemon=True).start()
+        self._start_writer()
         print("[Native Notch] DynamicNotchKit helper started")
+
+    def _start_writer(self):
+        if self._writer_thread and self._writer_thread.is_alive():
+            return
+        self._writer_stop.clear()
+        self._writer_thread = threading.Thread(
+            target=self._writer_loop,
+            name="notch-latest-writer",
+            daemon=True,
+        )
+        self._writer_thread.start()
+
+    def _writer_loop(self):
+        while not self._writer_stop.is_set():
+            try:
+                line = self._write_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            process = self.process
+            if not process or process.poll() is not None or not process.stdin:
+                continue
+            try:
+                with self._write_lock:
+                    process.stdin.write(line)
+                    process.stdin.flush()
+            except (BrokenPipeError, OSError):
+                pass
 
     def _read_stdout(self):
         process = self.process
@@ -242,13 +274,20 @@ class NativeNotchOverlay(QObject):
         process = self.process
         if not process or process.poll() is not None or not process.stdin:
             return
-        line = json.dumps(payload, ensure_ascii=False) + "\n"
+        line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+        # The UI thread never writes to the subprocess. Keep only the newest
+        # complete frame so a slow SwiftUI helper cannot create visual backlog.
         try:
-            with self._write_lock:
-                process.stdin.write(line.encode("utf-8"))
-                process.stdin.flush()
-        except (BrokenPipeError, OSError):
-            pass
+            self._write_queue.put_nowait(line)
+        except queue.Full:
+            try:
+                self._write_queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self._write_queue.put_nowait(line)
+            except queue.Full:
+                pass
 
     def close(self):
         if self.delegate:
@@ -262,4 +301,7 @@ class NativeNotchOverlay(QObject):
             process.wait(timeout=2)
         except subprocess.TimeoutExpired:
             process.terminate()
+        self._writer_stop.set()
+        if self._writer_thread and self._writer_thread.is_alive():
+            self._writer_thread.join(timeout=0.2)
         self.process = None
