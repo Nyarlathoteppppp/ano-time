@@ -37,6 +37,8 @@ class DashboardWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(self.dashboard.bridge_provider.currentData(), "groq")
         self.assertIn("Gemini/GLM", self.dashboard.workflow_preview.text())
+        self.assertGreaterEqual(self.dashboard.workflow_preview.minimumHeight(), 48)
+        self.assertTrue(self.dashboard.workflow_preview.wordWrap())
         self.assertTrue(self.dashboard.provider.isHidden())
         self.assertFalse(self.dashboard.gemini_api_key.isHidden())
         self.assertEqual(

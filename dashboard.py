@@ -1244,6 +1244,11 @@ class Dashboard(QWidget):
     def init_translation_tab(self):
         tab = QWidget()
         layout = QFormLayout()
+        layout.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+        layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        layout.setVerticalSpacing(12)
         self.translation_layout = layout
 
         self.translation_workflow = ReadableComboBox()
@@ -1258,12 +1263,35 @@ class Dashboard(QWidget):
         self.translation_workflow.setCurrentIndex(max(0, workflow_index))
         layout.addRow("Workflow（翻译流程）:", self.translation_workflow)
 
+        workflow_card = QFrame()
+        workflow_card.setObjectName("WorkflowPreviewCard")
+        workflow_card.setStyleSheet(
+            "QFrame#WorkflowPreviewCard {"
+            "background: rgba(255,255,255,14);"
+            "border: 1px solid rgba(255,255,255,30);"
+            "border-radius: 9px;"
+            "}"
+        )
+        workflow_card_layout = QVBoxLayout(workflow_card)
+        workflow_card_layout.setContentsMargins(12, 10, 12, 10)
+        workflow_card_layout.setSpacing(5)
+        workflow_title = QLabel("Active Chain（当前链路）")
+        workflow_title.setStyleSheet("font-weight: 600; color: #cdd6f4;")
         self.workflow_preview = QLabel()
         self.workflow_preview.setWordWrap(True)
-        self.workflow_preview.setStyleSheet(
-            "color: #a6e3a1; font-weight: 600; padding: 8px;"
+        self.workflow_preview.setMinimumHeight(48)
+        self.workflow_preview.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
-        layout.addRow("Active Chain（当前链路）:", self.workflow_preview)
+        self.workflow_preview.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding
+        )
+        self.workflow_preview.setStyleSheet(
+            "color: #a6e3a1; font-weight: 600;"
+        )
+        workflow_card_layout.addWidget(workflow_title)
+        workflow_card_layout.addWidget(self.workflow_preview)
+        layout.addRow(workflow_card)
 
         self.bridge_provider = ReadableComboBox()
         self.bridge_provider.addItem("Off（关闭）", "off")
@@ -1540,7 +1568,7 @@ class Dashboard(QWidget):
             preview += "\n✓ Configuration ready"
             color = "#a6e3a1"
         self.workflow_preview.setStyleSheet(
-            f"color: {color}; font-weight: 600; padding: 8px;"
+            f"color: {color}; font-weight: 600;"
         )
         self.workflow_preview.setText(preview)
         self.api_test_controller.refresh_targets()

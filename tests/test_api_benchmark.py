@@ -1,6 +1,8 @@
 import unittest
+from types import SimpleNamespace
 
 from api_benchmark import BENCHMARK_SENTENCES, run_translation_benchmark
+from api_test_controller import ApiTestController
 
 
 class _FakeTranslator:
@@ -40,6 +42,21 @@ class ApiBenchmarkTests(unittest.TestCase):
         self.assertEqual(len(translator.calls), 5)
         self.assertEqual(len(summary.successes), 4)
         self.assertIn("TimeoutError", summary.samples[1].error)
+
+    def test_summary_labels_total_latency_as_per_request_average(self):
+        class Results:
+            text = ""
+
+            def append(self, value):
+                self.text += value
+
+        results = Results()
+        controller = ApiTestController(
+            SimpleNamespace(api_test_results=results)
+        )
+        controller._completed(5, 420.0, 810.0)
+
+        self.assertIn("平均单次总耗时 810 ms", results.text)
 
 
 if __name__ == "__main__":

@@ -173,7 +173,7 @@ class ApiTestController:
         self.view.api_test_results.append(
             "\n—— 汇总 ——\n"
             f"成功 {successes}/5 · 平均首字 {average_first_ms:.0f} ms · "
-            f"平均总耗时 {average_total_ms:.0f} ms"
+            f"平均单次总耗时 {average_total_ms:.0f} ms"
         )
 
     def _finished(self):
