@@ -869,19 +869,12 @@ class Pipeline(QObject):
         segment_started_at=None,
         first_partial_at=None,
     ):
-        """Stream a partial translation while ignoring superseded hypotheses."""
+        """Translate every distinct partial and reject only stale UI writes."""
         try:
             if not self.running:
                 return
-            # Partial jobs can queue behind one another. Drop obsolete work before
-            # translation so finalized speech is never delayed by stale drafts.
             fast_path = self.__dict__.get("_fast_path")
-            if fast_path:
-                if not self._segment_state_store().is_current_partial(
-                    chunk_id, version
-                ):
-                    return
-            else:
+            if not fast_path:
                 with self._translation_state_lock:
                     if (self._partial_versions.get(chunk_id) != version or
                             chunk_id in self._finalized_chunks):

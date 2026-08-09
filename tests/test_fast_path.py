@@ -33,9 +33,9 @@ class FastPathTests(unittest.TestCase):
 
         self.assertEqual(completed, [1, 2, 3])
 
-    def test_partial_backlog_is_bounded_by_dropping_oldest_pending(self):
+    def test_partial_backlog_is_lossless(self):
         store = SegmentStore()
-        path = FastPath(store, max_queued_partials=2)
+        path = FastPath(store)
         started = threading.Event()
         release = threading.Event()
         completed = []
@@ -59,7 +59,7 @@ class FastPathTests(unittest.TestCase):
         finally:
             release.set()
 
-        self.assertEqual(completed, [1, 3, 4])
+        self.assertEqual(completed, [1, 2, 3, 4])
 
     def test_final_rejects_running_partial_result(self):
         store = SegmentStore()
