@@ -313,10 +313,6 @@ private struct RealtimeNotchHelper {
             await notch.expand()
         }
 
-        func compactActiveNotch() async {
-            await notch.compact()
-        }
-
         func hideNotch() async {
             await notch.hide()
         }
@@ -371,11 +367,6 @@ private struct RealtimeNotchHelper {
                     }
                     await expandActiveNotch()
                     state.compactTask?.cancel()
-                    state.compactTask = Task { @MainActor in
-                        try? await Task.sleep(for: .seconds(6))
-                        guard !Task.isCancelled else { return }
-                        await compactActiveNotch()
-                    }
                 }
             }
             DispatchQueue.main.async {
@@ -392,9 +383,6 @@ private struct RealtimeNotchHelper {
             try? await Task.sleep(for: .seconds(0.06))
             guard !Task.isCancelled else { return }
             await expandActiveNotch()
-            try? await Task.sleep(for: .seconds(2.4))
-            guard !Task.isCancelled else { return }
-            await compactActiveNotch()
         }
         app.run()
     }
