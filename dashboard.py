@@ -801,7 +801,7 @@ class Dashboard(QWidget):
         layout.addStretch()
         
         tab.setLayout(layout)
-        self.tabs.addTab(tab, "🔧 Legacy BlackHole")
+        self.tabs.addTab(tab, "🔧 Legacy Audio")
         
         # Initial population
         self.refresh_audio_devices()
@@ -1141,16 +1141,35 @@ class Dashboard(QWidget):
         # Source Language Configuration
         self.source_language = ReadableComboBox()
         self.source_language.setEditable(True)
-        self.source_language.addItems(["auto", "en", "zh", "vi", "ja", "ko", "es", "fr", "de", "ru", "ar", "pt", "it"])
+        for label, code in (
+            ("Auto Detect（自动检测） · auto", "auto"),
+            ("English（英语） · en", "en"),
+            ("Chinese（中文） · zh", "zh"),
+            ("Vietnamese（越南语） · vi", "vi"),
+            ("Japanese（日语） · ja", "ja"),
+            ("Korean（韩语） · ko", "ko"),
+            ("Spanish（西班牙语） · es", "es"),
+            ("French（法语） · fr", "fr"),
+            ("German（德语） · de", "de"),
+            ("Russian（俄语） · ru", "ru"),
+            ("Arabic（阿拉伯语） · ar", "ar"),
+            ("Portuguese（葡萄牙语） · pt", "pt"),
+            ("Italian（意大利语） · it", "it"),
+        ):
+            self.source_language.addItem(label, code)
         source_lang = config.source_language if config.source_language else "auto"
-        self.source_language.setCurrentText(source_lang)
+        source_index = self.source_language.findData(source_lang)
+        if source_index >= 0:
+            self.source_language.setCurrentIndex(source_index)
+        else:
+            self.source_language.setCurrentText(source_lang)
         layout.addRow("Source Language（原文语言）:", self.source_language)
         
         # Update UI based on initial backend
         self._on_backend_changed(config.asr_backend)
         
         tab.setLayout(layout)
-        self.tabs.addTab(tab, "📝 Transcription")
+        self.tabs.addTab(tab, "📝 ASR · 语音识别")
     
     def _on_backend_changed(self, backend):
         """Show only settings consumed by the selected ASR backend."""
@@ -1306,9 +1325,22 @@ class Dashboard(QWidget):
         layout.addRow("Model（翻译模型）:", model_layout)
         
         self.target_lang = ReadableComboBox()
-        self.target_lang.addItems(["Chinese", "English", "Japanese", "French", "Spanish", "German", "Korean"])
+        for label, value in (
+            ("Simplified Chinese（简体中文）", "Chinese"),
+            ("English（英语）", "English"),
+            ("Japanese（日语）", "Japanese"),
+            ("French（法语）", "French"),
+            ("Spanish（西班牙语）", "Spanish"),
+            ("German（德语）", "German"),
+            ("Korean（韩语）", "Korean"),
+        ):
+            self.target_lang.addItem(label, value)
         self.target_lang.setEditable(True)
-        self.target_lang.setCurrentText(config.target_lang)
+        target_index = self.target_lang.findData(config.target_lang)
+        if target_index >= 0:
+            self.target_lang.setCurrentIndex(target_index)
+        else:
+            self.target_lang.setCurrentText(config.target_lang)
         layout.addRow("Target Language（目标语言）:", self.target_lang)
 
         self.translation_domain = QLineEdit(config.translation_domain)
@@ -1331,7 +1363,7 @@ class Dashboard(QWidget):
         self._on_translation_provider_changed(self.provider.currentText())
         
         tab.setLayout(layout)
-        self.tabs.addTab(tab, "🈵 Translation")
+        self.tabs.addTab(tab, "🌐 AI · 翻译")
 
     def _on_translation_provider_changed(self, provider):
         if hasattr(self, "api_key"):
@@ -1452,7 +1484,10 @@ class Dashboard(QWidget):
         cp.set("transcription", "funasr_model", self.funasr_model.currentText())
         cp.set("transcription", "device", self.device_type.currentText())
         cp.set("transcription", "compute_type", self.compute_type.currentText())
-        cp.set("transcription", "source_language", self.source_language.currentText())
+        cp.set(
+            "transcription", "source_language",
+            str(self.source_language.currentData() or self.source_language.currentText()),
+        )
         
         # Translation
         if self.provider.currentText() != "Fast Free Pool → Qwen-MT":
@@ -1464,7 +1499,10 @@ class Dashboard(QWidget):
             )
             cp.set("api", "base_url", self.base_url.text())
             cp.set("translation", "model", self.model.currentText())
-        cp.set("translation", "target_lang", self.target_lang.currentText())
+        cp.set(
+            "translation", "target_lang",
+            str(self.target_lang.currentData() or self.target_lang.currentText()),
+        )
         cp.set("translation", "domain", self.translation_domain.text())
         cp.set("translation", "fast_backend", self.fast_translation_backend.currentText())
         cp.set("translation", "provider", self.provider.currentText())
