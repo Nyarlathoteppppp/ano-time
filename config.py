@@ -118,6 +118,10 @@ class Config:
         # queues, disk writers, or process resource samplers.
         self.diagnostics_enabled = self._getbool("diagnostics", "enabled", False)
 
+        # Compatibility switch for the isolated ASR/Apple fast lane. Disable
+        # only to compare against the pre-SegmentStore executor behavior.
+        self.split_fast_path = self._getbool("pipeline", "split_fast_path", True)
+
     def reload(self):
         """Reload config.ini in place so existing module references stay valid."""
         self.__init__(self.config_path)

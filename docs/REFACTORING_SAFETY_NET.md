@@ -53,6 +53,17 @@ comparison. Compare p50 and p95 before and after each refactor. A structural
 change must not increase the latency-critical Apple path or allow remote work
 to delay subsequent speech.
 
+## Split fast path rollback
+
+`SegmentStore` is the single authority for subtitle revisions, finalized state,
+and Apple/Groq/AI stage ordering. `FastPath` owns only the local ASR/Apple
+latest-wins queue; remote network work remains on the existing bridge/refine
+executors.
+
+The split path is enabled by default. For a direct pre-refactor comparison, set
+`[pipeline] split_fast_path = false` and fully restart the app. Do not change
+this switch during an active Pipeline session.
+
 ## Runtime log lifecycle
 
 Diagnostics are opt-in and disabled by default. Normal classroom use does not

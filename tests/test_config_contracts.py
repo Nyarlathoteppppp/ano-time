@@ -33,6 +33,7 @@ class ConfigContractTests(unittest.TestCase):
             )
             self.assertIsNone(loaded.source_language)
             self.assertFalse(loaded.diagnostics_enabled)
+            self.assertTrue(loaded.split_fast_path)
 
     def test_diagnostics_require_explicit_opt_in(self):
         with tempfile.TemporaryDirectory() as directory:

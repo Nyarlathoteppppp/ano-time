@@ -23,8 +23,10 @@ from groq_bridge import GroqBridgeGate
 from live_segmenter import IncrementalSegmenter
 from glossary import ASRCorrections
 from finalized_text import clean_finalized_text, is_meaningful_final, should_request_remote
-from subtitle_event import SubtitleEvent, SubtitleStage
+from subtitle_event import SubtitleStage
 from runtime_performance import RuntimePerformanceSampler
+from segment_store import SegmentStore
+from fast_path import FastPath
 
 class WorkerSignals(QObject):
     subtitle_event = pyqtSignal(object)
@@ -56,9 +58,9 @@ class Pipeline(QObject):
         self._partial_versions = {}
         self._last_partial_text = {}
         self._finalized_chunks = set()
-        self._translation_ranks = {}
-        self._subtitle_revision_lock = threading.Lock()
-        self._subtitle_revisions = {}
+        self._subtitle_event_count_lock = threading.Lock()
+        self._segment_store = SegmentStore()
+        self._fast_path = None
         self._subtitle_events_since_sample = 0
         self._performance_sampler = (
             RuntimePerformanceSampler(self._take_subtitle_event_count)
@@ -245,21 +247,64 @@ class Pipeline(QObject):
         """Prevent a late draft from replacing a newer translation stage."""
         if self._paused.is_set():
             return False
-        with self._translation_state_lock:
-            current_rank = self._translation_ranks.get(chunk_id, 0)
-            if rank < current_rank:
-                return False
-            self._translation_ranks[chunk_id] = rank
         if stage is None:
             stage = {
                 1: SubtitleStage.APPLE_FINAL,
                 2: SubtitleStage.GROQ_BRIDGE,
                 3: SubtitleStage.AI_FINAL,
             }.get(rank, SubtitleStage.AI_STREAM)
-        self._emit_subtitle(chunk_id, text, translated, state, stage)
+        event = self._emit_subtitle(
+            chunk_id,
+            text,
+            translated,
+            state,
+            stage,
+            translation_rank=rank,
+        )
+        if event is None:
+            return False
         return True
 
-    def _emit_subtitle(self, chunk_id, text, translated="", state="partial", stage=None):
+    def _segment_state_store(self):
+        store = self.__dict__.get("_segment_store")
+        if store is None:
+            store = self._segment_store = SegmentStore()
+        return store
+
+    def _publish_subtitle_event(self, event):
+        if event is None:
+            return None
+        lock = self.__dict__.get("_subtitle_event_count_lock")
+        if lock is None:
+            lock = self._subtitle_event_count_lock = threading.Lock()
+        with lock:
+            if self.__dict__.get("_performance_sampler") is not None:
+                self._subtitle_events_since_sample = (
+                    self.__dict__.get("_subtitle_events_since_sample", 0) + 1
+                )
+        adapter = getattr(self.signals, "emit_subtitle", None)
+        if adapter is not None:
+            adapter(event)
+        else:
+            # Compatibility for lightweight test doubles and third-party users.
+            self.signals.update_text.emit(
+                event.segment_id,
+                event.original_text,
+                event.translated_text,
+                event.legacy_state,
+            )
+        return event
+
+    def _emit_subtitle(
+        self,
+        chunk_id,
+        text,
+        translated="",
+        state="partial",
+        stage=None,
+        expected_hypothesis=None,
+        translation_rank=None,
+    ):
         """Publish one typed event; retain the legacy signal through the adapter."""
         if stage is None:
             if state == "partial":
@@ -269,35 +314,19 @@ class Pipeline(QObject):
                 )
             else:
                 stage = SubtitleStage.AI_STREAM if translated else SubtitleStage.ASR_FINAL
-        lock = self.__dict__.get("_subtitle_revision_lock")
-        if lock is None:
-            lock = self._subtitle_revision_lock = threading.Lock()
-            self._subtitle_revisions = {}
-        with lock:
-            revision = self._subtitle_revisions.get(chunk_id, 0) + 1
-            self._subtitle_revisions[chunk_id] = revision
-            if self.__dict__.get("_performance_sampler") is not None:
-                self._subtitle_events_since_sample = (
-                    self.__dict__.get("_subtitle_events_since_sample", 0) + 1
-                )
-        event = SubtitleEvent.create(
+        event = self._segment_state_store().publish(
             chunk_id,
-            revision,
             stage,
             text,
             translated,
             finalized=state == "final",
+            expected_hypothesis=expected_hypothesis,
+            translation_rank=translation_rank,
         )
-        adapter = getattr(self.signals, "emit_subtitle", None)
-        if adapter is not None:
-            adapter(event)
-        else:
-            # Compatibility for lightweight test doubles and third-party users.
-            self.signals.update_text.emit(chunk_id, text, translated, state)
-        return event
+        return self._publish_subtitle_event(event)
 
     def _take_subtitle_event_count(self):
-        with self._subtitle_revision_lock:
+        with self._subtitle_event_count_lock:
             count = self._subtitle_events_since_sample
             self._subtitle_events_since_sample = 0
         return count
@@ -320,6 +349,9 @@ class Pipeline(QObject):
             self.thread.join(timeout=2)
         if self.fast_translator:
             self.fast_translator.stop()
+        fast_path = self.__dict__.get("_fast_path")
+        if fast_path:
+            fast_path.shutdown(wait=False)
         sampler = self.__dict__.get("_performance_sampler")
         if sampler:
             sampler.stop()
@@ -329,6 +361,9 @@ class Pipeline(QObject):
         """Pause audio ingestion without tearing down capture permissions."""
         if paused:
             self._paused.set()
+            fast_path = self.__dict__.get("_fast_path")
+            if fast_path:
+                fast_path.invalidate_all()
             print("[Pipeline] Paused.")
         else:
             self._paused.clear()
@@ -501,7 +536,13 @@ class Pipeline(QObject):
         # Apple drafts are the latency-critical path. Never run network work on
         # this executor: a slow bridge request would otherwise delay every new
         # provisional subtitle behind it.
-        fast_executor = ThreadPoolExecutor(max_workers=1)
+        fast_path = (
+            FastPath(self._segment_state_store())
+            if config.split_fast_path
+            else None
+        )
+        self._fast_path = fast_path
+        fast_executor = None if fast_path else ThreadPoolExecutor(max_workers=1)
         bridge_executor = ThreadPoolExecutor(max_workers=1)
         refine_executor = ThreadPoolExecutor(max_workers=2)
         state_lock = threading.Lock()
@@ -553,11 +594,18 @@ class Pipeline(QObject):
             self._emit_subtitle(
                 chunk_id, text, "", "final", SubtitleStage.ASR_FINAL
             )
-            fast_executor.submit(
-                self._run_fast_final_translation,
+            final_args = (
                 text, chunk_id, bridge_executor, refine_executor, context_text,
                 segment_started_at, first_partial_at,
             )
+            if fast_path:
+                fast_path.submit_final(
+                    chunk_id, self._run_fast_final_translation, *final_args
+                )
+            else:
+                fast_executor.submit(
+                    self._run_fast_final_translation, *final_args
+                )
 
         def on_result(text, is_final):
             if not self.running or self._paused.is_set():
@@ -634,30 +682,44 @@ class Pipeline(QObject):
                 return
             if not is_meaningful_final(remainder):
                 return
-            self._emit_subtitle(
+            event = self._emit_subtitle(
                 current_chunk_id,
                 remainder,
                 "",
                 "partial",
                 SubtitleStage.ASR_PARTIAL,
             )
+            if event is None:
+                return
             with self._translation_state_lock:
                 previous = self._last_partial_text.get(current_chunk_id)
                 if previous == remainder or len(remainder) < 6:
                     return
                 self._last_partial_text[current_chunk_id] = remainder
-                version = self._partial_versions.get(current_chunk_id, 0) + 1
+                if fast_path:
+                    version = self._segment_state_store().hypothesis_revision(
+                        current_chunk_id
+                    )
+                else:
+                    version = self._partial_versions.get(current_chunk_id, 0) + 1
                 self._partial_versions[current_chunk_id] = version
             # Speed-first path: every distinct Apple partial is translated. Stable
             # Prefix is measured in parallel and never gates the local draft.
-            fast_executor.submit(
-                self._run_partial_translation,
-                remainder,
-                current_chunk_id,
-                version,
-                segment_started_at,
-                first_partial_at,
+            partial_args = (
+                remainder, current_chunk_id, version,
+                segment_started_at, first_partial_at,
             )
+            if fast_path:
+                fast_path.submit_partial(
+                    current_chunk_id,
+                    version,
+                    self._run_partial_translation,
+                    *partial_args,
+                )
+            else:
+                fast_executor.submit(
+                    self._run_partial_translation, *partial_args
+                )
 
         self.apple_transcriber = AppleSpeechTranscriber(
             language=config.source_language or "en",
@@ -701,7 +763,12 @@ class Pipeline(QObject):
         finally:
             if self.apple_transcriber:
                 self.apple_transcriber.stop()
-            fast_executor.shutdown(wait=False, cancel_futures=True)
+            if fast_path:
+                fast_path.shutdown(wait=False)
+            elif fast_executor:
+                fast_executor.shutdown(wait=False, cancel_futures=True)
+            if self.__dict__.get("_fast_path") is fast_path:
+                self._fast_path = None
             bridge_executor.shutdown(wait=False, cancel_futures=True)
             refine_executor.shutdown(wait=False, cancel_futures=True)
 
@@ -800,15 +867,28 @@ class Pipeline(QObject):
                 return
             # Partial jobs can queue behind one another. Drop obsolete work before
             # translation so finalized speech is never delayed by stale drafts.
-            with self._translation_state_lock:
-                if (self._partial_versions.get(chunk_id) != version or
-                        chunk_id in self._finalized_chunks):
+            fast_path = self.__dict__.get("_fast_path")
+            if fast_path:
+                if not self._segment_state_store().is_current_partial(
+                    chunk_id, version
+                ):
                     return
-            def emit_if_current(partial):
+            else:
                 with self._translation_state_lock:
-                    current = self._partial_versions.get(chunk_id) == version
-                    current = current and chunk_id not in self._finalized_chunks
+                    if (self._partial_versions.get(chunk_id) != version or
+                            chunk_id in self._finalized_chunks):
+                        return
+            def emit_if_current(partial):
+                if fast_path:
+                    current = self._segment_state_store().is_current_partial(
+                        chunk_id, version
+                    )
                     current = current and not self._paused.is_set()
+                else:
+                    with self._translation_state_lock:
+                        current = self._partial_versions.get(chunk_id) == version
+                        current = current and chunk_id not in self._finalized_chunks
+                        current = current and not self._paused.is_set()
                 if current:
                     self._emit_subtitle(
                         chunk_id,
@@ -816,6 +896,7 @@ class Pipeline(QObject):
                         partial,
                         "partial",
                         SubtitleStage.APPLE_PARTIAL,
+                        expected_hypothesis=(version if fast_path else None),
                     )
 
             draft = None
@@ -938,7 +1019,8 @@ class Pipeline(QObject):
         first_partial_at=None,
     ):
         """Publish the local draft immediately, then schedule best-effort refinement."""
-        if not self.running:
+        paused = self.__dict__.get("_paused")
+        if not self.running or (paused is not None and paused.is_set()):
             return
         draft = None
         if self.fast_translator:
@@ -968,6 +1050,9 @@ class Pipeline(QObject):
             except Exception as exc:
                 print(f"[Apple Final Translation {chunk_id}] Failed: {exc}")
                 log_stage("apple_final", chunk_id=chunk_id, status="error", detail=str(exc))
+
+        if paused is not None and paused.is_set():
+            return
 
         try:
             if not should_request_remote(text):

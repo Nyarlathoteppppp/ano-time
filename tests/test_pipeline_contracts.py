@@ -158,6 +158,36 @@ class PipelineContractTests(unittest.TestCase):
             ],
         )
 
+    def test_pipeline_adapter_rejects_stale_apple_partial(self):
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.signals = WorkerSignals()
+        typed = []
+        pipeline.signals.subtitle_event.connect(typed.append)
+
+        pipeline._emit_subtitle(
+            20, "A heuristic", "", "partial", SubtitleStage.ASR_PARTIAL
+        )
+        old_hypothesis = pipeline._segment_state_store().hypothesis_revision(20)
+        pipeline._emit_subtitle(
+            20,
+            "A heuristic is admissible",
+            "",
+            "partial",
+            SubtitleStage.ASR_PARTIAL,
+        )
+        stale = pipeline._emit_subtitle(
+            20,
+            "A heuristic",
+            "一种启发式方法",
+            "partial",
+            SubtitleStage.APPLE_PARTIAL,
+            expected_hypothesis=old_hypothesis,
+        )
+
+        self.assertIsNone(stale)
+        self.assertEqual(len(typed), 2)
+        self.assertEqual(typed[-1].original_text, "A heuristic is admissible")
+
 
 if __name__ == "__main__":
     unittest.main()

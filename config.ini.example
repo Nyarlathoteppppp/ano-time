@@ -39,6 +39,10 @@ double_tap_interval = 0.32
 # Enable temporarily only while troubleshooting; restart after changing it.
 enabled = false
 
+[pipeline]
+# Isolate ASR/Apple UI updates from finalized remote translation work.
+split_fast_path = true
+
 [transcription]
 backend = whisper
 whisper_model = base
