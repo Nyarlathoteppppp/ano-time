@@ -57,8 +57,9 @@ to delay subsequent speech.
 
 `SegmentStore` is the single authority for subtitle revisions, finalized state,
 and Apple/Groq/AI stage ordering. `FastPath` owns only the local ASR/Apple
-latest-wins queue; remote network work remains on the existing bridge/refine
-executors.
+bounded queue; stale results are rejected at publish time, while normal short
+partial bursts retain their previous visible cadence. Remote network work
+remains on the existing bridge/refine executors.
 
 The split path is enabled by default. For a direct pre-refactor comparison, set
 `[pipeline] split_fast_path = false` and fully restart the app. Do not change

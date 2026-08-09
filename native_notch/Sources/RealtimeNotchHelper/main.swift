@@ -46,6 +46,8 @@ private final class SubtitleState: ObservableObject {
     @Published var isPaused = false
     var compactTask: Task<Void, Never>?
     private var widthShrinkTask: Task<Void, Never>?
+    private var modeTransitionTask: Task<Void, Never>?
+    private var isChangingDisplayCount = false
     var onExpand: (() -> Void)?
     var onCycleSize: (() -> Void)?
     var onPause: (() -> Void)?
@@ -58,9 +60,22 @@ private final class SubtitleState: ObservableObject {
     }
 
     func cycleSize() {
-        displayCount = displayCount == 3 ? 1 : displayCount + 1
+        modeTransitionTask?.cancel()
+        widthShrinkTask?.cancel()
+        isChangingDisplayCount = true
+        withAnimation(.spring(response: 0.30, dampingFraction: 0.88)) {
+            displayCount = displayCount == 3 ? 1 : displayCount + 1
+        }
         Self.sizeDefaults?.set(displayCount, forKey: "displayCount")
-        refreshContentWidth(allowImmediateShrink: true)
+        modeTransitionTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(0.30))
+            guard let self, !Task.isCancelled else { return }
+            self.isChangingDisplayCount = false
+            self.refreshContentWidth(
+                allowImmediateShrink: true,
+                animated: true
+            )
+        }
     }
 
     private func measuredContentWidth() -> CGFloat {
@@ -78,20 +93,37 @@ private final class SubtitleState: ObservableObject {
         }
         let minimumWidth: CGFloat = 360
         let maximumWidth: CGFloat = 560
-        let widthStep: CGFloat = 40
-        // Reserve equal space on both sides so the expanded mascot can sit on
-        // the left without moving the centered subtitles or covering text.
+        let widthStep: CGFloat = 20
+        // Reserve equal space on both sides so the top-right mascot does not
+        // move the centered subtitles or cover their trailing text.
         let desired = max(minimumWidth, measured + 80)
         let stepped = ceil(desired / widthStep) * widthStep
         return min(maximumWidth, stepped)
     }
 
-    private func refreshContentWidth(allowImmediateShrink: Bool = false) {
+    private func setContentWidth(_ width: CGFloat, animated: Bool) {
+        guard width != contentWidth else { return }
+        if animated {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                contentWidth = width
+            }
+        } else {
+            contentWidth = width
+        }
+    }
+
+    private func refreshContentWidth(
+        allowImmediateShrink: Bool = false,
+        animated: Bool = true
+    ) {
+        if isChangingDisplayCount && !allowImmediateShrink {
+            return
+        }
         let targetWidth = measuredContentWidth()
         widthShrinkTask?.cancel()
 
         if targetWidth >= contentWidth || allowImmediateShrink {
-            contentWidth = targetWidth
+            setContentWidth(targetWidth, animated: animated)
             return
         }
 
@@ -102,7 +134,7 @@ private final class SubtitleState: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             let latestTarget = self.measuredContentWidth()
             if latestTarget < self.contentWidth {
-                self.contentWidth = latestTarget
+                self.setContentWidth(latestTarget, animated: true)
             }
         }
     }
@@ -119,10 +151,6 @@ private func emitEvent(_ event: String) {
 
 private struct SubtitleContent: View {
     @ObservedObject var state: SubtitleState
-
-    private var visibleItemIDs: [Int] {
-        state.items.suffix(state.displayCount).map(\.id)
-    }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -149,10 +177,7 @@ private struct SubtitleContent: View {
                             .frame(maxWidth: .infinity, alignment: .center)
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .bottom)),
-                        removal: .opacity.combined(with: .move(edge: .top))
-                    ))
+                    .transition(.opacity)
                 }
             }
             .padding(.horizontal, 40)
@@ -184,9 +209,6 @@ private struct SubtitleContent: View {
                 state.onExit?()
             }
         }
-        .animation(.easeInOut(duration: 0.18), value: state.displayCount)
-        .animation(.easeInOut(duration: 0.16), value: state.contentWidth)
-        .animation(.easeInOut(duration: 0.22), value: visibleItemIDs)
     }
 }
 
@@ -246,50 +268,34 @@ private struct RealtimeNotchHelper {
             topCornerRadius: 22,
             bottomCornerRadius: 30
         )
-        // All three sizes keep the same softened physical-notch silhouette;
-        // only their content height and visible subtitle count differ.
-        let regularNotch = makeNotch(style: physicalNotchStyle)
-        let smallNotch = makeNotch(style: physicalNotchStyle)
+        // One native surface morphs between all display counts. Swapping two
+        // independent DynamicNotch instances caused a visible hide/expand warp.
+        let notch = makeNotch(style: physicalNotchStyle)
 
         func expandActiveNotch() async {
-            if state.displayCount == 1 {
-                await smallNotch.expand()
-            } else {
-                await regularNotch.expand()
-            }
+            await notch.expand()
         }
 
         func compactActiveNotch() async {
-            if state.displayCount == 1 {
-                await smallNotch.compact()
-            } else {
-                await regularNotch.compact()
-            }
+            await notch.compact()
         }
 
-        func hideBothNotches() async {
-            await smallNotch.hide()
-            await regularNotch.hide()
+        func hideNotch() async {
+            await notch.hide()
         }
 
         func terminate(_ event: String) {
             emitEvent(event)
             Task { @MainActor in
-                await hideBothNotches()
+                await hideNotch()
                 NSApp.terminate(nil)
             }
         }
 
         state.onExpand = { Task { @MainActor in await expandActiveNotch() } }
         state.onCycleSize = {
-            let previousCount = state.displayCount
             state.cycleSize()
             Task { @MainActor in
-                if previousCount == 1 && state.displayCount != 1 {
-                    await smallNotch.hide()
-                } else if previousCount != 1 && state.displayCount == 1 {
-                    await regularNotch.hide()
-                }
                 await expandActiveNotch()
             }
         }
@@ -309,15 +315,17 @@ private struct RealtimeNotchHelper {
                     if let paused = message.paused {
                         state.isPaused = paused
                     }
-                    if let items = message.items, !items.isEmpty {
-                        state.items = Array(items.suffix(3))
-                    } else if let original = message.original {
-                        state.items = [SubtitleLine(
-                            id: 0,
-                            original: original,
-                            translated: message.translated ?? "",
-                            finalized: true
-                        )]
+                    withAnimation(.easeOut(duration: 0.14)) {
+                        if let items = message.items, !items.isEmpty {
+                            state.items = Array(items.suffix(3))
+                        } else if let original = message.original {
+                            state.items = [SubtitleLine(
+                                id: 0,
+                                original: original,
+                                translated: message.translated ?? "",
+                                finalized: true
+                            )]
+                        }
                     }
                     await expandActiveNotch()
                     state.compactTask?.cancel()
@@ -330,7 +338,7 @@ private struct RealtimeNotchHelper {
             }
             DispatchQueue.main.async {
                 Task { @MainActor in
-                    await hideBothNotches()
+                    await hideNotch()
                     NSApp.terminate(nil)
                 }
             }

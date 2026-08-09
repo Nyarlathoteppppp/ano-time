@@ -57,11 +57,11 @@ class SegmentStore:
             if stage == SubtitleStage.ASR_PARTIAL:
                 if state.finalized:
                     return None
-                if (
-                    state.stage == stage
-                    and state.original_text == original_text
-                    and not translated_text
-                ):
+                # Apple Speech often repeats an unchanged hypothesis after the
+                # local translation arrives. Do not create a new revision or
+                # invalidate that useful draft merely because the last stage
+                # stored for this segment is APPLE_PARTIAL.
+                if state.original_text == original_text and not translated_text:
                     return None
                 state.hypothesis_revision += 1
 

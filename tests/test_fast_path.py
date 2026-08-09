@@ -7,7 +7,7 @@ from subtitle_event import SubtitleStage
 
 
 class FastPathTests(unittest.TestCase):
-    def test_only_latest_queued_partial_executes(self):
+    def test_short_partial_burst_preserves_previous_update_cadence(self):
         store = SegmentStore()
         path = FastPath(store)
         started = threading.Event()
@@ -31,7 +31,35 @@ class FastPathTests(unittest.TestCase):
         finally:
             release.set()
 
-        self.assertEqual(completed, [1, 3])
+        self.assertEqual(completed, [1, 2, 3])
+
+    def test_partial_backlog_is_bounded_by_dropping_oldest_pending(self):
+        store = SegmentStore()
+        path = FastPath(store, max_queued_partials=2)
+        started = threading.Event()
+        release = threading.Event()
+        completed = []
+
+        def worker(value, block=False):
+            if block:
+                started.set()
+                release.wait(timeout=1)
+            completed.append(value)
+
+        try:
+            path.submit_partial(1, 1, worker, 1, True)
+            self.assertTrue(started.wait(timeout=0.3))
+            path.submit_partial(1, 2, worker, 2)
+            third = path.submit_partial(1, 3, worker, 3)
+            latest = path.submit_partial(1, 4, worker, 4)
+            release.set()
+            third.result(timeout=1)
+            latest.result(timeout=1)
+            path.shutdown(wait=True)
+        finally:
+            release.set()
+
+        self.assertEqual(completed, [1, 3, 4])
 
     def test_final_rejects_running_partial_result(self):
         store = SegmentStore()

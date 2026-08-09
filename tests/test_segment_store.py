@@ -31,6 +31,26 @@ class SegmentStoreTests(unittest.TestCase):
         self.assertIsNone(stale)
         self.assertEqual(current.revision, 3)
 
+    def test_repeated_asr_text_does_not_invalidate_visible_apple_draft(self):
+        store = SegmentStore()
+        store.publish(3, SubtitleStage.ASR_PARTIAL, "same hypothesis")
+        hypothesis = store.hypothesis_revision(3)
+        store.publish(
+            3,
+            SubtitleStage.APPLE_PARTIAL,
+            "same hypothesis",
+            "相同的假设",
+            expected_hypothesis=hypothesis,
+        )
+
+        repeated = store.publish(
+            3, SubtitleStage.ASR_PARTIAL, "same hypothesis"
+        )
+
+        self.assertIsNone(repeated)
+        self.assertEqual(store.hypothesis_revision(3), hypothesis)
+        self.assertEqual(store.snapshot(3).translated_text, "相同的假设")
+
     def test_finalization_invalidates_inflight_partial(self):
         store = SegmentStore()
         store.publish(4, SubtitleStage.ASR_PARTIAL, "partial")

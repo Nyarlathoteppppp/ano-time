@@ -1,14 +1,15 @@
-"""Latest-wins scheduler for latency-critical local Apple translation work."""
+"""Bounded scheduler for latency-critical local Apple translation work."""
 
 from concurrent.futures import ThreadPoolExecutor
 import threading
 
 
 class FastPath:
-    """Keep one running Apple task and discard obsolete queued partials."""
+    """Preserve Apple draft cadence without allowing unbounded queue growth."""
 
-    def __init__(self, segment_store, max_workers=1):
+    def __init__(self, segment_store, max_workers=1, max_queued_partials=8):
         self.segment_store = segment_store
+        self.max_queued_partials = max(1, int(max_queued_partials))
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers,
             thread_name_prefix="anotime-fast-path",
@@ -27,12 +28,26 @@ class FastPath:
                 if future.cancel():
                     self._pending.pop(future, None)
 
+    def _trim_partial_backlog(self):
+        queued = [
+            future
+            for future, metadata in self._pending.items()
+            if metadata["kind"] == "partial" and not future.running()
+        ]
+        while len(queued) >= self.max_queued_partials:
+            oldest = queued.pop(0)
+            if oldest.cancel():
+                self._pending.pop(oldest, None)
+
     def submit_partial(self, segment_id, hypothesis_revision, worker, *args):
-        """Replace every queued partial with the newest visible hypothesis."""
+        """Preserve normal partial cadence while bounding pathological backlog."""
         with self._lock:
             if self._closed:
                 return None
-            self._cancel_queued_partials()
+            # The previous pipeline retained these lightweight jobs and let
+            # SegmentStore reject them when they actually became stale. Keep
+            # that smoother cadence, but cap the queue to avoid unbounded work.
+            self._trim_partial_backlog()
             future = self._executor.submit(worker, *args)
             self._pending[future] = {
                 "kind": "partial",
