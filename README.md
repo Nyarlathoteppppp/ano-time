@@ -219,6 +219,13 @@ The control center exposes three independent workflows:
 The bridge is configured separately from the final translator. Changing a
 single-model provider cannot alter the Smart Hybrid routing or quota state.
 
+After entering a credential, select **Test Target** and click
+**Test API · 5 Requests**. Anotime sends five fixed Computer Science/AI
+sentences on a background thread and displays first-token latency, total
+latency, success count, and returned translations. These are real API requests
+and consume the selected provider's quota, but never enter the live subtitle
+pipeline or its conversational context.
+
 ```text
 Audio
   → provisional Apple ASR

@@ -39,6 +39,13 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertIn("Gemini/GLM", self.dashboard.workflow_preview.text())
         self.assertTrue(self.dashboard.provider.isHidden())
         self.assertFalse(self.dashboard.gemini_api_key.isHidden())
+        self.assertEqual(
+            [
+                self.dashboard.api_test_provider.itemData(index)
+                for index in range(self.dashboard.api_test_provider.count())
+            ],
+            ["groq", "gemini", "glm", "qwen"],
+        )
 
     def test_single_model_exposes_provider_and_optional_bridge(self):
         self._choose_workflow("single_model")
@@ -46,6 +53,9 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertTrue(self.dashboard.gemini_api_key.isHidden())
         self.assertIn(
             self.dashboard.provider.currentText(), self.dashboard.workflow_preview.text()
+        )
+        self.assertEqual(
+            self.dashboard.api_test_provider.itemData(0), "single"
         )
 
     def test_apple_only_hides_remote_credentials_and_forces_local_draft(self):
@@ -55,6 +65,7 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertTrue(self.dashboard.gemini_api_key.isHidden())
         self.assertEqual(self.dashboard.fast_translation_backend.currentText(), "apple")
         self.assertIn("完全本地", self.dashboard.workflow_preview.text())
+        self.assertTrue(self.dashboard.api_test_btn.isHidden())
 
     def test_save_persists_workflow_bridge_and_single_provider_separately(self):
         self._choose_workflow("single_model")

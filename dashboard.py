@@ -15,6 +15,7 @@ from runtime_version import current_version
 from permission_controller import PermissionController
 from session_controller import SessionController
 from shortcut_controller import ShortcutController
+from api_test_controller import ApiTestController
 
 try:
     from ctypes import c_void_p
@@ -156,6 +157,9 @@ class Dashboard(QWidget):
         audio_test = getattr(self, "audio_test_worker", None)
         if audio_test and audio_test.isRunning():
             audio_test.wait(2500)
+        api_test_controller = getattr(self, "api_test_controller", None)
+        if api_test_controller:
+            api_test_controller.stop()
         shortcut_controller = getattr(self, "shortcut_controller", None)
         if shortcut_controller:
             shortcut_controller.stop()
@@ -1351,6 +1355,26 @@ class Dashboard(QWidget):
         self.model_container = QWidget()
         self.model_container.setLayout(model_layout)
         layout.addRow("Model（翻译模型）:", self.model_container)
+
+        self.api_test_provider = ReadableComboBox()
+        layout.addRow("Test Target（测速服务）:", self.api_test_provider)
+
+        self.api_test_btn = QPushButton("Test API · 5 Requests（测试五条）")
+        self.api_test_btn.setToolTip(
+            "Send five fixed Computer Science/AI translation requests and measure "
+            "first-token and total latency. This consumes five API requests."
+        )
+        layout.addRow("API Speed Test（接口测速）:", self.api_test_btn)
+
+        self.api_test_results = QTextEdit()
+        self.api_test_results.setReadOnly(True)
+        self.api_test_results.setMaximumHeight(180)
+        self.api_test_results.setPlaceholderText(
+            "逐条显示首字延迟、总耗时和翻译结果；测试不会进入课堂字幕。"
+        )
+        layout.addRow("Test Results（测速结果）:", self.api_test_results)
+        self.api_test_controller = ApiTestController(self)
+        self.api_test_btn.clicked.connect(self.api_test_controller.start)
         
         self.target_lang = ReadableComboBox()
         for label, value in (
@@ -1473,6 +1497,12 @@ class Dashboard(QWidget):
             self.qwen_fallback_url,
         ):
             self._set_translation_row_visible(widget, smart)
+        for widget in (
+            self.api_test_provider,
+            self.api_test_btn,
+            self.api_test_results,
+        ):
+            self._set_translation_row_visible(widget, not apple_only)
         self.fast_translation_backend.setEnabled(not apple_only)
         if apple_only:
             self.fast_translation_backend.setCurrentText("apple")
@@ -1513,6 +1543,7 @@ class Dashboard(QWidget):
             f"color: {color}; font-weight: 600; padding: 8px;"
         )
         self.workflow_preview.setText(preview)
+        self.api_test_controller.refresh_targets()
         self.update_home_summary()
 
     def _set_translation_row_visible(self, widget, visible):
