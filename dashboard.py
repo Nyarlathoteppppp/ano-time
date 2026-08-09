@@ -35,15 +35,15 @@ QWidget {
     font-family: 'Helvetica Neue', Arial, sans-serif;
 }
 QWidget#DashboardRoot {
-    background-color: rgba(15, 20, 30, 72);
+    background-color: rgba(255, 184, 211, 46);
 }
 QTabWidget::pane {
-    border: 1px solid rgba(255, 255, 255, 35);
-    background: rgba(20, 24, 36, 55);
+    border: 1px solid rgba(255, 214, 229, 72);
+    background: rgba(255, 207, 224, 28);
     border-radius: 12px;
 }
 QTabBar::tab {
-    background: rgba(255, 255, 255, 18);
+    background: rgba(255, 220, 232, 28);
     color: #a6adc8;
     padding: 10px 20px;
     border-top-left-radius: 8px;
@@ -51,7 +51,7 @@ QTabBar::tab {
     margin-right: 2px;
 }
 QTabBar::tab:selected {
-    background: rgba(137, 180, 250, 210);
+    background: rgba(247, 168, 201, 220);
     color: #10131c;
     font-weight: bold;
 }
@@ -59,8 +59,8 @@ QLabel {
     font-size: 14px;
 }
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
-    background-color: rgba(255, 255, 255, 20);
-    border: 1px solid rgba(255, 255, 255, 42);
+    background-color: rgba(255, 224, 235, 30);
+    border: 1px solid rgba(255, 207, 225, 70);
     border-radius: 7px;
     padding: 6px;
     color: #cdd6f4;
@@ -78,7 +78,7 @@ QComboBox QAbstractItemView::item {
     padding: 4px 10px;
 }
 QPushButton {
-    background-color: rgba(137, 180, 250, 205);
+    background-color: rgba(247, 168, 201, 210);
     color: #10131c;
     border: 1px solid rgba(255, 255, 255, 30);
     padding: 8px 16px;
@@ -86,7 +86,7 @@ QPushButton {
     font-weight: bold;
 }
 QPushButton:hover {
-    background-color: rgba(180, 190, 254, 235);
+    background-color: rgba(255, 193, 218, 235);
 }
 QPushButton#StopButton {
     background-color: #f38ba8;
@@ -221,6 +221,11 @@ class Dashboard(QWidget):
         effect.setWantsLayer_(True)
         effect.layer().setCornerRadius_(16.0)
         effect.layer().setMasksToBounds_(True)
+        effect.layer().setBackgroundColor_(
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(
+                1.0, 0.58, 0.75, 0.16
+            ).CGColor()
+        )
         blur_window.contentView().addSubview_(effect)
         ns_window.addChildWindow_ordered_(blur_window, NSWindowBelow)
         self._native_blur_window = blur_window
@@ -279,7 +284,7 @@ class Dashboard(QWidget):
             mascot.setPixmap(mascot_pixmap)
             mascot.setScaledContents(True)
         header = QLabel(f"Ano Time  ·  {current_version()}")
-        header.setStyleSheet("font-size: 24px; font-weight: bold; color: #89b4fa;")
+        header.setStyleSheet("font-size: 24px; font-weight: bold; color: #f5a9c7;")
         header_row.addWidget(mascot)
         header_row.addWidget(header)
         header_row.addStretch()
@@ -420,7 +425,7 @@ class Dashboard(QWidget):
         
         self.start_btn = QPushButton("▶ Launch Translator")
         self.start_btn.setFixedSize(200, 60)
-        self.start_btn.setStyleSheet("font-size: 16px; background-color: #89b4fa; border-radius: 10px;")
+        self.start_btn.setStyleSheet("font-size: 16px; background-color: #f5a9c7; border-radius: 10px;")
         self.start_btn.clicked.connect(self.on_start)
         
         self.stop_btn = QPushButton("⏹ Stop Translator")

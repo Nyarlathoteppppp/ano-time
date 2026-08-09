@@ -337,6 +337,11 @@ class OverlayWindow(QWidget):
         effect.setWantsLayer_(True)
         effect.layer().setCornerRadius_(20.0)
         effect.layer().setMasksToBounds_(True)
+        effect.layer().setBackgroundColor_(
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(
+                1.0, 0.58, 0.75, 0.16
+            ).CGColor()
+        )
         blur_window.contentView().addSubview_(effect)
         ns_window.addChildWindow_ordered_(blur_window, NSWindowBelow)
         self._native_blur_window = blur_window
@@ -535,13 +540,13 @@ class OverlayWindow(QWidget):
         self.mode_btn.setFixedHeight(30)
         self.mode_btn.setStyleSheet("""
             QPushButton {
-                background-color: rgba(137, 180, 250, 90);
+                background-color: rgba(247, 168, 201, 105);
                 color: white;
                 border-radius: 7px;
                 padding: 4px 10px;
                 border: none;
             }
-            QPushButton:hover { background-color: rgba(137, 180, 250, 150); }
+            QPushButton:hover { background-color: rgba(255, 193, 218, 165); }
         """)
         self.mode_btn.clicked.connect(self.notch_requested.emit)
         grip_layout.addWidget(self.mode_btn)
