@@ -44,7 +44,8 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn("skipIntermediateHides: true", self.source)
         self.assertIn("await expandActiveNotch()", self.source)
         self.assertNotIn("Task.sleep(for: .seconds(2.4))", self.source)
-        self.assertNotIn("await compactActiveNotch()", self.source)
+        self.assertIn("Task.sleep(for: .seconds(6))", self.source)
+        self.assertIn("await compactActiveNotch()", self.source)
         self.assertIn(
             "hoverBehavior: [.hapticFeedback, .increaseShadow]", self.source
         )

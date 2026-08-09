@@ -313,6 +313,10 @@ private struct RealtimeNotchHelper {
             await notch.expand()
         }
 
+        func compactActiveNotch() async {
+            await notch.compact()
+        }
+
         func hideNotch() async {
             await notch.hide()
         }
@@ -365,8 +369,13 @@ private struct RealtimeNotchHelper {
                             )]
                         }
                     }
-                    await expandActiveNotch()
                     state.compactTask?.cancel()
+                    await expandActiveNotch()
+                    state.compactTask = Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(6))
+                        guard !Task.isCancelled else { return }
+                        await compactActiveNotch()
+                    }
                 }
             }
             DispatchQueue.main.async {
@@ -377,12 +386,12 @@ private struct RealtimeNotchHelper {
             }
         }
 
-        // Present from the true hidden state so launch visibly grows out of
-        // the physical notch instead of popping directly into compact mode.
+        // With no speech yet, grow directly from hidden into the unobtrusive
+        // compact notch. Actual subtitle content expands to the saved size.
         state.compactTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(0.06))
             guard !Task.isCancelled else { return }
-            await expandActiveNotch()
+            await compactActiveNotch()
         }
         app.run()
     }
