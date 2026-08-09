@@ -70,6 +70,10 @@ QComboBox QAbstractItemView {
     selection-background-color: rgba(137, 180, 250, 190);
     selection-color: #10131c;
 }
+QComboBox QAbstractItemView::item {
+    min-height: 30px;
+    padding: 4px 10px;
+}
 QPushButton {
     background-color: rgba(137, 180, 250, 205);
     color: #10131c;
@@ -100,6 +104,33 @@ QGroupBox::title {
     color: #fab387;
 }
 """
+
+
+class ReadableComboBox(QComboBox):
+    """Combo box whose popup fits its longest item without clipping."""
+
+    def addItem(self, text, userData=None):
+        super().addItem(text, userData)
+        self.setItemData(
+            self.count() - 1, str(text), Qt.ItemDataRole.ToolTipRole
+        )
+
+    def addItems(self, texts):
+        for text in texts:
+            self.addItem(text)
+
+    def showPopup(self):
+        metrics = self.fontMetrics()
+        content_width = max(
+            [metrics.horizontalAdvance(self.itemText(i)) for i in range(self.count())]
+            or [self.width()]
+        ) + 56
+        screen = self.screen() or QApplication.primaryScreen()
+        screen_limit = int(screen.availableGeometry().width() * 0.72) if screen else 760
+        self.view().setMinimumWidth(
+            max(self.width(), min(content_width, screen_limit, 760))
+        )
+        super().showPopup()
 
 class Dashboard(QWidget):
     start_requested = pyqtSignal()
@@ -278,7 +309,7 @@ class Dashboard(QWidget):
 
         display_row = QHBoxLayout()
         display_row.addWidget(QLabel("Subtitle Mode（字幕显示模式）:"))
-        self.display_mode = QComboBox()
+        self.display_mode = ReadableComboBox()
         self.display_mode.addItem("Resizable Glass", "glass")
         self.display_mode.addItem("Physical MacBook Notch", "notch")
         mode_index = self.display_mode.findData(config.display_mode)
@@ -407,7 +438,7 @@ class Dashboard(QWidget):
         
         # Device Selection
         layout.addWidget(QLabel("Input Device（音频来源）:"), 0, 0)
-        self.device_combo = QComboBox()
+        self.device_combo = ReadableComboBox()
         self.populate_devices()
         self.device_combo.currentIndexChanged.connect(self.update_home_summary)
         layout.addWidget(self.device_combo, 0, 1)
@@ -504,7 +535,7 @@ class Dashboard(QWidget):
         devices_label = QLabel("Available Output Devices:")
         layout.addWidget(devices_label)
         
-        self.output_devices_list = QComboBox()
+        self.output_devices_list = ReadableComboBox()
         self.output_devices_list.setMinimumHeight(30)
         layout.addWidget(self.output_devices_list)
         
@@ -512,7 +543,7 @@ class Dashboard(QWidget):
         virtual_label = QLabel("Virtual/BlackHole Devices:")
         layout.addWidget(virtual_label)
         
-        self.virtual_devices_list = QComboBox()
+        self.virtual_devices_list = ReadableComboBox()
         self.virtual_devices_list.setMinimumHeight(30)
         layout.addWidget(self.virtual_devices_list)
         
@@ -832,9 +863,11 @@ class Dashboard(QWidget):
     def init_transcription_tab(self):
         tab = QWidget()
         layout = QFormLayout()
+        layout.setVerticalSpacing(14)
+        self.transcription_layout = layout
         
         # ASR Backend Selection
-        self.asr_backend = QComboBox()
+        self.asr_backend = ReadableComboBox()
         self.asr_backend.addItems(["apple", "whisper", "mlx", "funasr"])
         self.asr_backend.setCurrentText(config.asr_backend)
         self.asr_backend.setToolTip(
@@ -845,15 +878,23 @@ class Dashboard(QWidget):
         self.asr_backend.currentTextChanged.connect(self._on_backend_changed)
         self.asr_backend.currentTextChanged.connect(self.update_home_summary)
         layout.addRow("ASR Backend（语音识别引擎）:", self.asr_backend)
+
+        self.backend_hint = QLabel()
+        self.backend_hint.setWordWrap(True)
+        self.backend_hint.setStyleSheet(
+            "color: #a6e3a1; padding: 8px 10px; "
+            "background: rgba(255, 255, 255, 12); border-radius: 7px;"
+        )
+        layout.addRow("", self.backend_hint)
         
         # Whisper Model
-        self.whisper_model = QComboBox()
+        self.whisper_model = ReadableComboBox()
         self.whisper_model.addItems(["tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en", "large-v3", "turbo"])
         self.whisper_model.setCurrentText(config.whisper_model)
         layout.addRow("Whisper Model（Whisper 模型大小）:", self.whisper_model)
         
         # FunASR Model
-        self.funasr_model = QComboBox()
+        self.funasr_model = ReadableComboBox()
         self.funasr_model.setEditable(True)
         self.funasr_model.addItems([
             "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
@@ -876,20 +917,20 @@ class Dashboard(QWidget):
         )
         layout.addRow("FunASR Model（FunASR 模型）:", self.funasr_model)
         
-        self.device_type = QComboBox()
+        self.device_type = ReadableComboBox()
         self.device_type.addItems(["cpu", "cuda", "mps", "auto"])
         self.device_type.setCurrentText(config.whisper_device)
         self.device_type.currentTextChanged.connect(self._on_device_changed)
         layout.addRow("Compute Device（计算设备）:", self.device_type)
         
-        self.compute_type = QComboBox()
+        self.compute_type = ReadableComboBox()
         self.compute_type.addItems(["int8", "float16", "float32"])
         self.compute_type.setCurrentText(config.whisper_compute_type)
         self.compute_type.currentTextChanged.connect(self._on_quantization_changed)
         layout.addRow("Quantization（推理精度与内存占用）:", self.compute_type)
         
         # Source Language Configuration
-        self.source_language = QComboBox()
+        self.source_language = ReadableComboBox()
         self.source_language.setEditable(True)
         self.source_language.addItems(["auto", "en", "zh", "vi", "ja", "ko", "es", "fr", "de", "ru", "ar", "pt", "it"])
         source_lang = config.source_language if config.source_language else "auto"
@@ -903,25 +944,34 @@ class Dashboard(QWidget):
         self.tabs.addTab(tab, "📝 Transcription")
     
     def _on_backend_changed(self, backend):
-        """Show/hide model selectors based on backend and warn about device compatibility"""
+        """Show only settings consumed by the selected ASR backend."""
         is_whisper_or_mlx = backend in ["whisper", "mlx"]
         is_funasr = backend == "funasr"
-        
-        # Enable/disable appropriate widgets
-        self.whisper_model.setEnabled(is_whisper_or_mlx)
-        self.funasr_model.setEnabled(is_funasr)
-        
-        # Visual feedback - dim disabled widgets
-        if is_whisper_or_mlx:
-            self.whisper_model.setStyleSheet("")
-            self.funasr_model.setStyleSheet("color: #6c7086;")
-        else:
-            self.whisper_model.setStyleSheet("color: #6c7086;")
-            self.funasr_model.setStyleSheet("")
+
+        self._set_transcription_row_visible(self.whisper_model, is_whisper_or_mlx)
+        self._set_transcription_row_visible(self.funasr_model, is_funasr)
+        self._set_transcription_row_visible(
+            self.device_type, backend in ["whisper", "funasr"]
+        )
+        self._set_transcription_row_visible(self.compute_type, backend == "whisper")
+
+        hints = {
+            "apple": "Apple 原生实时识别：只使用原文语言，其他模型参数已隐藏。",
+            "mlx": "MLX Whisper：使用所选 Whisper 模型，并自动调用 Apple Silicon Metal。",
+            "whisper": "Faster-Whisper：模型、计算设备和推理精度均会参与运行。",
+            "funasr": "FunASR：使用所选模型和计算设备；MPS 会自动采用 float32。",
+        }
+        self.backend_hint.setText(hints.get(backend, ""))
         
         # Check MPS + FunASR quantization compatibility
         if is_funasr:
             self._check_funasr_mps_compatibility()
+
+    def _set_transcription_row_visible(self, field, visible):
+        field.setVisible(visible)
+        label = self.transcription_layout.labelForField(field)
+        if label:
+            label.setVisible(visible)
     
     def _check_funasr_mps_compatibility(self):
         """Check if MPS device is used with FunASR and enforce float32"""
@@ -966,7 +1016,7 @@ class Dashboard(QWidget):
         tab = QWidget()
         layout = QFormLayout()
 
-        self.provider = QComboBox()
+        self.provider = ReadableComboBox()
         self.provider.addItems([
             "Fast Free Pool → Qwen-MT",
             "Alibaba Cloud Qwen-MT",
@@ -1032,7 +1082,7 @@ class Dashboard(QWidget):
         
         # Model selection with refresh button
         model_layout = QHBoxLayout()
-        self.model = QComboBox()
+        self.model = ReadableComboBox()
         self.model.setEditable(True)
         self.model.addItem(config.model)
         self.model.currentTextChanged.connect(self.update_home_summary)
@@ -1046,7 +1096,7 @@ class Dashboard(QWidget):
         
         layout.addRow("Model（翻译模型）:", model_layout)
         
-        self.target_lang = QComboBox()
+        self.target_lang = ReadableComboBox()
         self.target_lang.addItems(["Chinese", "English", "Japanese", "French", "Spanish", "German", "Korean"])
         self.target_lang.setEditable(True)
         self.target_lang.setCurrentText(config.target_lang)
@@ -1061,7 +1111,7 @@ class Dashboard(QWidget):
         )
         layout.addRow("Course Domain（课程专业背景）:", self.translation_domain)
 
-        self.fast_translation_backend = QComboBox()
+        self.fast_translation_backend = ReadableComboBox()
         self.fast_translation_backend.addItems(["apple", "off"])
         self.fast_translation_backend.setCurrentText(config.fast_translation_backend)
         self.fast_translation_backend.setToolTip(
