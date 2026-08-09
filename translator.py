@@ -20,6 +20,7 @@ class Translator:
             target_lang: The target language for translation.
         """
         self.target_lang = target_lang
+        self.prompt_target_lang = self._prompt_target_language(target_lang)
         self.model = model
         self.deadline_seconds = max(0.1, float(deadline_seconds))
         self.domain_prompt = domain_prompt or (
@@ -74,6 +75,16 @@ class Translator:
         # Context carryover for sentence continuity
         self.previous_text = ""
         self.previous_translation = ""
+
+    @staticmethod
+    def _prompt_target_language(target_lang):
+        """Remove Simplified/Traditional ambiguity for generic LLM prompts."""
+        normalized = str(target_lang or "").strip().lower().replace("_", "-")
+        if normalized in {
+            "chinese", "simplified chinese", "zh", "zh-cn", "zh-hans"
+        }:
+            return "Simplified Chinese"
+        return target_lang
 
     def _strip_thinking(self, text):
         """Remove <think>...</think> tags from response (for reasoning models)"""
@@ -134,7 +145,7 @@ class Translator:
                 f"You are a professional real-time translator and editor. "
                 f"Domain context: {self.domain_prompt} "
                 f"{self.asr_correction_prompt} "
-                f"Improve the draft translation into {self.target_lang}. "
+                f"Improve the draft translation into {self.prompt_target_lang}. "
                 f"Correct mistranslations using the original text, preserve meaning and terminology, "
                 f"and output ONLY the improved translation.{terminology_prompt}"
             )
@@ -144,7 +155,7 @@ class Translator:
             )
         elif context_text:
             system_prompt = (
-                f"Translate CURRENT into {self.target_lang}. "
+                f"Translate CURRENT into {self.prompt_target_lang}. "
                 f"Domain: {self.domain_prompt} "
                 f"{self.asr_correction_prompt} "
                 f"Use CONTEXT only to resolve references and terminology. "
@@ -156,7 +167,7 @@ class Translator:
                 f"You are a professional real-time translator. "
                 f"Domain context: {self.domain_prompt} "
                 f"{self.asr_correction_prompt} "
-                f"Translate the following user input into {self.target_lang}.\\n\\n"
+                f"Translate the following user input into {self.prompt_target_lang}.\\n\\n"
                 f"<context>\\n"
                 f"Previous Sentence: \"{self.previous_text}\"\\n"
                 f"Previous Translation: \"{self.previous_translation}\"\\n"
@@ -174,7 +185,7 @@ class Translator:
                 f"You are a professional real-time translator. "
                 f"Domain context: {self.domain_prompt} "
                 f"{self.asr_correction_prompt} "
-                f"Translate the following user input into {self.target_lang}. "
+                f"Translate the following user input into {self.prompt_target_lang}. "
                 f"Do not add any explanations, just output the translation."
                 f"{terminology_prompt}"
             )
