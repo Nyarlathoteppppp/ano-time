@@ -579,12 +579,12 @@ class Dashboard(QWidget):
         self.pause_btn.clicked.connect(self.toggle_pipeline_pause)
         self.pause_btn.hide()
 
-        self.log_btn = QPushButton("📄 Open Runtime Log")
+        self.log_btn = QPushButton("Open Runtime Log")
         self.log_btn.setFixedSize(200, 38)
         self.log_btn.clicked.connect(self.open_runtime_log)
         self.log_btn.setEnabled(self._diagnostics_active)
         if not self._diagnostics_active:
-            self.log_btn.setText("📄 Runtime Log (Off)")
+            self.log_btn.setText("Runtime Log (Off)")
 
         self.diagnostics_checkbox = QCheckBox(
             "Diagnostics（诊断埋点，仅排查时开启）"
