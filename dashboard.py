@@ -115,6 +115,14 @@ QGroupBox::title {
 }
 """
 
+DEFAULT_AUDIO_SETTINGS = {
+    "device_index": "auto",
+    "sample_rate": 16000,
+    "silence_threshold": 0.005,
+    "silence_duration": 0.5,
+    "update_interval": 0.5,
+}
+
 
 class ReadableComboBox(QComboBox):
     """Combo box whose popup fits its longest item without clipping."""
@@ -706,7 +714,16 @@ class Dashboard(QWidget):
         self.open_audio_permission_btn = QPushButton("Open Permission Settings")
         self.open_audio_permission_btn.clicked.connect(self.open_system_audio_settings)
         action_row.addWidget(self.open_audio_permission_btn)
+
+        self.restore_audio_defaults_btn = QPushButton(
+            "Restore Audio Defaults（恢复音频默认值）"
+        )
+        self.restore_audio_defaults_btn.setToolTip(
+            "Reset only Audio settings. API, ASR, translation, and display settings stay unchanged."
+        )
+        self.restore_audio_defaults_btn.clicked.connect(self.restore_audio_defaults)
         layout.addLayout(action_row, 5, 0, 1, 3)
+        layout.addWidget(self.restore_audio_defaults_btn, 6, 0, 1, 3)
 
         self.audio_test_status = QLabel(
             "System Audio uses macOS ScreenCaptureKit; BlackHole is not required."
@@ -715,12 +732,40 @@ class Dashboard(QWidget):
         self.audio_test_status.setStyleSheet(
             "color: #a6adc8; background: rgba(255,255,255,14); padding: 10px; border-radius: 8px;"
         )
-        layout.addWidget(self.audio_test_status, 6, 0, 1, 3)
+        layout.addWidget(self.audio_test_status, 7, 0, 1, 3)
 
-        layout.setRowStretch(7, 1) # Push to top
+        layout.setRowStretch(8, 1) # Push to top
         
         tab.setLayout(layout)
         self.tabs.addTab(tab, "🎤 Audio")
+
+    def restore_audio_defaults(self):
+        """Restore only documented Audio defaults; Save remains explicit."""
+        defaults = DEFAULT_AUDIO_SETTINGS
+        self.sample_rate.setValue(defaults["sample_rate"])
+        self.silence_thresh.setValue(defaults["silence_threshold"])
+        self.silence_dur.setValue(defaults["silence_duration"])
+        self.update_interval.setValue(defaults["update_interval"])
+
+        for combo in (self.device_combo, self.home_device_combo):
+            index = combo.findData(defaults["device_index"])
+            if index >= 0:
+                combo.blockSignals(True)
+                combo.setCurrentIndex(index)
+                combo.blockSignals(False)
+
+        self.update_home_summary()
+        self.audio_test_status.setText(
+            "Audio defaults restored in the control center. Click Save Settings to apply."
+        )
+        self.audio_test_status.setStyleSheet(
+            "color: #a6e3a1; background: rgba(255,255,255,14); "
+            "padding: 10px; border-radius: 8px;"
+        )
+        if self._session_state == "running":
+            self.status_label.setText(
+                "Audio defaults restored · Stop, save, and launch again to apply"
+            )
 
     def init_device_manager_tab(self):
         """Audio Device Manager - Create/Manage Multi-Output Devices"""

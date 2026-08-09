@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 
 from dashboard import Dashboard
+from dashboard import DEFAULT_AUDIO_SETTINGS
 import dashboard as dashboard_module
 from keychain_store import store as keychain_store
 from shortcut_controller import ShortcutController
@@ -98,6 +99,50 @@ class DashboardWorkflowTests(unittest.TestCase):
             saved.get("translation", "single_provider"),
             "Alibaba Cloud Qwen-MT",
         )
+
+    def test_restore_audio_defaults_changes_only_audio_controls(self):
+        original_workflow = self.dashboard.translation_workflow.currentData()
+        original_target = self.dashboard.target_lang.currentData()
+        original_display = self.dashboard.display_mode.currentData()
+        self.dashboard.sample_rate.setValue(48000)
+        self.dashboard.silence_thresh.setValue(0.2)
+        self.dashboard.silence_dur.setValue(1.7)
+        self.dashboard.update_interval.setValue(1.5)
+        system_index = self.dashboard.device_combo.findData("system")
+        self.dashboard.device_combo.setCurrentIndex(system_index)
+
+        self.dashboard.restore_audio_defaults()
+
+        self.assertEqual(
+            self.dashboard.device_combo.currentData(),
+            DEFAULT_AUDIO_SETTINGS["device_index"],
+        )
+        self.assertEqual(
+            self.dashboard.home_device_combo.currentData(),
+            DEFAULT_AUDIO_SETTINGS["device_index"],
+        )
+        self.assertEqual(
+            self.dashboard.sample_rate.value(),
+            DEFAULT_AUDIO_SETTINGS["sample_rate"],
+        )
+        self.assertAlmostEqual(
+            self.dashboard.silence_thresh.value(),
+            DEFAULT_AUDIO_SETTINGS["silence_threshold"],
+        )
+        self.assertAlmostEqual(
+            self.dashboard.silence_dur.value(),
+            DEFAULT_AUDIO_SETTINGS["silence_duration"],
+        )
+        self.assertAlmostEqual(
+            self.dashboard.update_interval.value(),
+            DEFAULT_AUDIO_SETTINGS["update_interval"],
+        )
+        self.assertEqual(
+            self.dashboard.translation_workflow.currentData(), original_workflow
+        )
+        self.assertEqual(self.dashboard.target_lang.currentData(), original_target)
+        self.assertEqual(self.dashboard.display_mode.currentData(), original_display)
+        self.assertIn("Click Save Settings", self.dashboard.audio_test_status.text())
 
 
 if __name__ == "__main__":
