@@ -3,17 +3,17 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTabWidget, QSpinBox, QDoubleSpinBox, QGridLayout,
                              QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
                              QMessageBox, QTextEdit, QDialog, QLayout)
-from PyQt6.QtWidgets import QCheckBox
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QThread, QTimer
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap
 import sys
 import os
-import time
 import sounddevice as sd
 from config import config
-from runtime_log import log_stage
 from runtime_version import current_version
+from permission_controller import PermissionController
+from session_controller import SessionController
+from shortcut_controller import ShortcutController
 
 try:
     from ctypes import c_void_p
@@ -152,9 +152,9 @@ class Dashboard(QWidget):
         audio_test = getattr(self, "audio_test_worker", None)
         if audio_test and audio_test.isRunning():
             audio_test.wait(2500)
-        shortcut = getattr(self, "global_shortcut", None)
-        if shortcut:
-            shortcut.stop()
+        shortcut_controller = getattr(self, "shortcut_controller", None)
+        if shortcut_controller:
+            shortcut_controller.stop()
         if self._native_blur_window is not None:
             self._native_blur_window.close()
             self._native_blur_window = None
@@ -302,20 +302,16 @@ class Dashboard(QWidget):
         self.init_translation_tab()
         self.update_home_summary()
 
-        from global_shortcut import MacCarbonHotkeyShortcut
-        self.global_shortcut = MacCarbonHotkeyShortcut(
-            enabled=self.shortcut_enabled,
-            parent=self,
+        self.permission_controller = PermissionController(
+            self, lambda sample_rate: SystemAudioTestWorker(sample_rate)
         )
-        self.global_shortcut.activated.connect(self.on_global_shortcut)
-        hotkey_agent_plist = os.path.expanduser(
-            "~/Library/LaunchAgents/com.nyarlathotep.realtime-ton.hotkey.plist"
+        self.session_controller = SessionController(
+            self, lambda generation: StartupWorker(generation)
         )
-        if os.path.exists(hotkey_agent_plist):
-            print("[Shortcut] External hotkey agent owns Control + S", flush=True)
-        else:
-            self.global_shortcut.start()
-        self._update_shortcut_button()
+        self.shortcut_controller = ShortcutController(self, STYLESHEET)
+        # Compatibility for callers that inspect the underlying native object.
+        self.global_shortcut = self.shortcut_controller.shortcut
+        self.shortcut_controller.start()
         
         # Footer Actions
         footer = QHBoxLayout()
@@ -472,101 +468,21 @@ class Dashboard(QWidget):
         subprocess.run(["open", LOG_PATH], check=False)
 
     def _update_shortcut_button(self):
-        if not hasattr(self, "shortcut_btn"):
-            return
-        state = "On" if self.shortcut_enabled else "Off"
-        self.shortcut_btn.setText(f"⌃S · {state}")
+        controller = getattr(self, "shortcut_controller", None)
+        if controller:
+            controller.update_button()
 
     def open_shortcut_settings(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Global Shortcut Settings")
-        dialog.setMinimumWidth(440)
-        dialog.setStyleSheet(STYLESHEET)
-        layout = QVBoxLayout(dialog)
-
-        title = QLabel("⌃S（Control + S）")
-        title.setStyleSheet("font-size: 17px; font-weight: 700; color: #89b4fa;")
-        layout.addWidget(title)
-
-        enabled = QCheckBox("Enable global shortcut（启用全局快捷键）")
-        enabled.setChecked(self.shortcut_enabled)
-        layout.addWidget(enabled)
-
-        explanation = QLabel(
-            "Idle: launch directly in Physical MacBook Notch mode.\n"
-            "Running: pause. Paused: resume.\n"
-            "Uses the native macOS global hotkey API and does not require "
-            "Accessibility or Input Monitoring permission."
-        )
-        explanation.setWordWrap(True)
-        explanation.setStyleSheet(
-            "color: #a6adc8; background: rgba(255,255,255,14); "
-            "padding: 10px; border-radius: 8px;"
-        )
-        layout.addWidget(explanation)
-
-        actions = QHBoxLayout()
-        cancel = QPushButton("Cancel")
-        save = QPushButton("Save")
-        cancel.clicked.connect(dialog.reject)
-        save.clicked.connect(dialog.accept)
-        actions.addStretch()
-        actions.addWidget(cancel)
-        actions.addWidget(save)
-        layout.addLayout(actions)
-
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        self.shortcut_enabled = enabled.isChecked()
-        self.global_shortcut.set_enabled(self.shortcut_enabled)
-        self._update_shortcut_button()
-        self.save_config(show_status=False)
-        self.status_label.setText("Shortcut settings saved · Control + S")
-        self.status_label.setStyleSheet("font-size: 16px; color: #a6e3a1;")
+        self.shortcut_controller.open_settings()
 
     def open_accessibility_settings(self):
-        import subprocess
-        subprocess.Popen([
-            "open",
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-        ])
+        self.permission_controller.open_accessibility_settings()
 
     def on_global_shortcut(self):
-        if not self.shortcut_enabled:
-            return
-        if self._session_state == "idle":
-            notch_index = self.display_mode.findData("notch")
-            if notch_index >= 0:
-                self.display_mode.setCurrentIndex(notch_index)
-            self.status_label.setText("⌃S · launching notch translator…")
-            self.status_label.setStyleSheet("font-size: 16px; color: #89b4fa;")
-            self.on_start()
-            return
-        if self._session_state == "starting":
-            self.status_label.setText("Translator is already starting…")
-            return
-        if self.pipeline:
-            self._set_pipeline_paused(not self.pipeline.is_paused)
+        self.shortcut_controller.activated()
 
     def _set_pipeline_paused(self, paused, update_overlay=True):
-        if not self.pipeline:
-            return
-        started = time.perf_counter()
-        self.pipeline.set_paused(paused)
-        if update_overlay and self.overlay_window and hasattr(
-            self.overlay_window, "set_paused"
-        ):
-            self.overlay_window.set_paused(paused)
-        if paused:
-            self.status_label.setText("Paused · ⌃S to resume")
-            self.status_label.setStyleSheet("font-size: 16px; color: #f9e2af;")
-        else:
-            self.status_label.setText("Running · ⌃S to pause")
-            self.status_label.setStyleSheet("font-size: 16px; color: #a6e3a1;")
-        log_stage(
-            "session_pause" if paused else "session_resume",
-            elapsed_ms=(time.perf_counter() - started) * 1000,
-        )
+        self.session_controller.set_paused(paused, update_overlay)
 
     def update_runtime_status(self, stage, status, detail):
         label = self.runtime_labels.get(stage)
@@ -622,46 +538,13 @@ class Dashboard(QWidget):
         )
 
     def open_system_audio_settings(self):
-        import subprocess
-        subprocess.Popen([
-            "open",
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-        ])
+        self.permission_controller.open_system_audio_settings()
 
     def test_system_audio(self):
-        if self._session_state in ("starting", "running"):
-            self.audio_test_status.setText(
-                "Stop the translator before running the independent audio test."
-            )
-            return
-        self.test_system_audio_btn.setEnabled(False)
-        self.test_system_audio_btn.setText("Testing…")
-        self.audio_test_status.setText(
-            "Listening for system audio for about two seconds. Play a video now."
-        )
-        self.audio_test_worker = SystemAudioTestWorker(self.sample_rate.value())
-        self.audio_test_worker.result.connect(self.on_system_audio_test_result)
-        self.audio_test_worker.start()
+        self.permission_controller.test_system_audio()
 
     def on_system_audio_test_result(self, success, message, peak):
-        self.test_system_audio_btn.setEnabled(True)
-        self.test_system_audio_btn.setText("Test Permission & Audio")
-        if success and peak > 0.0001:
-            color = "#a6e3a1"
-            text = f"Permission works. System audio detected (peak {peak:.4f})."
-        elif success:
-            color = "#f9e2af"
-            text = (
-                "Permission works, but the captured audio was silent. "
-                "Play a video with audible sound and test again."
-            )
-        else:
-            color = "#f38ba8"
-            text = message
-        self.audio_test_status.setText(text)
-        self.audio_test_status.setStyleSheet(
-            f"color: {color}; background: rgba(255,255,255,14); padding: 10px; border-radius: 8px;"
-        )
+        self.permission_controller.on_system_audio_test_result(success, message, peak)
 
     def init_audio_tab(self):
         tab = QWidget()
@@ -1571,134 +1454,16 @@ class Dashboard(QWidget):
             self.status_label.setText(f"Saved.{suffix}")
 
     def on_start(self):
-        if self._session_state in ("starting", "running"):
-            if self.overlay_window:
-                self.overlay_window.show()
-            return
-
-        self._session_generation += 1
-        generation = self._session_generation
-        self._session_state = "starting"
-        # Launch exactly what is visible in the Dashboard; no separate Save click required.
-        self.save_config(show_status=False)
-        # 1. Update UI to Loading State
-        self.status_label.setText("Initializing Pipeline... (This may take a moment)")
-        self.status_label.setStyleSheet("font-size: 18px; color: #fab387;") # Orange for loading
-        self.start_btn.setEnabled(False)
-        self.start_btn.setText("Loading...")
-        
-        # 2. Start Worker Thread
-        worker = StartupWorker(generation)
-        self._startup_workers[generation] = worker
-        worker.ready.connect(self.on_pipeline_ready)
-        worker.finished.connect(
-            lambda generation=generation: self._startup_workers.pop(generation, None)
-        )
-        worker.start()
+        self.session_controller.start()
 
     def on_pipeline_ready(self, generation, pipeline):
-        # Create Window on Main Thread
-        from config import config
-
-        # A Stop/new Launch invalidates every older startup. Dispose its native
-        # helpers instead of allowing a late callback to create another window.
-        if generation != self._session_generation or self._session_state != "starting":
-            if pipeline:
-                pipeline.stop()
-            return
-
-        if not pipeline:
-            self._session_state = "idle"
-            self.status_label.setText("Initialization Failed Check Console")
-            self.start_btn.setEnabled(True)
-            self.start_btn.setText("▶ Launch Translator")
-            return
-
-        self.pipeline = pipeline
-        actual_audio = type(self.pipeline.audio).__name__
-        if actual_audio == "SystemAudioCapture":
-            self.audio_summary.setText("System Audio · ScreenCaptureKit active")
-            self.audio_summary.setStyleSheet("color: #a6e3a1; font-weight: 600;")
-        else:
-            self.audio_summary.setText(
-                f"Microphone · {self.device_combo.currentText()}"
-            )
-            self.audio_summary.setStyleSheet("color: #f9e2af; font-weight: 600;")
-        if self.overlay_window:
-            self.overlay_window.close()
-            self.overlay_window = None
-        if self.display_mode.currentData() == "notch":
-            from native_notch_overlay import NativeNotchOverlay as OverlayClass
-        else:
-            from overlay_window import OverlayWindow as OverlayClass
-        overlay_kwargs = dict(
-            display_duration=config.display_duration,
-            window_width=config.window_width,
-            window_height=config.window_height,
-            display_mode=self.display_mode.currentData(),
-        )
-        if self.display_mode.currentData() != "notch":
-            overlay_kwargs["video_overlay"] = actual_audio == "SystemAudioCapture"
-        self.overlay_window = OverlayClass(**overlay_kwargs)
-        self.overlay_window.show()
-
-        # Connect Signals
-        self.pipeline.signals.update_text.connect(self.overlay_window.update_text)
-        self.pipeline.signals.pipeline_error.connect(self.on_pipeline_error)
-        self.pipeline.signals.runtime_status.connect(self.update_runtime_status)
-        if hasattr(self.overlay_window, 'stop_requested'):
-             # Closing the Dashboard normally only hides it so the global
-             # shortcut can remain resident. The overlay's stop/exit control
-             # must stop the active session instead of taking that hide path.
-             self.overlay_window.stop_requested.connect(self.on_stop)
-        if hasattr(self.overlay_window, 'pause_requested'):
-             self.overlay_window.pause_requested.connect(
-                 lambda paused: self._set_pipeline_paused(paused, update_overlay=False)
-             )
-
-        # Start Pipeline Thread
-        self.pipeline.start()
-        self._session_state = "running"
-
-        self.status_label.setText("Running...")
-        self.status_label.setStyleSheet("font-size: 18px; color: #a6e3a1;")
-        
-        self.start_btn.hide()
-        self.stop_btn.show()
-        
-        self.showMinimized()
+        self.session_controller.pipeline_ready(generation, pipeline)
 
     def on_pipeline_error(self, message):
-        """Surface background capture/ASR failures instead of showing Running."""
-        self.on_stop()
-        concise = " ".join(str(message).split())[:180]
-        self.status_label.setText(f"Stopped — {concise}")
-        self.status_label.setStyleSheet("font-size: 16px; color: #f38ba8;")
-        self.showNormal()
+        self.session_controller.pipeline_error(message)
 
     def on_stop(self):
-        started = time.perf_counter()
-        self._session_generation += 1
-        self._session_state = "idle"
-
-        if self.overlay_window:
-            self.overlay_window.close()
-            self.overlay_window = None
-
-        if self.pipeline:
-            self.pipeline.stop()
-            self.pipeline = None
-            
-        self.status_label.setText("Stopped")
-        self.stop_btn.hide()
-        self.start_btn.show()
-        self.start_btn.setEnabled(True)
-        self.start_btn.setText("▶ Launch Translator")
-        self.showNormal()
-        log_stage(
-            "session_stop",
-            elapsed_ms=(time.perf_counter() - started) * 1000,
-        )
+        self.session_controller.stop()
 
 class SystemAudioTestWorker(QThread):
     result = pyqtSignal(bool, str, float)
@@ -1842,5 +1607,7 @@ if __name__ == "__main__":
         # Another instance won a simultaneous-launch race after our first probe.
         notify_existing_instance()
         sys.exit(0)
+    from runtime_log import begin_runtime_session
+    begin_runtime_session(reset=True)
     w.show()
     sys.exit(app.exec())

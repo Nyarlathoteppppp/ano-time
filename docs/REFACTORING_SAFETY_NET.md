@@ -53,6 +53,13 @@ comparison. Compare p50 and p95 before and after each refactor. A structural
 change must not increase the latency-critical Apple path or allow remote work
 to delay subsequent speech.
 
+## Runtime log lifecycle
+
+The confirmed primary app process creates a fresh `logs/runtime.log` on every
+launch. The previous session is moved to `logs/history/`; at most five sessions
+and seven days are retained. Reopening the desktop launcher while Ano Time is
+already running does not rotate or interrupt the active log.
+
 ## Manual release gate
 
 After automated tests, verify on a real Mac:

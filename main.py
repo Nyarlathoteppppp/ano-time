@@ -23,12 +23,27 @@ from groq_bridge import GroqBridgeGate
 from live_segmenter import IncrementalSegmenter
 from glossary import ASRCorrections
 from finalized_text import clean_finalized_text, is_meaningful_final, should_request_remote
+from subtitle_event import SubtitleEvent, SubtitleStage
 
 class WorkerSignals(QObject):
+    subtitle_event = pyqtSignal(object)
     # (chunk_id, original, translated, ASR state: "partial" | "final")
     update_text = pyqtSignal(int, str, str, str)
     pipeline_error = pyqtSignal(str)
     runtime_status = pyqtSignal(str, str, str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def emit_subtitle(self, event):
+        """Publish typed and legacy forms without adding an event-loop hop."""
+        self.subtitle_event.emit(event)
+        self.update_text.emit(
+            event.segment_id,
+            event.original_text,
+            event.translated_text,
+            event.legacy_state,
+        )
 
 class Pipeline(QObject):
     def __init__(self):
@@ -41,6 +56,8 @@ class Pipeline(QObject):
         self._last_partial_text = {}
         self._finalized_chunks = set()
         self._translation_ranks = {}
+        self._subtitle_revision_lock = threading.Lock()
+        self._subtitle_revisions = {}
         self._context_lock = threading.Lock()
         self._last_finalized_segment = ""
         self._refine_queue_lock = threading.RLock()
@@ -215,7 +232,9 @@ class Pipeline(QObject):
         network_message = "Online" if network_status == "ok" else detail or status
         self.signals.runtime_status.emit("Network", network_status, network_message)
 
-    def _emit_ranked_translation(self, chunk_id, text, translated, state, rank):
+    def _emit_ranked_translation(
+        self, chunk_id, text, translated, state, rank, stage=None
+    ):
         """Prevent a late draft from replacing a newer translation stage."""
         if self._paused.is_set():
             return False
@@ -224,8 +243,47 @@ class Pipeline(QObject):
             if rank < current_rank:
                 return False
             self._translation_ranks[chunk_id] = rank
-        self.signals.update_text.emit(chunk_id, text, translated, state)
+        if stage is None:
+            stage = {
+                1: SubtitleStage.APPLE_FINAL,
+                2: SubtitleStage.GROQ_BRIDGE,
+                3: SubtitleStage.AI_FINAL,
+            }.get(rank, SubtitleStage.AI_STREAM)
+        self._emit_subtitle(chunk_id, text, translated, state, stage)
         return True
+
+    def _emit_subtitle(self, chunk_id, text, translated="", state="partial", stage=None):
+        """Publish one typed event; retain the legacy signal through the adapter."""
+        if stage is None:
+            if state == "partial":
+                stage = (
+                    SubtitleStage.APPLE_PARTIAL
+                    if translated else SubtitleStage.ASR_PARTIAL
+                )
+            else:
+                stage = SubtitleStage.AI_STREAM if translated else SubtitleStage.ASR_FINAL
+        lock = self.__dict__.get("_subtitle_revision_lock")
+        if lock is None:
+            lock = self._subtitle_revision_lock = threading.Lock()
+            self._subtitle_revisions = {}
+        with lock:
+            revision = self._subtitle_revisions.get(chunk_id, 0) + 1
+            self._subtitle_revisions[chunk_id] = revision
+        event = SubtitleEvent.create(
+            chunk_id,
+            revision,
+            stage,
+            text,
+            translated,
+            finalized=state == "final",
+        )
+        adapter = getattr(self.signals, "emit_subtitle", None)
+        if adapter is not None:
+            adapter(event)
+        else:
+            # Compatibility for lightweight test doubles and third-party users.
+            self.signals.update_text.emit(chunk_id, text, translated, state)
+        return event
 
     def start(self):
         """Start the processing pipeline in a dedicated thread"""
@@ -468,7 +526,9 @@ class Pipeline(QObject):
             )
             self.last_final_text = text
             context_text = self._snapshot_finalized_context(text)
-            self.signals.update_text.emit(chunk_id, text, "", "final")
+            self._emit_subtitle(
+                chunk_id, text, "", "final", SubtitleStage.ASR_FINAL
+            )
             fast_executor.submit(
                 self._run_fast_final_translation,
                 text, chunk_id, bridge_executor, refine_executor, context_text,
@@ -545,7 +605,13 @@ class Pipeline(QObject):
                 return
             if not is_meaningful_final(remainder):
                 return
-            self.signals.update_text.emit(current_chunk_id, remainder, "", "partial")
+            self._emit_subtitle(
+                current_chunk_id,
+                remainder,
+                "",
+                "partial",
+                SubtitleStage.ASR_PARTIAL,
+            )
             with self._translation_state_lock:
                 previous = self._last_partial_text.get(current_chunk_id)
                 if previous == remainder or len(remainder) < 6:
@@ -617,7 +683,9 @@ class Pipeline(QObject):
                     self._last_partial_text[chunk_id] = normalized
                     version = self._partial_versions.get(chunk_id, 0) + 1
                     self._partial_versions[chunk_id] = version
-                self.signals.update_text.emit(chunk_id, text, "", "partial")
+                self._emit_subtitle(
+                    chunk_id, text, "", "partial", SubtitleStage.ASR_PARTIAL
+                )
                 if translate_executor:
                     translate_executor.submit(
                         self._run_partial_translation,
@@ -655,7 +723,13 @@ class Pipeline(QObject):
                     self.last_final_text = text
                 
                 # Emit final transcription first (confirms text)
-                self.signals.update_text.emit(chunk_id, text, "(translating...)", "final")
+                self._emit_subtitle(
+                    chunk_id,
+                    text,
+                    "(translating...)",
+                    "final",
+                    SubtitleStage.ASR_FINAL,
+                )
                 
                 # Offload translation to separate thread so we don't block next transcription
                 if translate_executor:
@@ -695,7 +769,13 @@ class Pipeline(QObject):
                     current = current and chunk_id not in self._finalized_chunks
                     current = current and not self._paused.is_set()
                 if current:
-                    self.signals.update_text.emit(chunk_id, text, partial, "partial")
+                    self._emit_subtitle(
+                        chunk_id,
+                        text,
+                        partial,
+                        "partial",
+                        SubtitleStage.APPLE_PARTIAL,
+                    )
 
             draft = None
             if self.fast_translator:
@@ -930,7 +1010,14 @@ class Pipeline(QObject):
 
             def emit_before_deadline(partial):
                 if self.running and time.monotonic() < deadline:
-                    self._emit_ranked_translation(chunk_id, text, partial, "final", 3)
+                    self._emit_ranked_translation(
+                        chunk_id,
+                        text,
+                        partial,
+                        "final",
+                        3,
+                        SubtitleStage.AI_STREAM,
+                    )
 
             translate = self.translator.translate
             translate_args = ()
@@ -974,7 +1061,13 @@ class Pipeline(QObject):
                 try:
                     draft = self.fast_translator.translate(text)
                     if not self._paused.is_set():
-                        self.signals.update_text.emit(chunk_id, text, draft, "final")
+                        self._emit_subtitle(
+                            chunk_id,
+                            text,
+                            draft,
+                            "final",
+                            SubtitleStage.APPLE_FINAL,
+                        )
                 except Exception as exc:
                     print(f"[Apple Final Translation {chunk_id}] Failed: {exc}")
 
@@ -987,7 +1080,13 @@ class Pipeline(QObject):
 
             def emit_before_deadline(partial):
                 if self.running and not self._paused.is_set() and time.monotonic() < deadline:
-                    self.signals.update_text.emit(chunk_id, text, partial, "final")
+                    self._emit_subtitle(
+                        chunk_id,
+                        text,
+                        partial,
+                        "final",
+                        SubtitleStage.AI_STREAM,
+                    )
 
             translate = self.translator.translate
             translate_args = ()
@@ -1001,7 +1100,13 @@ class Pipeline(QObject):
             )
             print(f"[Final {chunk_id}] Translated: {translated}")
             if self.running and not self._paused.is_set() and time.monotonic() < deadline:
-                self.signals.update_text.emit(chunk_id, text, translated, "final")
+                self._emit_subtitle(
+                    chunk_id,
+                    text,
+                    translated,
+                    "final",
+                    SubtitleStage.AI_FINAL,
+                )
         except TimeoutError as e:
             print(f"[Translation {chunk_id}] Deadline exceeded: {e}")
             log_stage("translation", chunk_id=chunk_id, status="timeout", detail=str(e))
@@ -1009,7 +1114,13 @@ class Pipeline(QObject):
             print(f"[Translation {chunk_id}] Failed: {e}")
             log_stage("translation", chunk_id=chunk_id, status="error", detail=str(e))
             if not draft and not self._paused.is_set():
-                self.signals.update_text.emit(chunk_id, text, "[Translation Failed]", "final")
+                self._emit_subtitle(
+                    chunk_id,
+                    text,
+                    "[Translation Failed]",
+                    "final",
+                    SubtitleStage.ERROR,
+                )
     
     def _transcribe_chunk(self, transcriber, audio_chunk, chunk_id):
         """Transcribe a single chunk and log timing"""
@@ -1069,6 +1180,8 @@ def start_overlay_session():
 
 def main():
     global _pipeline, _app
+    from runtime_log import begin_runtime_session
+    begin_runtime_session(reset=True)
     
     # Set up signal handler for Ctrl-C
     signal.signal(signal.SIGINT, signal_handler)

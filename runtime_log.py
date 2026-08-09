@@ -2,11 +2,16 @@ import atexit
 import logging
 import os
 import queue
+import threading
+import time
 from logging.handlers import QueueListener, RotatingFileHandler
 
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 LOG_PATH = os.path.join(LOG_DIR, "runtime.log")
+LOG_HISTORY_DIR = os.path.join(LOG_DIR, "history")
+HISTORY_LIMIT = 5
+HISTORY_MAX_AGE_DAYS = 7
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -32,18 +37,69 @@ class DroppingQueueHandler(logging.Handler):
 
 
 _listener = None
-if not logger.handlers:
-    file_handler = RotatingFileHandler(
-        LOG_PATH,
-        maxBytes=2 * 1024 * 1024,
-        backupCount=3,
-        encoding="utf-8",
+_session_started = False
+_startup_lock = threading.Lock()
+
+
+def rotate_runtime_logs(
+    log_path=LOG_PATH,
+    history_dir=LOG_HISTORY_DIR,
+    keep=HISTORY_LIMIT,
+    max_age_days=HISTORY_MAX_AGE_DAYS,
+    now=None,
+):
+    """Archive the previous session and prune stale history."""
+    now = time.time() if now is None else now
+    os.makedirs(history_dir, exist_ok=True)
+    if os.path.exists(log_path) and os.path.getsize(log_path):
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
+        destination = os.path.join(history_dir, f"runtime-{stamp}-{os.getpid()}.log")
+        os.replace(log_path, destination)
+    for suffix in (".1", ".2", ".3"):
+        rotated = f"{log_path}{suffix}"
+        if os.path.exists(rotated):
+            os.remove(rotated)
+
+    entries = sorted(
+        (
+            os.path.join(history_dir, name)
+            for name in os.listdir(history_dir)
+            if name.startswith("runtime-") and name.endswith(".log")
+        ),
+        key=os.path.getmtime,
+        reverse=True,
     )
-    file_handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
-    log_queue = queue.Queue(maxsize=2048)
-    logger.addHandler(DroppingQueueHandler(log_queue))
-    _listener = QueueListener(log_queue, file_handler, respect_handler_level=True)
-    _listener.start()
+    oldest_allowed = now - max_age_days * 86400
+    for index, path in enumerate(entries):
+        if index >= keep or os.path.getmtime(path) < oldest_allowed:
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+
+
+def begin_runtime_session(reset=True):
+    """Start one non-blocking log session; safe to call more than once."""
+    global _listener, _session_started
+    with _startup_lock:
+        if _session_started:
+            return
+        if reset:
+            rotate_runtime_logs()
+        file_handler = RotatingFileHandler(
+            LOG_PATH,
+            maxBytes=2 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
+        log_queue = queue.Queue(maxsize=2048)
+        logger.addHandler(DroppingQueueHandler(log_queue))
+        _listener = QueueListener(
+            log_queue, file_handler, respect_handler_level=True
+        )
+        _listener.start()
+        _session_started = True
 
 
 def _stop_listener():
@@ -58,6 +114,10 @@ atexit.register(_stop_listener)
 
 
 def log_stage(stage, chunk_id=None, status="ok", elapsed_ms=None, detail="", **metrics):
+    if not _session_started:
+        # Libraries and unit tests may use telemetry without launching the app.
+        # Append in that case; only the confirmed primary app resets a session.
+        begin_runtime_session(reset=False)
     fields = [f"stage={stage}", f"status={status}"]
     if chunk_id is not None:
         fields.append(f"chunk={chunk_id}")

@@ -4,7 +4,8 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from types import MethodType, SimpleNamespace
 
-from main import Pipeline
+from main import Pipeline, WorkerSignals
+from subtitle_event import SubtitleStage
 
 
 class RecordingSignal:
@@ -128,6 +129,34 @@ class PipelineContractTests(unittest.TestCase):
         )
 
         self.assertEqual(updates.events, [])
+
+    def test_typed_subtitle_events_increment_revision_and_feed_legacy_signal(self):
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.signals = WorkerSignals()
+        typed = []
+        legacy = []
+        pipeline.signals.subtitle_event.connect(typed.append)
+        pipeline.signals.update_text.connect(lambda *args: legacy.append(args))
+
+        first = pipeline._emit_subtitle(
+            12, "A partial", "一个草稿", "partial", SubtitleStage.APPLE_PARTIAL
+        )
+        second = pipeline._emit_subtitle(
+            12, "A final", "一个终稿", "final", SubtitleStage.AI_FINAL
+        )
+
+        self.assertEqual([event.revision for event in typed], [1, 2])
+        self.assertEqual(first.stage, SubtitleStage.APPLE_PARTIAL)
+        self.assertFalse(first.finalized)
+        self.assertEqual(second.stage, SubtitleStage.AI_FINAL)
+        self.assertTrue(second.finalized)
+        self.assertEqual(
+            legacy,
+            [
+                (12, "A partial", "一个草稿", "partial"),
+                (12, "A final", "一个终稿", "final"),
+            ],
+        )
 
 
 if __name__ == "__main__":
