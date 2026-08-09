@@ -67,7 +67,7 @@ class DependencyInstaller(QThread):
 class LauncherWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Real-Time Translator - Launcher")
+        self.setWindowTitle("Ano Time - Launcher")
         self.setFixedSize(400, 200)
         
         # Central Widget
@@ -78,7 +78,7 @@ class LauncherWindow(QMainWindow):
         central_widget.setLayout(self.layout)
         
         # Title
-        self.label = QLabel("Initializing Real-Time Translator...")
+        self.label = QLabel("Initializing Ano Time...")
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label.setStyleSheet("font-size: 16px; font-weight: bold; margin-bottom: 10px;")
         self.layout.addWidget(self.label)

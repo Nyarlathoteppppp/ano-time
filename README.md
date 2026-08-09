@@ -1,8 +1,10 @@
-# Realtime Ton
+# Ano Time
 
 **Native, low-latency English → Chinese live subtitles for macOS lectures, meetings, and fullscreen video.**
 
-Realtime Ton combines Apple on-device speech recognition and translation with optional AI refinement. Provisional subtitles remain instant, stable sentences receive terminology-aware refinement, and every remote request is deadline-limited so a slow model can never block the live path.
+> 帮助大家度过一开始的语言难关，避免像 Ano 一样（早知道不如去花咲川）。
+
+Ano Time combines Apple on-device speech recognition and translation with optional AI refinement. Provisional subtitles remain instant, stable sentences receive terminology-aware refinement, and every remote request is deadline-limited so a slow model can never block the live path.
 
 It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHole setup required—and render subtitles either as a resizable glass overlay or as an adaptive window attached to the physical MacBook notch.
 
@@ -12,16 +14,16 @@ It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHo
 
 ### Control center
 
-![Realtime Ton glass control center](./demo/control-center.png)
+![Ano Time glass control center](./demo/control-center.png)
 
 ### Physical notch and glass overlay
 
 <p align="center">
-  <img src="./demo/physical-notch.png" width="49%" alt="Realtime Ton subtitles expanding from the physical MacBook notch">
-  <img src="./demo/glass-overlay.png" width="38%" alt="Realtime Ton resizable glass subtitle overlay">
+  <img src="./demo/physical-notch.png" width="49%" alt="Ano Time subtitles expanding from the physical MacBook notch">
+  <img src="./demo/glass-overlay.png" width="38%" alt="Ano Time resizable glass subtitle overlay">
 </p>
 
-## Why Realtime Ton
+## Why Ano Time
 
 - **Live Apple Speech transcription** with visibly distinct provisional and finalized English.
 - **Direct system-audio capture** through ScreenCaptureKit for browser videos, lectures, Zoom, and media apps—BlackHole is optional.
@@ -60,8 +62,8 @@ Whisper/MLX can be used when Apple Speech is unavailable. Windows has legacy lau
 ## Install
 
 ```bash
-git clone https://github.com/Nyarlathoteppppp/realtime-ton.git
-cd realtime-ton
+git clone https://github.com/Nyarlathoteppppp/ano-time.git
+cd ano-time
 chmod +x install_mac.sh start_mac.sh
 ./install_mac.sh
 ```

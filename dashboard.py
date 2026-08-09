@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtWidgets import QCheckBox
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QThread, QTimer
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
-from PyQt6.QtGui import QFont, QIcon, QColor
+from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap
 import sys
 import os
 import sounddevice as sd
@@ -254,7 +254,7 @@ class Dashboard(QWidget):
         # 320 ms proved too strict for normal human double taps. Preserve any
         # explicitly slower setting while migrating the old default to 450 ms.
         self.shortcut_interval = max(0.45, config.shortcut_interval)
-        self.setWindowTitle("Real-Time Translator - Control Center")
+        self.setWindowTitle("Ano Time - Control Center")
         self.setMinimumSize(760, 540)
         self.setStyleSheet(STYLESHEET)
         
@@ -265,9 +265,27 @@ class Dashboard(QWidget):
         self.setLayout(self.layout)
         
         # Header
-        header = QLabel(f"🎙️ Real-Time Translator  ·  {current_version()}")
+        header_row = QHBoxLayout()
+        header_row.setSpacing(10)
+        mascot = QLabel()
+        mascot.setFixedSize(44, 52)
+        mascot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        mascot_path = os.path.join(os.path.dirname(__file__), "assets", "ano-mascot.png")
+        mascot_pixmap = QPixmap(mascot_path)
+        if not mascot_pixmap.isNull():
+            mascot.setPixmap(
+                mascot_pixmap.scaled(
+                    mascot.size(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+        header = QLabel(f"Ano Time  ·  {current_version()}")
         header.setStyleSheet("font-size: 24px; font-weight: bold; color: #89b4fa;")
-        self.layout.addWidget(header)
+        header_row.addWidget(mascot)
+        header_row.addWidget(header)
+        header_row.addStretch()
+        self.layout.addLayout(header_row)
         
         # Tabs
         self.tabs = QTabWidget()
