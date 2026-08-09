@@ -23,6 +23,20 @@ class NativeNotchOverlayTest(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_mascot_is_fixed_to_expanded_notch_top_right(self):
+        source = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "native_notch",
+            "Sources",
+            "RealtimeNotchHelper",
+            "main.swift",
+        )
+        with open(source, encoding="utf-8") as handle:
+            swift = handle.read()
+        self.assertIn("ZStack(alignment: .topTrailing)", swift)
+        self.assertIn(".padding(.trailing, 8)", swift)
+        self.assertNotIn(".padding(.leading, 8)", swift)
+
     def test_scrolled_out_update_is_saved_without_redrawing_notch(self):
         overlay = RecordingNotchOverlay()
         for chunk_id in range(1, 5):

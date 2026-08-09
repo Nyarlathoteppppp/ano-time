@@ -92,6 +92,9 @@ class SessionController:
         view.status_label.setText("Running...")
         view.status_label.setStyleSheet("font-size: 18px; color: #a6e3a1;")
         view.start_btn.hide()
+        if hasattr(view, "pause_btn"):
+            view.pause_btn.setText("⏸ Pause Translator")
+            view.pause_btn.show()
         view.stop_btn.show()
         # Keep the control center available from the Dock, but explicitly
         # remove its AppKit vibrancy child from composition while minimized.
@@ -121,9 +124,13 @@ class SessionController:
         if paused:
             view.status_label.setText("Paused · ⌃S to resume")
             view.status_label.setStyleSheet("font-size: 16px; color: #f9e2af;")
+            if hasattr(view, "pause_btn"):
+                view.pause_btn.setText("▶ Resume Translator")
         else:
             view.status_label.setText("Running · ⌃S to pause")
             view.status_label.setStyleSheet("font-size: 16px; color: #a6e3a1;")
+            if hasattr(view, "pause_btn"):
+                view.pause_btn.setText("⏸ Pause Translator")
         log_stage(
             "session_pause" if paused else "session_resume",
             elapsed_ms=(time.perf_counter() - started) * 1000,
@@ -142,6 +149,8 @@ class SessionController:
             view.pipeline = None
         view.status_label.setText("Stopped")
         view.stop_btn.hide()
+        if hasattr(view, "pause_btn"):
+            view.pause_btn.hide()
         view.start_btn.show()
         view.start_btn.setEnabled(True)
         view.start_btn.setText("▶ Launch Translator")

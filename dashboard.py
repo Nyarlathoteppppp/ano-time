@@ -475,6 +475,14 @@ class Dashboard(QWidget):
         self.stop_btn.clicked.connect(self.on_stop)
         self.stop_btn.hide()
 
+        self.pause_btn = QPushButton("⏸ Pause Translator")
+        self.pause_btn.setFixedSize(200, 60)
+        self.pause_btn.setStyleSheet(
+            "font-size: 16px; background-color: #f9e2af; border-radius: 10px;"
+        )
+        self.pause_btn.clicked.connect(self.toggle_pipeline_pause)
+        self.pause_btn.hide()
+
         self.log_btn = QPushButton("📄 Open Runtime Log")
         self.log_btn.setFixedSize(200, 38)
         self.log_btn.clicked.connect(self.open_runtime_log)
@@ -484,6 +492,7 @@ class Dashboard(QWidget):
         self.shortcut_btn.clicked.connect(self.open_shortcut_settings)
         
         btn_layout.addWidget(self.start_btn)
+        btn_layout.addWidget(self.pause_btn)
         btn_layout.addWidget(self.stop_btn)
         layout.addLayout(btn_layout)
         layout.addWidget(self.log_btn)
@@ -523,6 +532,10 @@ class Dashboard(QWidget):
 
     def on_global_shortcut(self):
         self.shortcut_controller.activated()
+
+    def toggle_pipeline_pause(self):
+        if self.pipeline:
+            self._set_pipeline_paused(not self.pipeline.is_paused)
 
     def _set_pipeline_paused(self, paused, update_overlay=True):
         self.session_controller.set_paused(paused, update_overlay)
@@ -1637,9 +1650,22 @@ if __name__ == "__main__":
     w = Dashboard()
 
     def activate_dashboard():
+        import time
+        from runtime_log import log_stage
+        started = time.perf_counter()
+        previous_state = "minimized" if w.isMinimized() else "visible"
         w.showNormal()
         w.raise_()
         w.activateWindow()
+        QTimer.singleShot(
+            0,
+            lambda: log_stage(
+                "dashboard_restore",
+                elapsed_ms=(time.perf_counter() - started) * 1000,
+                previous_state=previous_state,
+                session_state=w._session_state,
+            ),
+        )
 
     instance_server = start_instance_server(
         activate_dashboard,

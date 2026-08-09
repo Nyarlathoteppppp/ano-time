@@ -55,6 +55,7 @@ class ControllerTests(unittest.TestCase):
             pipeline=SimpleNamespace(stop=lambda: calls.append("pipeline")),
             status_label=FakeWidget(),
             stop_btn=FakeWidget(),
+            pause_btn=FakeWidget(),
             start_btn=FakeWidget(),
             showNormal=lambda: calls.append("normal"),
         )
@@ -62,7 +63,24 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(view._session_state, "idle")
         self.assertIsNone(view.pipeline)
         self.assertIsNone(view.overlay_window)
+        self.assertFalse(view.pause_btn.visible)
         self.assertEqual(calls, ["overlay", "pipeline", "normal"])
+
+    def test_pause_button_tracks_pipeline_state(self):
+        paused = []
+        view = SimpleNamespace(
+            pipeline=SimpleNamespace(set_paused=paused.append),
+            overlay_window=None,
+            status_label=FakeWidget(),
+            pause_btn=FakeWidget(),
+        )
+        controller = SessionController(view, None)
+        controller.set_paused(True)
+        self.assertEqual(paused, [True])
+        self.assertEqual(view.pause_btn.text, "▶ Resume Translator")
+        controller.set_paused(False)
+        self.assertEqual(paused, [True, False])
+        self.assertEqual(view.pause_btn.text, "⏸ Pause Translator")
 
     def test_shortcut_idle_launches_notch_through_existing_view_api(self):
         calls = []

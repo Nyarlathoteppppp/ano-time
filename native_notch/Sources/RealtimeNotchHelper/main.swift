@@ -125,7 +125,7 @@ private struct SubtitleContent: View {
     }
 
     var body: some View {
-        ZStack(alignment: .leading) {
+        ZStack(alignment: .topTrailing) {
             VStack(alignment: .center, spacing: 5) {
                 ForEach(state.items.suffix(state.displayCount)) { item in
                     VStack(alignment: .center, spacing: 2) {
@@ -160,7 +160,9 @@ private struct SubtitleContent: View {
             if let mascotImage = MascotAsset.image {
                 Image(nsImage: mascotImage)
                     .frame(width: 26, height: 26)
-                    .padding(.leading, 8)
+                    .padding(.top, 4)
+                    .padding(.trailing, 8)
+                    .allowsHitTesting(false)
             }
         }
         .frame(
