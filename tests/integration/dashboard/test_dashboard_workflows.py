@@ -68,6 +68,8 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.audio_test_status,
             self.dashboard.audio_panel.audio_test_status,
         )
+        self.assertIs(self.dashboard.audio_scroll.widget(), self.dashboard.audio_panel)
+        self.assertTrue(self.dashboard.audio_scroll.widgetResizable())
 
     def test_user_titlebar_close_requests_full_quit(self):
         spontaneous = MagicMock()

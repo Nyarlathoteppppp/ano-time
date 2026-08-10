@@ -760,8 +760,17 @@ class Dashboard(QWidget):
         self.restore_audio_defaults_btn = panel.restore_audio_defaults_btn
         self.audio_test_status = panel.audio_test_status
         self.populate_devices()
+        scroll = QScrollArea()
+        scroll.setObjectName("AudioScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        scroll.setWidget(panel)
+        self.audio_scroll = scroll
         self.tabs.addTab(
-            panel,
+            scroll,
             QIcon(os.path.join(os.path.dirname(__file__), "assets", "tab-audio-ano.png")),
             "Audio",
         )

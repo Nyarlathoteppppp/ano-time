@@ -77,6 +77,25 @@ class AudioPanelTests(unittest.TestCase):
         callbacks["on_open_permissions"].assert_called_once()
         callbacks["on_restore_defaults"].assert_called_once()
 
+    def test_controls_have_non_compressible_readable_heights(self):
+        panel, _callbacks = make_panel()
+        self.addCleanup(panel.close)
+        for control in (
+            panel.device_combo,
+            panel.sample_rate,
+            panel.silence_thresh,
+            panel.silence_dur,
+            panel.update_interval,
+        ):
+            self.assertGreaterEqual(control.minimumHeight(), 38)
+        for button in (
+            panel.use_system_audio_btn,
+            panel.test_system_audio_btn,
+            panel.open_audio_permission_btn,
+            panel.restore_audio_defaults_btn,
+        ):
+            self.assertGreaterEqual(button.minimumHeight(), 42)
+
 
 if __name__ == "__main__":
     unittest.main()

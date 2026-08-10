@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QPushButton,
     QSpinBox,
     QWidget,
@@ -39,6 +40,7 @@ class AudioPanel(QWidget):
         self.settings = settings
         self.grid_layout = QGridLayout()
         self.grid_layout.setSpacing(15)
+        self.grid_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         self.setLayout(self.grid_layout)
         self._build(
             on_device_changed=on_device_changed,
@@ -60,6 +62,7 @@ class AudioPanel(QWidget):
 
         self.refresh_btn = QPushButton("🔄")
         self.refresh_btn.setFixedWidth(40)
+        self.refresh_btn.setMinimumHeight(38)
         self.refresh_btn.clicked.connect(callbacks["on_refresh"])
         layout.addWidget(self.refresh_btn, 0, 2)
 
@@ -93,20 +96,32 @@ class AudioPanel(QWidget):
         )
         layout.addWidget(self.update_interval, 4, 1)
 
+        for control in (
+            self.device_combo,
+            self.sample_rate,
+            self.silence_thresh,
+            self.silence_dur,
+            self.update_interval,
+        ):
+            control.setMinimumHeight(38)
+
         action_row = QHBoxLayout()
         self.use_system_audio_btn = QPushButton("Use System Audio")
         self.use_system_audio_btn.setToolTip(
             "Select native ScreenCaptureKit audio from videos and applications"
         )
         self.use_system_audio_btn.clicked.connect(callbacks["on_use_system_audio"])
+        self.use_system_audio_btn.setMinimumHeight(42)
         action_row.addWidget(self.use_system_audio_btn)
 
         self.test_system_audio_btn = QPushButton("Test Permission & Audio")
         self.test_system_audio_btn.clicked.connect(callbacks["on_test_system_audio"])
+        self.test_system_audio_btn.setMinimumHeight(42)
         action_row.addWidget(self.test_system_audio_btn)
 
         self.open_audio_permission_btn = QPushButton("Open Permission Settings")
         self.open_audio_permission_btn.clicked.connect(callbacks["on_open_permissions"])
+        self.open_audio_permission_btn.setMinimumHeight(42)
         action_row.addWidget(self.open_audio_permission_btn)
 
         self.restore_audio_defaults_btn = QPushButton(
@@ -116,6 +131,7 @@ class AudioPanel(QWidget):
             "Reset only Audio settings. API, ASR, translation, and display settings stay unchanged."
         )
         self.restore_audio_defaults_btn.clicked.connect(callbacks["on_restore_defaults"])
+        self.restore_audio_defaults_btn.setMinimumHeight(42)
         layout.addLayout(action_row, 5, 0, 1, 3)
         layout.addWidget(self.restore_audio_defaults_btn, 6, 0, 1, 3)
 
@@ -123,6 +139,7 @@ class AudioPanel(QWidget):
             "System Audio uses macOS ScreenCaptureKit; BlackHole is not required."
         )
         self.audio_test_status.setWordWrap(True)
+        self.audio_test_status.setMinimumHeight(52)
         self.audio_test_status.setStyleSheet(
             "color: #a6adc8; background: rgba(255,255,255,14); "
             "padding: 10px; border-radius: 8px;"
@@ -132,6 +149,7 @@ class AudioPanel(QWidget):
             "生效时间：权限测试立即执行；音频来源和参数保存后重新 Launch 生效。"
         )
         self.apply_hint.setWordWrap(True)
+        self.apply_hint.setMinimumHeight(30)
         self.apply_hint.setStyleSheet("font-size: 11px; color: #f9e2af;")
         layout.addWidget(self.apply_hint, 8, 0, 1, 3)
         layout.setRowStretch(9, 1)
