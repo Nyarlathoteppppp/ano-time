@@ -86,6 +86,24 @@ class NativeNotchOverlayTest(unittest.TestCase):
         self.assertEqual(overlay.transcript_data[7]["translated"], translation)
         self.assertGreater(len(rendered), 1)
 
+    def test_long_finalized_source_splits_only_at_clause_boundaries(self):
+        overlay = RecordingNotchOverlay()
+        first = " ".join(f"alpha{i}" for i in range(20)) + ","
+        second = " ".join(f"beta{i}" for i in range(20)) + "."
+        original = f"{first} {second}"
+        overlay.update_text(12, original, "第一部分，第二部分。", "final")
+
+        rendered = overlay._latest_items()
+        self.assertEqual(len(rendered), 2)
+        self.assertTrue(rendered[0]["original"].endswith(","))
+        self.assertEqual(overlay.transcript_data[12]["original"], original)
+
+    def test_long_final_without_safe_boundary_remains_one_semantic_record(self):
+        text = " ".join(f"token{i}" for i in range(40))
+        self.assertEqual(
+            NativeNotchOverlay._split_finalized_source(text, 34), [text]
+        )
+
     def test_long_provisional_translation_is_split_for_small_notch_visibility(self):
         overlay = RecordingNotchOverlay()
         translation = "正在增长的苹果实时翻译草稿会持续追加中文内容" * 7

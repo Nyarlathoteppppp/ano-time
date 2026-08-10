@@ -4,7 +4,12 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from types import MethodType, SimpleNamespace
 
-from main import Pipeline, WorkerSignals
+from main import (
+    Pipeline,
+    WorkerSignals,
+    diagnostic_audio_activity_threshold,
+    recent_audio_anchor,
+)
 from subtitle_event import SubtitleStage
 
 
@@ -17,6 +22,13 @@ class RecordingSignal:
 
 
 class PipelineContractTests(unittest.TestCase):
+    def test_diagnostic_audio_anchor_accepts_quiet_recent_speech_only(self):
+        self.assertAlmostEqual(
+            diagnostic_audio_activity_threshold(0.005), 0.00175
+        )
+        self.assertEqual(recent_audio_anchor(10.0, 11.4), 10.0)
+        self.assertIsNone(recent_audio_anchor(10.0, 11.6))
+
     def test_start_runs_processing_loop_on_daemon_thread(self):
         pipeline = Pipeline.__new__(Pipeline)
         ran = threading.Event()

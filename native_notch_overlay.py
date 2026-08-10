@@ -216,7 +216,12 @@ class NativeNotchOverlay(QObject):
         # complete semantic record store or classroom export data.
         for chunk_id, item in self.record_store.latest_items(3):
             translated_parts = self._split_display_text(item["translated"], 58)
-            if len(translated_parts) <= 1:
+            original_parts = (
+                self._split_finalized_source(item["original"], 34)
+                if item["finalized"] else [item["original"]]
+            )
+            part_count = max(len(original_parts), len(translated_parts))
+            if part_count <= 1:
                 rendered.append({
                     "id": chunk_id,
                     "original": item["original"],
@@ -225,17 +230,89 @@ class NativeNotchOverlay(QObject):
                 })
                 continue
 
-            original_parts = self._balanced_parts(
-                item["original"], len(translated_parts)
-            )
-            for index, translated in enumerate(translated_parts):
+            if len(original_parts) != part_count:
+                original_parts = self._semantic_parts_for_count(
+                    item["original"], part_count
+                )
+            if len(translated_parts) != part_count:
+                translated_parts = self._semantic_parts_for_count(
+                    item["translated"], part_count
+                )
+            for index, (original, translated) in enumerate(zip(
+                original_parts, translated_parts
+            )):
                 rendered.append({
                     "id": chunk_id * 1000 + index,
-                    "original": original_parts[index],
+                    "original": original,
                     "translated": translated,
                     "finalized": item["finalized"],
                 })
         return rendered[-3:]
+
+    @staticmethod
+    def _split_finalized_source(text, max_words):
+        """Split long finalized text only at explicit clause boundaries."""
+        text = " ".join((text or "").split())
+        if len(text.split()) <= max_words:
+            return [text]
+        clauses = [
+            part.strip()
+            for part in re.split(r"(?<=[.!?;,:])\s+", text)
+            if part.strip()
+        ]
+        if len(clauses) <= 1:
+            # No safe semantic boundary: preserve the sentence intact.
+            return [text]
+        parts = []
+        current = []
+        current_words = 0
+        for clause in clauses:
+            clause_words = len(clause.split())
+            if current and current_words + clause_words > max_words:
+                parts.append(" ".join(current))
+                current = []
+                current_words = 0
+            current.append(clause)
+            current_words += clause_words
+        if current:
+            parts.append(" ".join(current))
+        return parts if len(parts) > 1 else [text]
+
+    @staticmethod
+    def _semantic_parts_for_count(text, count):
+        """Align display fragments while preferring punctuation boundaries."""
+        text = " ".join((text or "").split())
+        if count <= 1:
+            return [text]
+        clauses = [
+            part.strip()
+            for part in re.split(r"(?<=[。！？!?；;，,])", text)
+            if part.strip()
+        ]
+        if len(clauses) < count:
+            return NativeNotchOverlay._balanced_parts(text, count)
+        parts = []
+        start = 0
+        total_width = max(1, NativeNotchOverlay._visual_width(text))
+        for index in range(count):
+            remaining_parts = count - index
+            remaining_clauses = len(clauses) - start
+            if remaining_parts == 1:
+                parts.append("".join(clauses[start:]).strip())
+                break
+            target = total_width / count
+            end = start
+            width = 0
+            while end < len(clauses) - (remaining_parts - 1):
+                next_width = NativeNotchOverlay._visual_width(clauses[end])
+                if end > start and width + next_width > target:
+                    break
+                width += next_width
+                end += 1
+            end = max(start + 1, end)
+            parts.append("".join(clauses[start:end]).strip())
+            start = end
+        return parts
 
     @staticmethod
     def _split_display_text(text, max_chars):

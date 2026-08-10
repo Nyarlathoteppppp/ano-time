@@ -27,6 +27,17 @@ from segment_store import SegmentStore
 from fast_path import FastPath
 from translation_workflows import build_translation_workflow
 
+
+def diagnostic_audio_activity_threshold(silence_threshold):
+    """Lower VAD threshold used only to anchor latency measurements."""
+    return max(0.0001, float(silence_threshold) * 0.35)
+
+
+def recent_audio_anchor(recent_activity_at, now, max_age=1.5):
+    if recent_activity_at is None:
+        return None
+    return recent_activity_at if now - recent_activity_at <= max_age else None
+
 class WorkerSignals(QObject):
     subtitle_event = pyqtSignal(object)
     # (chunk_id, original, translated, ASR state: "partial" | "final")
@@ -519,6 +530,7 @@ class Pipeline(QObject):
         state = {
             "chunk_id": 1,
             "audio_started_at": None,
+            "recent_audio_activity_at": None,
             "first_partial_at": None,
             "stable_tracker": StablePrefixTracker(
                 agreement_window=config.stable_prefix_window,
@@ -544,6 +556,7 @@ class Pipeline(QObject):
                 if had_activity:
                     state["chunk_id"] += 1
                 state["audio_started_at"] = None
+                state["recent_audio_activity_at"] = None
                 state["first_partial_at"] = None
                 state["stable_tracker"] = StablePrefixTracker(
                     agreement_window=config.stable_prefix_window,
@@ -635,6 +648,13 @@ class Pipeline(QObject):
             finalized_segments = []
             with state_lock:
                 audio_anchor = state["audio_started_at"]
+                if audio_anchor is None:
+                    recent_audio = recent_audio_anchor(
+                        state["recent_audio_activity_at"], now
+                    )
+                    if recent_audio is not None:
+                        audio_anchor = recent_audio
+                        state["audio_started_at"] = recent_audio
                 segment_started_at = audio_anchor or now
                 first_partial_at = state["first_partial_at"]
                 stable_text = text if is_final else ""
@@ -762,9 +782,18 @@ class Pipeline(QObject):
                         state["stream_ready_logged"] = True
                         log_stage("audio_stream_ready", elapsed_ms=0)
                     rms = float((audio_chunk ** 2).mean() ** 0.5)
+                    # Diagnostic anchor only: Apple Speech can recognize quiet
+                    # speech below the user-facing silence threshold. A lower
+                    # threshold makes first-partial latency measurable without
+                    # changing which audio is fed to ASR.
+                    activity_threshold = diagnostic_audio_activity_threshold(
+                        config.silence_threshold
+                    )
+                    if rms >= activity_threshold:
+                        state["recent_audio_activity_at"] = time.monotonic()
                     if (
                         state["audio_started_at"] is None
-                        and rms >= max(0.0001, config.silence_threshold)
+                        and rms >= activity_threshold
                     ):
                         state["audio_started_at"] = time.monotonic()
                         audio_marker = (state["chunk_id"], state["audio_started_at"])
