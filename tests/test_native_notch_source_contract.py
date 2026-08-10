@@ -55,6 +55,12 @@ class NativeNotchSourceContractTests(unittest.TestCase):
             self.source.index("emitEvent(event)", self.source.index("func terminate")),
         )
 
+    def test_exit_cancels_pending_expansion_and_double_click_is_debounced(self):
+        self.assertIn("notchTransitionTask?.cancel()", self.source)
+        self.assertIn("state.compactTask?.cancel()", self.source)
+        self.assertIn("guard !terminationInProgress else { return }", self.source)
+        self.assertIn("now.timeIntervalSince(lastCycleAt) >= 0.25", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

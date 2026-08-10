@@ -58,6 +58,22 @@ class PipelineContractTests(unittest.TestCase):
         pipeline.set_paused(False)
         self.assertFalse(pipeline.is_paused)
 
+    def test_pause_seals_boundary_and_resets_apple_session_in_background(self):
+        boundary_called = threading.Event()
+        reset_called = threading.Event()
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline._paused = threading.Event()
+        pipeline._pause_boundary_handler = boundary_called.set
+        pipeline._fast_path = SimpleNamespace(invalidate_all=lambda: None)
+        pipeline.apple_transcriber = SimpleNamespace(reset=reset_called.set)
+        pipeline._apple_reset_thread = None
+
+        pipeline.set_paused(True)
+
+        self.assertTrue(boundary_called.wait(timeout=0.2))
+        self.assertTrue(reset_called.wait(timeout=0.5))
+        self.assertTrue(pipeline.is_paused)
+
     def test_partial_apple_groq_ai_order_cannot_regress(self):
         updates = RecordingSignal()
         pipeline = Pipeline.__new__(Pipeline)

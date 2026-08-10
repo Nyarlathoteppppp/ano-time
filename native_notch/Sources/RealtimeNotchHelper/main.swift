@@ -329,9 +329,13 @@ private struct RealtimeNotchHelper {
         }
 
         var terminationInProgress = false
+        var lastCycleAt = Date.distantPast
+        var notchTransitionTask: Task<Void, Never>?
         func terminate(_ event: String) {
             guard !terminationInProgress else { return }
             terminationInProgress = true
+            notchTransitionTask?.cancel()
+            state.compactTask?.cancel()
             Task { @MainActor in
                 await hideNotch()
                 // Notify Python only after the reverse contraction finishes;
@@ -341,10 +345,23 @@ private struct RealtimeNotchHelper {
             }
         }
 
-        state.onExpand = { Task { @MainActor in await expandActiveNotch() } }
+        state.onExpand = {
+            guard !terminationInProgress else { return }
+            notchTransitionTask?.cancel()
+            notchTransitionTask = Task { @MainActor in
+                guard !Task.isCancelled, !terminationInProgress else { return }
+                await expandActiveNotch()
+            }
+        }
         state.onCycleSize = {
+            guard !terminationInProgress else { return }
+            let now = Date()
+            guard now.timeIntervalSince(lastCycleAt) >= 0.25 else { return }
+            lastCycleAt = now
             state.cycleSize()
-            Task { @MainActor in
+            notchTransitionTask?.cancel()
+            notchTransitionTask = Task { @MainActor in
+                guard !Task.isCancelled, !terminationInProgress else { return }
                 await expandActiveNotch()
             }
         }
@@ -361,6 +378,7 @@ private struct RealtimeNotchHelper {
                       let message = try? JSONDecoder().decode(InputMessage.self, from: data) else { continue }
                 if message.command == "quit" { break }
                 Task { @MainActor in
+                    guard !terminationInProgress else { return }
                     if let paused = message.paused {
                         state.isPaused = paused
                     }

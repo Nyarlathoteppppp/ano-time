@@ -60,6 +60,8 @@ class Pipeline(QObject):
         self._subtitle_event_count_lock = threading.Lock()
         self._segment_store = SegmentStore()
         self._fast_path = None
+        self._pause_boundary_handler = None
+        self._apple_reset_thread = None
         self._subtitle_events_since_sample = 0
         self._performance_sampler = (
             RuntimePerformanceSampler(self._take_subtitle_event_count)
@@ -316,6 +318,22 @@ class Pipeline(QObject):
             fast_path = self.__dict__.get("_fast_path")
             if fast_path:
                 fast_path.invalidate_all()
+            boundary_handler = self.__dict__.get("_pause_boundary_handler")
+            if boundary_handler:
+                boundary_handler()
+            apple_transcriber = self.__dict__.get("apple_transcriber")
+            reset_thread = self.__dict__.get("_apple_reset_thread")
+            if (
+                apple_transcriber is not None
+                and (reset_thread is None or not reset_thread.is_alive())
+            ):
+                reset_thread = threading.Thread(
+                    target=apple_transcriber.reset,
+                    name="apple-speech-pause-reset",
+                    daemon=True,
+                )
+                self._apple_reset_thread = reset_thread
+                reset_thread.start()
             print("[Pipeline] Paused.")
         else:
             self._paused.clear()
@@ -508,7 +526,49 @@ class Pipeline(QObject):
             ),
             "segmenter": IncrementalSegmenter(),
             "stream_ready_logged": False,
+            "latest_remainder": "",
         }
+
+        def seal_pause_boundary():
+            """Finalize/discard the current hypothesis and force a new ID."""
+            boundary = None
+            with state_lock:
+                remainder = state["latest_remainder"]
+                had_activity = bool(
+                    remainder
+                    or state["audio_started_at"] is not None
+                    or state["first_partial_at"] is not None
+                )
+                if remainder and is_meaningful_final(remainder):
+                    boundary = (state["chunk_id"], remainder)
+                if had_activity:
+                    state["chunk_id"] += 1
+                state["audio_started_at"] = None
+                state["first_partial_at"] = None
+                state["stable_tracker"] = StablePrefixTracker(
+                    agreement_window=config.stable_prefix_window,
+                    min_growth_words=config.stable_prefix_min_words,
+                )
+                state["segmenter"] = IncrementalSegmenter()
+                state["latest_remainder"] = ""
+            if boundary:
+                chunk_id, text = boundary
+                with self._translation_state_lock:
+                    self._finalized_chunks.add(chunk_id)
+                    self._partial_versions[chunk_id] = (
+                        self._partial_versions.get(chunk_id, 0) + 1
+                    )
+                self._emit_subtitle(
+                    chunk_id, text, "", "final", SubtitleStage.ASR_FINAL
+                )
+                log_stage(
+                    "pause_boundary", chunk_id=chunk_id,
+                    status="sealed", detail=text,
+                )
+            else:
+                log_stage("pause_boundary", status="reset")
+
+        self._pause_boundary_handler = seal_pause_boundary
 
         def publish_final(text, chunk_id, segment_started_at, first_partial_at,
                           cut_reason="native_final"):
@@ -608,6 +668,7 @@ class Pipeline(QObject):
                 segments, remainder = state["segmenter"].observe(
                     text, stable_text=stable_text, is_final=is_final, now=now
                 )
+                state["latest_remainder"] = "" if is_final else remainder
                 cut_reasons = list(state["segmenter"].last_cut_reasons)
                 for index, segment in enumerate(segments):
                     finalized_segments.append((
@@ -727,6 +788,7 @@ class Pipeline(QObject):
                 fast_executor.shutdown(wait=False, cancel_futures=True)
             if self.__dict__.get("_fast_path") is fast_path:
                 self._fast_path = None
+            self._pause_boundary_handler = None
             bridge_executor.shutdown(wait=False, cancel_futures=True)
             refine_executor.shutdown(wait=False, cancel_futures=True)
 

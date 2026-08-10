@@ -32,6 +32,8 @@ class AppleSpeechTranscriber:
         self.ready = threading.Event()
         self.error = None
         self._write_lock = threading.Lock()
+        self._reset_lock = threading.Lock()
+        self._resetting = threading.Event()
 
         root = os.path.dirname(os.path.abspath(__file__))
         self.source_path = os.path.join(root, "apple_speech_helper.swift")
@@ -75,7 +77,7 @@ class AppleSpeechTranscriber:
 
             event_type = event.get("type")
             if event_type == "result":
-                if self.on_result:
+                if self.on_result and not self._resetting.is_set():
                     self.on_result(event.get("text", ""), bool(event.get("final")))
             elif event_type == "status":
                 status = event.get("status", "unknown")
@@ -99,6 +101,10 @@ class AppleSpeechTranscriber:
             print(f"[Apple Speech helper] {raw_line.decode('utf-8', errors='replace').rstrip()}")
 
     def feed(self, audio_data):
+        if self._resetting.is_set():
+            # A very fast resume can race the background reset. Dropping this
+            # tiny boundary slice is safer than joining two utterances.
+            return False
         if not self.process or self.process.poll() is not None or not self.process.stdin:
             raise RuntimeError(self.error or "Apple Speech helper is not running")
         pcm = np.clip(audio_data, -1.0, 1.0)
@@ -106,8 +112,25 @@ class AppleSpeechTranscriber:
         try:
             with self._write_lock:
                 self.process.stdin.write(pcm.tobytes())
+            return True
         except BrokenPipeError as exc:
+            if self._resetting.is_set():
+                return False
             raise RuntimeError(self.error or "Apple Speech helper pipe closed") from exc
+
+    def reset(self):
+        """Start a fresh native recognition session at a pause boundary."""
+        if not self._reset_lock.acquire(blocking=False):
+            return
+        self._resetting.set()
+        try:
+            self.stop()
+            self.ready.clear()
+            self.error = None
+            self.start()
+        finally:
+            self._resetting.clear()
+            self._reset_lock.release()
 
     def stop(self):
         process = self.process
