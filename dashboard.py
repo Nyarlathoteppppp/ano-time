@@ -26,6 +26,14 @@ from dashboard_support.workers import (
     StartupWorker,
     SystemAudioTestWorker,
 )
+from dashboard_support.settings_repository import DashboardSettingsRepository
+from dashboard_support.settings_snapshot import (
+    AudioSettings,
+    DashboardSettingsSnapshot,
+    ProviderSettings,
+    TranscriptionSettings,
+    TranslationSettings,
+)
 
 try:
     from ctypes import c_void_p
@@ -1757,106 +1765,16 @@ class Dashboard(QWidget):
                 "Input device changed · Stop and Launch again to apply"
             )
 
-    def save_config(self, checked=False, show_status=True):
-        import configparser
-        import os
-        from keychain_store import SECRET_FIELDS, store as keychain
-        
-        # Update config object logic would go here, 
-        # For now, we write directly to config.ini similarly to settings_window.py
-        
-        cp = configparser.ConfigParser()
-        config_path = os.path.join(os.path.dirname(__file__), "config.ini")
-        cp.read(config_path)
-
-        saved_secret_updates = {}
-
-        def persist_secret(section, option, account, value):
-            """Preserve an existing Keychain reference until its value changes."""
-            value = str(value or "")
-            previous = self._saved_secrets.get(account)
-            if previous is not None and value == previous:
-                return cp.get(section, option, fallback="")
-            stored = keychain.store_for_config(account, value)
-            saved_secret_updates[account] = value
-            return stored
-        
-        if not cp.has_section("audio"): cp.add_section("audio")
-        if not cp.has_section("api"): cp.add_section("api")
-        if not cp.has_section("translation"): cp.add_section("translation")
-        if not cp.has_section("transcription"): cp.add_section("transcription")
-        if not cp.has_section("providers"): cp.add_section("providers")
-        if not cp.has_section("display"): cp.add_section("display")
-        if not cp.has_section("shortcut"): cp.add_section("shortcut")
-        if not cp.has_section("diagnostics"): cp.add_section("diagnostics")
-        if not cp.has_section("records"): cp.add_section("records")
-        
-        # Audio
-        idx = self.device_combo.currentData()
-        cp.set("audio", "device_index", str(idx) if idx is not None else "auto")
-        cp.set("audio", "sample_rate", str(self.sample_rate.value()))
-        cp.set("audio", "silence_threshold", str(self.silence_thresh.value()))
-        cp.set("audio", "silence_duration", str(self.silence_dur.value()))
-        cp.set("audio", "update_interval", str(self.update_interval.value()))
-        
-        # Transcription
-        cp.set("transcription", "backend", self.asr_backend.currentText())
-        cp.set("transcription", "whisper_model", self.whisper_model.currentText())
-        cp.set("transcription", "funasr_model", self.funasr_model.currentText())
-        cp.set("transcription", "device", self.device_type.currentText())
-        cp.set("transcription", "compute_type", self.compute_type.currentText())
-        cp.set(
-            "transcription", "source_language",
-            str(self.source_language.currentData() or self.source_language.currentText()),
-        )
-        
-        # Translation
+    def collect_settings(self):
+        """Create an immutable settings snapshot from the current widgets."""
         workflow = self.translation_workflow.currentData() or "smart_hybrid"
         bridge_provider = (
             "off" if workflow == "apple_only"
             else self.bridge_provider.currentData() or "off"
         )
         if workflow == "single_model":
-            cp.set(
-                "api", "api_key",
-                persist_secret(
-                    "api", "api_key",
-                    SECRET_FIELDS[("api", "api_key")], self.api_key.text()
-                ),
-            )
-            cp.set("api", "base_url", self.base_url.text())
-            cp.set("translation", "model", self.model.currentText())
-        cp.set(
-            "translation", "target_lang",
-            str(self.target_lang.currentData() or self.target_lang.currentText()),
-        )
-        cp.set("translation", "domain", self.translation_domain.text())
-        cp.set(
-            "translation", "fast_backend",
-            "apple" if workflow == "apple_only"
-            else self.fast_translation_backend.currentText(),
-        )
-        cp.set("translation", "workflow", workflow)
-        cp.set("translation", "bridge_provider", bridge_provider)
-        cp.set("translation", "single_provider", self.provider.currentText())
-        cp.set(
-            "translation", "provider",
-            "Fast Free Pool → Qwen-MT"
-            if workflow == "smart_hybrid" else self.provider.currentText(),
-        )
-        if workflow == "single_model":
             self.provider_keys[self.provider.currentText()] = self.api_key.text()
             self.provider_urls[self.provider.currentText()] = self.base_url.text()
-        cp.set("providers", "deepseek_api_key", persist_secret(
-            "providers", "deepseek_api_key",
-            SECRET_FIELDS[("providers", "deepseek_api_key")],
-            self.provider_keys.get("DeepSeek Official", ""),
-        ))
-        cp.set("providers", "siliconflow_api_key", persist_secret(
-            "providers", "siliconflow_api_key",
-            SECRET_FIELDS[("providers", "siliconflow_api_key")],
-            self.provider_keys.get("SiliconFlow", ""),
-        ))
         qwen_key = (
             self.api_key.text()
             if workflow == "single_model"
@@ -1869,41 +1787,66 @@ class Dashboard(QWidget):
             and self.provider.currentText() == "Alibaba Cloud Qwen-MT"
             else self.qwen_fallback_url.text()
         )
-        cp.set("providers", "qwen_mt_api_key", persist_secret(
-            "providers", "qwen_mt_api_key",
-            SECRET_FIELDS[("providers", "qwen_mt_api_key")], qwen_key,
-        ))
-        cp.set("providers", "qwen_mt_base_url", qwen_url)
-        cp.set("providers", "groq_api_key", persist_secret(
-            "providers", "groq_api_key",
-            SECRET_FIELDS[("providers", "groq_api_key")], self.groq_api_key.text(),
-        ))
-        cp.set("providers", "gemini_api_key", persist_secret(
-            "providers", "gemini_api_key",
-            SECRET_FIELDS[("providers", "gemini_api_key")], self.gemini_api_key.text(),
-        ))
-        cp.set("providers", "cloudflare_account_id", self.cloudflare_account_id.text())
-        cp.set("providers", "cloudflare_api_token", persist_secret(
-            "providers", "cloudflare_api_token",
-            SECRET_FIELDS[("providers", "cloudflare_api_token")],
-            self.cloudflare_api_token.text(),
-        ))
-        cp.set("display", "mode", self.display_mode.currentData())
-        cp.set("shortcut", "enabled", "true" if self.shortcut_enabled else "false")
-        cp.set("shortcut", "double_tap_interval", str(self.shortcut_interval))
-        cp.set(
-            "diagnostics", "enabled",
-            "true" if self.diagnostics_checkbox.isChecked() else "false",
+        return DashboardSettingsSnapshot(
+            audio=AudioSettings(
+                device_index=self.device_combo.currentData(),
+                sample_rate=self.sample_rate.value(),
+                silence_threshold=self.silence_thresh.value(),
+                silence_duration=self.silence_dur.value(),
+                update_interval=self.update_interval.value(),
+            ),
+            transcription=TranscriptionSettings(
+                backend=self.asr_backend.currentText(),
+                whisper_model=self.whisper_model.currentText(),
+                funasr_model=self.funasr_model.currentText(),
+                device=self.device_type.currentText(),
+                compute_type=self.compute_type.currentText(),
+                source_language=str(
+                    self.source_language.currentData()
+                    or self.source_language.currentText()
+                ),
+            ),
+            translation=TranslationSettings(
+                workflow=workflow,
+                bridge_provider=bridge_provider,
+                single_provider=self.provider.currentText(),
+                api_key=self.api_key.text(),
+                base_url=self.base_url.text(),
+                model=self.model.currentText(),
+                target_language=str(
+                    self.target_lang.currentData() or self.target_lang.currentText()
+                ),
+                domain=self.translation_domain.text(),
+                fast_backend=(
+                    "apple"
+                    if workflow == "apple_only"
+                    else self.fast_translation_backend.currentText()
+                ),
+            ),
+            providers=ProviderSettings(
+                deepseek_api_key=self.provider_keys.get("DeepSeek Official", ""),
+                siliconflow_api_key=self.provider_keys.get("SiliconFlow", ""),
+                qwen_mt_api_key=qwen_key,
+                qwen_mt_base_url=qwen_url,
+                groq_api_key=self.groq_api_key.text(),
+                gemini_api_key=self.gemini_api_key.text(),
+                cloudflare_account_id=self.cloudflare_account_id.text(),
+                cloudflare_api_token=self.cloudflare_api_token.text(),
+            ),
+            display_mode=self.display_mode.currentData(),
+            shortcut_enabled=self.shortcut_enabled,
+            shortcut_interval=self.shortcut_interval,
+            diagnostics_enabled=self.diagnostics_checkbox.isChecked(),
+            auto_save_transcripts=self.transcript_recording_checkbox.isChecked(),
         )
-        cp.set(
-            "records", "auto_save_transcripts",
-            "true" if self.transcript_recording_checkbox.isChecked() else "false",
-        )
-        
-        with open(config_path, 'w') as f:
-            cp.write(f)
-        os.chmod(config_path, 0o600)
 
+    def save_config(self, checked=False, show_status=True):
+        config_path = os.path.join(os.path.dirname(__file__), "config.ini")
+        repository = DashboardSettingsRepository(config_path)
+        saved_secret_updates = repository.save(
+            self.collect_settings(),
+            previous_secrets=self._saved_secrets,
+        )
         self._saved_secrets.update(saved_secret_updates)
         config.reload()
         self._settings_saved()
