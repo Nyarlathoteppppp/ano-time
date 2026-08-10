@@ -40,20 +40,23 @@ class TranslationWorkflowTests(unittest.TestCase):
             os.path.join(directory.name, "usage.json"),
         )
 
-    def test_smart_hybrid_freezes_current_provider_order_and_qwen_policy(self):
+    def test_smart_hybrid_uses_free_glm_before_paid_gemini(self):
         workflow = self._build(workflow_config())
         router = workflow.final_translator.router
         providers = {item["name"]: item for item in router.providers}
 
         self.assertEqual(workflow.name, "smart_hybrid")
         self.assertIs(workflow.final_translator.router, workflow.bridge_translator.router)
-        self.assertEqual(providers["Gemini 3.5 Flash-Lite"]["priority"], 0)
+        gemini = providers["Gemini 3.5 Flash-Lite Paid"]
         self.assertEqual(providers["Cloudflare GLM-4.7-Flash"]["priority"], 1)
+        self.assertEqual(gemini["priority"], 50)
+        self.assertTrue(gemini["terminal_fallback"])
+        self.assertEqual(gemini["fallback_reserve_seconds"], 1.8)
+        self.assertIsNone(gemini["rpm_limit"])
+        self.assertIsNone(gemini["tpm_limit"])
+        self.assertIsNone(gemini["daily_limit"])
         self.assertEqual(providers["Groq GPT-OSS 20B"]["priority"], 3)
-        qwen = providers["Qwen-MT Flash fallback"]
-        self.assertEqual(qwen["priority"], 99)
-        self.assertEqual(qwen["fallback_reserve_seconds"], 1.8)
-        self.assertEqual(qwen["failure_cooldown_seconds"], 3.0)
+        self.assertNotIn("Qwen-MT Flash fallback", providers)
         self.assertEqual(workflow.final_translator.excluding, {"Groq GPT-OSS 20B"})
         self.assertEqual(workflow.bridge_translator.only, {"Groq GPT-OSS 20B"})
 
@@ -62,7 +65,8 @@ class TranslationWorkflowTests(unittest.TestCase):
         names = {item["name"] for item in workflow.final_translator.router.providers}
         self.assertNotIn("Groq GPT-OSS 20B", names)
         self.assertIsNone(workflow.bridge_translator)
-        self.assertIn("Qwen-MT Flash fallback", names)
+        self.assertIn("Gemini 3.5 Flash-Lite Paid", names)
+        self.assertNotIn("Qwen-MT Flash fallback", names)
 
     def test_single_model_has_independent_optional_bridge(self):
         workflow = self._build(

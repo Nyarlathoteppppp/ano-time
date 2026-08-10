@@ -64,7 +64,7 @@ Anotime 已经不只是原项目的界面换皮，而是围绕 macOS 课堂使�
 - 支持可选 TSV 术语表和 finalized ASR 纠错表；新用户默认不会加载维护者的课程术语。
 - Single Model 支持 Qwen-MT、DeepSeek、SiliconFlow、OpenAI、Gemini、Groq、OpenRouter 和自定义 OpenAI-compatible 接口。
 - 每个 Single Model 服务可独立保存 Key、Base URL、当前模型和自定义模型列表，切换后自动恢复。
-- 开发者 Smart Hybrid 才使用免费模型额度管理、自动切换和 Qwen-MT 付费兜底。
+- 开发者 Smart Hybrid 使用免费 GLM 额度管理与 Gemini 3.5 Flash-Lite 付费主翻译；Qwen-MT 仅保留为可选 Single Model。
 - `Control + S` 全局快捷键可启动、暂停和恢复刘海翻译，无需辅助功能或输入监控权限。
 
 #### 可用的免费模型
@@ -206,12 +206,12 @@ tail -f /tmp/realtime-ton-hotkey.log
 控制中心提供三种互相独立的流程：
 
 - **Single Model（普通用户推荐）**：Apple 草稿 → 可选 Groq → 用户指定的常见服务或自定义 OpenAI-compatible 模型。
-- **Smart Hybrid（开发者专用）**：保留项目开发者使用的 Apple → 可选 Groq → Gemini/GLM → Qwen-MT 多 API 路由。
+- **Smart Hybrid（开发者专用）**：使用 Apple → 可选 Groq → GLM 免费额度 → Gemini 3.5 Flash-Lite 付费主翻译路由。
 - **Apple Only（普通用户，无需 API）**：完全使用 Apple ASR 和 Apple Translation，不发送远程请求。
 
 桥接模型和最终模型分别配置。修改 Single Model 不会改变 Smart Hybrid 的路由或额度状态。
 
-> Smart Hybrid 目前不是通用工作流：它依赖项目开发者固定的 Groq、Gemini、Cloudflare Workers AI 与 Qwen-MT 账号组合及额度规则。其他用户应优先使用 Single Model；即使没有免费模型池，也可直接选择一个稳定的付费或自托管接口。
+> Smart Hybrid 目前不是通用工作流：它依赖项目开发者固定的 Groq、Gemini 与 Cloudflare Workers AI 账号组合及额度规则。其他用户应优先使用 Single Model；Qwen-MT 仍可作为独立 Single Model 使用。
 
 填写密钥后，选择 **Test Target** 并点击 **Test API · 5 Requests**。应用会在后台发送五条固定的计算机/AI 技术语句，逐条显示首字延迟、总耗时和译文，最后显示成功率与平均单次总耗时。测速会消耗对应 API 的五次真实请求，但不会进入课堂字幕或对话上下文。
 
@@ -563,13 +563,13 @@ A successful startup includes:
 The control center exposes three independent workflows:
 
 - **Single Model (recommended for regular users)** — Apple drafts followed by an optional Groq bridge and one explicitly selected common provider or custom OpenAI-compatible endpoint.
-- **Smart Hybrid (developer only)** — preserves the project developer's quota-aware Apple → optional Groq → Gemini/GLM → Qwen-MT multi-API pipeline.
+- **Smart Hybrid (developer only)** — uses Apple → optional Groq → free GLM quota → paid Gemini 3.5 Flash-Lite routing.
 - **Apple Only (regular users, no API required)** — fully local Apple ASR and Apple Translation with no remote requests.
 
 The bridge is configured separately from the final translator. Changing a
 single-model provider cannot alter the Smart Hybrid routing or quota state.
 
-> Smart Hybrid is not currently a portable workflow. It depends on the project developer's fixed Groq, Gemini, Cloudflare Workers AI, and Qwen-MT account combination and quota policy. Other users should prefer Single Model with a paid, free, or self-hosted OpenAI-compatible endpoint.
+> Smart Hybrid is not currently a portable workflow. It depends on the project developer's fixed Groq, Gemini, and Cloudflare Workers AI accounts and quota policy. Other users should prefer Single Model; Qwen-MT remains available there as an independent provider.
 
 After entering a credential, select **Test Target** and click
 **Test API · 5 Requests**. Anotime sends five fixed Computer Science/AI

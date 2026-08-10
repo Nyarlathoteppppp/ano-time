@@ -251,6 +251,11 @@ class Translator:
                 self.base_url and "generativelanguage.googleapis.com" in self.base_url
                 and self.model.startswith("gemini-3.5-")
             )
+            if is_gemini_35:
+                # Translation does not need multi-step reasoning. Pin the
+                # lowest supported effort so a future provider default cannot
+                # silently add thinking latency or billable thinking tokens.
+                completion_options["reasoning_effort"] = "minimal"
             if not is_qwen_mt and not is_gemini_35:
                 completion_options["temperature"] = 0
             response = self.client.chat.completions.create(**completion_options)

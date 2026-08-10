@@ -136,6 +136,10 @@ class CourseGlossaryTests(unittest.TestCase):
         gemini.client = _RecordingClient()
         gemini.translate("Translate this.", use_context=False, remember_context=False)
         self.assertNotIn("temperature", gemini.client.chat.completions.options)
+        self.assertEqual(
+            gemini.client.chat.completions.options["reasoning_effort"],
+            "minimal",
+        )
 
         cloudflare = Translator(
             api_key="test-key",

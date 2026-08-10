@@ -6,7 +6,7 @@ from .providers import GROQ_NAME, groq_provider, translator_options
 
 
 def build_smart_hybrid(config, usage_path, status_callback=None):
-    """Build the existing frozen Gemini/GLM/Qwen workflow unchanged."""
+    """Build the developer hybrid workflow with free-first final routing."""
     options = translator_options(config)
     providers = []
     bridge_enabled = config.bridge_provider == "groq"
@@ -33,34 +33,21 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
         })
     if config.gemini_api_key:
         providers.append({
-            "name": "Gemini 3.5 Flash-Lite",
+            "name": "Gemini 3.5 Flash-Lite Paid",
             "translator": Translator(
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
                 api_key=config.gemini_api_key,
                 model="gemini-3.5-flash-lite",
                 **options,
             ),
-            "rpm_limit": 15,
-            "tpm_limit": 250000,
-            "daily_limit": 500,
-            "daily_timezone": "America/Los_Angeles",
-            "priority": 0,
-        })
-    if config.qwen_mt_api_key and config.qwen_mt_base_url:
-        providers.append({
-            "name": "Qwen-MT Flash fallback",
-            "translator": Translator(
-                base_url=config.qwen_mt_base_url,
-                api_key=config.qwen_mt_api_key,
-                model="qwen-mt-flash",
-                **options,
-            ),
-            "priority": 99,
+            # Billing is enabled for this endpoint. Do not apply the former
+            # free-tier RPM/TPM/RPD caps: it is the primary paid final model
+            # after free providers are unavailable or quota-limited.
+            "priority": 50,
             "terminal_fallback": True,
             "fallback_reserve_seconds": 1.8,
             "failure_cooldown_seconds": 3.0,
         })
-
     final_names = {provider["name"] for provider in providers} - {GROQ_NAME}
     if not providers:
         return TranslationWorkflow(
@@ -82,7 +69,7 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
         name="smart_hybrid",
         final_translator=final,
         bridge_translator=bridge_view,
-        final_label="Gemini/GLM → Qwen-MT",
+        final_label="GLM Free → Gemini Paid",
         bridge_label=GROQ_NAME if bridge_view else "Off",
         final_status_managed=True,
     )

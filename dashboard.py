@@ -631,9 +631,9 @@ class Dashboard(QWidget):
                 model = "Apple on-device only"
             elif workflow == "smart_hybrid":
                 model = (
-                    "Apple → Groq → Gemini/GLM → Qwen-MT"
+                    "Apple → Groq → GLM Free → Gemini Paid"
                     if bridge == "groq"
-                    else "Apple → Gemini/GLM → Qwen-MT"
+                    else "Apple → GLM Free → Gemini Paid"
                 )
             else:
                 prefix = "Apple → Groq → " if bridge == "groq" else "Apple → "
@@ -1387,7 +1387,7 @@ class Dashboard(QWidget):
         self.gemini_api_key = QLineEdit(config.gemini_api_key)
         self.gemini_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.gemini_api_key.setPlaceholderText("Google AI Studio key")
-        layout.addRow("Gemini Key（免费池密钥）:", self.gemini_api_key)
+        layout.addRow("Gemini Key（付费主翻译密钥）:", self.gemini_api_key)
 
         self.cloudflare_account_id = QLineEdit(config.cloudflare_account_id)
         self.cloudflare_account_id.setPlaceholderText("Cloudflare account ID")
@@ -1612,10 +1612,12 @@ class Dashboard(QWidget):
             self.gemini_api_key,
             self.cloudflare_account_id,
             self.cloudflare_api_token,
-            self.qwen_fallback_key,
-            self.qwen_fallback_url,
         ):
             self._set_translation_row_visible(widget, smart)
+        # Qwen-MT remains available through the portable Single Model fields,
+        # but is no longer part of the developer Smart Hybrid chain.
+        for widget in (self.qwen_fallback_key, self.qwen_fallback_url):
+            self._set_translation_row_visible(widget, False)
         for widget in (
             self.api_test_provider,
             self.api_test_btn,
@@ -1629,7 +1631,7 @@ class Dashboard(QWidget):
         elif smart:
             middle = "Groq → " if bridge == "groq" else ""
             preview = (
-                f"Apple → {middle}Gemini/GLM → Qwen-MT\n"
+                f"Apple → {middle}GLM Free → Gemini Paid\n"
                 "⚠ 开发者专用：依赖本项目固定的多 API 与额度规则，目前不通用"
             )
         else:
@@ -1649,11 +1651,6 @@ class Dashboard(QWidget):
             )
             if not (has_gemini or has_glm):
                 missing.append("Gemini 或 GLM")
-            if not (
-                self.qwen_fallback_key.text().strip()
-                and self.qwen_fallback_url.text().strip()
-            ):
-                missing.append("Qwen-MT 兜底")
         elif single and not (
             self.api_key.text().strip() and self.base_url.text().strip()
         ):

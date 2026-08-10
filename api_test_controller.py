@@ -71,9 +71,8 @@ class ApiTestController:
             if bridge == "groq":
                 targets.append(("Groq GPT-OSS 20B（桥接）", "groq"))
             targets.extend((
-                ("Gemini 3.5 Flash-Lite", "gemini"),
+                ("Gemini 3.5 Flash-Lite Paid（主翻译）", "gemini"),
                 ("Cloudflare GLM-4.7-Flash", "glm"),
-                ("Qwen-MT Flash（最终兜底）", "qwen"),
             ))
         elif workflow == "single_model":
             targets.append((

@@ -97,7 +97,8 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.translation_workflow.currentData(), "smart_hybrid"
         )
         self.assertEqual(self.dashboard.bridge_provider.currentData(), "groq")
-        self.assertIn("Gemini/GLM", self.dashboard.workflow_preview.text())
+        self.assertIn("GLM Free", self.dashboard.workflow_preview.text())
+        self.assertIn("Gemini Paid", self.dashboard.workflow_preview.text())
         self.assertGreaterEqual(self.dashboard.workflow_preview.minimumHeight(), 48)
         self.assertTrue(self.dashboard.workflow_preview.wordWrap())
         self.assertTrue(self.dashboard.provider.isHidden())
@@ -107,7 +108,7 @@ class DashboardWorkflowTests(unittest.TestCase):
                 self.dashboard.api_test_provider.itemData(index)
                 for index in range(self.dashboard.api_test_provider.count())
             ],
-            ["groq", "gemini", "glm", "qwen"],
+            ["groq", "gemini", "glm"],
         )
 
     def test_single_model_exposes_provider_and_optional_bridge(self):
