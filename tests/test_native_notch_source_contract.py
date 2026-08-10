@@ -61,6 +61,11 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn("guard !terminationInProgress else { return }", self.source)
         self.assertIn("now.timeIntervalSince(lastCycleAt) >= 0.25", self.source)
 
+    def test_auto_compact_waits_for_finalized_idle_generation(self):
+        self.assertIn("if state.items.last?.finalized == true", self.source)
+        self.assertIn("state.subtitleGeneration == idleGeneration", self.source)
+        self.assertIn("state.replaceItems", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

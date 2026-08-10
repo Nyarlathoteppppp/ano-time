@@ -58,6 +58,7 @@ private final class SubtitleState: ObservableObject {
     @Published private(set) var contentWidth: CGFloat = 360
     @Published var isPaused = false
     var compactTask: Task<Void, Never>?
+    private(set) var subtitleGeneration = 0
     private var widthShrinkTask: Task<Void, Never>?
     private var modeTransitionTask: Task<Void, Never>?
     private var isChangingDisplayCount = false
@@ -70,6 +71,11 @@ private final class SubtitleState: ObservableObject {
     init() {
         let saved = Self.sizeDefaults?.integer(forKey: "displayCount") ?? 0
         displayCount = (1...3).contains(saved) ? saved : 2
+    }
+
+    func replaceItems(_ newItems: [SubtitleLine]) {
+        subtitleGeneration += 1
+        items = newItems
     }
 
     func cycleSize() {
@@ -384,22 +390,32 @@ private struct RealtimeNotchHelper {
                     }
                     withAnimation(.easeOut(duration: 0.14)) {
                         if let items = message.items, !items.isEmpty {
-                            state.items = Array(items.suffix(3))
+                            state.replaceItems(Array(items.suffix(3)))
                         } else if let original = message.original {
-                            state.items = [SubtitleLine(
+                            state.replaceItems([SubtitleLine(
                                 id: 0,
                                 original: original,
                                 translated: message.translated ?? "",
                                 finalized: true
-                            )]
+                            )])
                         }
                     }
                     state.compactTask?.cancel()
                     await expandActiveNotch()
-                    state.compactTask = Task { @MainActor in
-                        try? await Task.sleep(for: .seconds(6))
-                        guard !Task.isCancelled else { return }
-                        await compactActiveNotch()
+                    // Never compact an actively changing Apple hypothesis.
+                    // A generation check also closes the race where new text
+                    // arrives just as an older idle timer wakes up.
+                    if state.items.last?.finalized == true {
+                        let idleGeneration = state.subtitleGeneration
+                        state.compactTask = Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(6))
+                            guard
+                                !Task.isCancelled,
+                                state.subtitleGeneration == idleGeneration,
+                                state.items.last?.finalized == true
+                            else { return }
+                            await compactActiveNotch()
+                        }
                     }
                 }
             }
