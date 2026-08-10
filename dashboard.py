@@ -111,7 +111,23 @@ class Dashboard(QWidget):
 
     def changeEvent(self, event):
         super().changeEvent(event)
-        if getattr(self, "_native_blur_window", None) is not None:
+        fullscreen = self.isFullScreen()
+        if fullscreen != getattr(self, "_fullscreen_fallback", False):
+            self._fullscreen_fallback = fullscreen
+            self.setProperty("fullscreenFallback", fullscreen)
+            self.style().unpolish(self)
+            self.style().polish(self)
+            self.update()
+            if fullscreen:
+                self._detach_native_glass()
+            else:
+                # AppKit finishes moving the Qt window out of its full-screen
+                # Space after the Qt state event. Reattach only once settled.
+                QTimer.singleShot(200, self._refresh_native_glass)
+        if (
+            not fullscreen
+            and getattr(self, "_native_blur_window", None) is not None
+        ):
             QTimer.singleShot(0, self._sync_native_glass)
 
     def _refresh_native_glass(self):
@@ -141,7 +157,11 @@ class Dashboard(QWidget):
             return None
 
     def _install_native_glass(self):
-        if not HAS_NATIVE_GLASS or self._native_blur_window is not None:
+        if (
+            not HAS_NATIVE_GLASS
+            or self.isFullScreen()
+            or self._native_blur_window is not None
+        ):
             return
         ns_window = self._native_window()
         if ns_window is None:
@@ -195,7 +215,7 @@ class Dashboard(QWidget):
         ns_window = self._native_window()
         if ns_window is None:
             return
-        if not self.isVisible() or self.isMinimized():
+        if not self.isVisible() or self.isMinimized() or self.isFullScreen():
             self._detach_native_glass(ns_window)
             return
         blur_window.setFrame_display_(ns_window.frame(), True)
@@ -222,7 +242,9 @@ class Dashboard(QWidget):
         super().__init__()
         self._native_blur_window = None
         self._native_blur_view = None
+        self._fullscreen_fallback = False
         self.setObjectName("DashboardRoot")
+        self.setProperty("fullscreenFallback", False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._session_generation = 0
         self._session_state = "idle"

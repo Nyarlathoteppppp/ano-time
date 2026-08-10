@@ -45,6 +45,7 @@ class GlassLifecycleHarness:
         self.native = FakeNativeWindow()
         self.visible = True
         self.minimized = False
+        self.fullscreen = False
 
     def _native_window(self):
         return self.native
@@ -54,6 +55,9 @@ class GlassLifecycleHarness:
 
     def isMinimized(self):
         return self.minimized
+
+    def isFullScreen(self):
+        return self.fullscreen
 
 
 class DashboardGlassLifecycleTests(unittest.TestCase):
@@ -72,6 +76,17 @@ class DashboardGlassLifecycleTests(unittest.TestCase):
         view._sync_native_glass()
         view.minimized = True
         view._sync_native_glass()
+        self.assertEqual(view.native.children, [])
+        self.assertEqual(view.native.removals, 1)
+        self.assertEqual(view._native_blur_window.order_outs, 1)
+
+    def test_fullscreen_glass_is_detached_and_never_covers_qt_content(self):
+        view = GlassLifecycleHarness()
+        view._sync_native_glass()
+        view.fullscreen = True
+
+        view._sync_native_glass()
+
         self.assertEqual(view.native.children, [])
         self.assertEqual(view.native.removals, 1)
         self.assertEqual(view._native_blur_window.order_outs, 1)
