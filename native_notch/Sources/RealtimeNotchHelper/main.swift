@@ -34,6 +34,7 @@ private struct InputMessage: Decodable {
     let translated: String?
     let items: [SubtitleLine]?
     let paused: Bool?
+    let busyStages: [String]?
 }
 
 private struct SubtitleLine: Codable, Identifiable {
@@ -59,6 +60,8 @@ private final class SubtitleState: ObservableObject {
     @Published var isPaused = false
     var compactTask: Task<Void, Never>?
     private(set) var subtitleGeneration = 0
+    private(set) var activityGeneration = 0
+    private var busyStages = Set<String>()
     private var widthShrinkTask: Task<Void, Never>?
     private var modeTransitionTask: Task<Void, Never>?
     private var isChangingDisplayCount = false
@@ -77,6 +80,21 @@ private final class SubtitleState: ObservableObject {
         subtitleGeneration += 1
         items = newItems
     }
+
+    func replaceBusyStages(_ stages: [String]) {
+        let replacement = Set(stages)
+        guard replacement != busyStages else { return }
+        busyStages = replacement
+        activityGeneration += 1
+    }
+
+    func clearActivity() {
+        guard !busyStages.isEmpty else { return }
+        busyStages.removeAll()
+        activityGeneration += 1
+    }
+
+    var hasActiveWork: Bool { !busyStages.isEmpty }
 
     func cycleSize() {
         modeTransitionTask?.cancel()
@@ -337,6 +355,27 @@ private struct RealtimeNotchHelper {
         var terminationInProgress = false
         var lastCycleAt = Date.distantPast
         var notchTransitionTask: Task<Void, Never>?
+        func scheduleAutoCompact() {
+            state.compactTask?.cancel()
+            guard
+                state.items.last?.finalized == true,
+                !state.hasActiveWork
+            else { return }
+            let idleSubtitleGeneration = state.subtitleGeneration
+            let idleActivityGeneration = state.activityGeneration
+            state.compactTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(6))
+                guard
+                    !Task.isCancelled,
+                    state.subtitleGeneration == idleSubtitleGeneration,
+                    state.activityGeneration == idleActivityGeneration,
+                    state.items.last?.finalized == true,
+                    !state.hasActiveWork
+                else { return }
+                await compactActiveNotch()
+            }
+        }
+
         func terminate(_ event: String) {
             guard !terminationInProgress else { return }
             terminationInProgress = true
@@ -387,6 +426,10 @@ private struct RealtimeNotchHelper {
                     guard !terminationInProgress else { return }
                     if let paused = message.paused {
                         state.isPaused = paused
+                        if paused { state.clearActivity() }
+                    }
+                    if let busyStages = message.busyStages {
+                        state.replaceBusyStages(busyStages)
                     }
                     withAnimation(.easeOut(duration: 0.14)) {
                         if let items = message.items, !items.isEmpty {
@@ -402,21 +445,7 @@ private struct RealtimeNotchHelper {
                     }
                     state.compactTask?.cancel()
                     await expandActiveNotch()
-                    // Never compact an actively changing Apple hypothesis.
-                    // A generation check also closes the race where new text
-                    // arrives just as an older idle timer wakes up.
-                    if state.items.last?.finalized == true {
-                        let idleGeneration = state.subtitleGeneration
-                        state.compactTask = Task { @MainActor in
-                            try? await Task.sleep(for: .seconds(6))
-                            guard
-                                !Task.isCancelled,
-                                state.subtitleGeneration == idleGeneration,
-                                state.items.last?.finalized == true
-                            else { return }
-                            await compactActiveNotch()
-                        }
-                    }
+                    scheduleAutoCompact()
                 }
             }
             DispatchQueue.main.async {

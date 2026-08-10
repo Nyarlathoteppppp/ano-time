@@ -129,6 +129,36 @@ class NativeNotchOverlayTest(unittest.TestCase):
         self.app.processEvents()
         self.assertEqual(stopped, [True])
 
+    def test_activity_snapshot_survives_latest_subtitle_frame(self):
+        overlay = RecordingNotchOverlay()
+        overlay.update_text(1, "A sentence", "一句话", "final")
+        overlay.update_runtime_status(
+            "Remote", "active", "Gemini 3.5 Flash-Lite · translating"
+        )
+        overlay.update_text(2, "New partial", "新草稿", "partial")
+
+        self.assertIn(
+            "Remote:Gemini 3.5 Flash-Lite", overlay._busy_stages
+        )
+
+        # Exercise the real serializer: every frame carries the full snapshot.
+        class Stdin:
+            pass
+
+        class Process:
+            stdin = Stdin()
+
+            @staticmethod
+            def poll():
+                return None
+
+        real = NativeNotchOverlay()
+        real.process = Process()
+        real._busy_stages.add("Remote:Gemini")
+        real._send({"items": [{"id": 2}]})
+        payload = json.loads(real._write_queue.get_nowait().decode("utf-8"))
+        self.assertEqual(payload["busyStages"], ["Remote:Gemini"])
+
 
 if __name__ == "__main__":
     unittest.main()

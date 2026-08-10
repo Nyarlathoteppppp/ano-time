@@ -695,6 +695,7 @@ class Pipeline(QObject):
                 publish_final(segment, final_id, started_at, partial_at, cut_reason)
 
             if is_final:
+                self.signals.runtime_status.emit("ASR", "ok", "Apple · idle")
                 return
 
             if not remainder:
@@ -768,6 +769,9 @@ class Pipeline(QObject):
                         state["audio_started_at"] = time.monotonic()
                         audio_marker = (state["chunk_id"], state["audio_started_at"])
                 if audio_marker:
+                    self.signals.runtime_status.emit(
+                        "ASR", "active", "Apple · listening"
+                    )
                     log_stage(
                         "speech_audio_detected",
                         chunk_id=audio_marker[0],
@@ -915,6 +919,9 @@ class Pipeline(QObject):
             draft = None
             if self.fast_translator:
                 try:
+                    self.signals.runtime_status.emit(
+                        "Draft", "active", "Apple · translating"
+                    )
                     started = time.perf_counter()
                     draft = self.fast_translator.translate(text)
                     elapsed_ms = (time.perf_counter() - started) * 1000
@@ -937,6 +944,9 @@ class Pipeline(QObject):
                     )
                     emit_if_current(draft)
                 except Exception as exc:
+                    self.signals.runtime_status.emit(
+                        "Draft", "error", f"Apple · {exc}"
+                    )
                     print(f"[Apple Partial Translation {chunk_id}] Failed: {exc}")
                     log_stage("apple_partial", chunk_id=chunk_id, status="error", detail=str(exc))
 
@@ -1074,6 +1084,9 @@ class Pipeline(QObject):
         draft = None
         if self.fast_translator:
             try:
+                self.signals.runtime_status.emit(
+                    "Draft", "active", "Apple · translating"
+                )
                 started = time.perf_counter()
                 draft = self.fast_translator.translate(text)
                 elapsed_ms = (time.perf_counter() - started) * 1000
@@ -1097,6 +1110,9 @@ class Pipeline(QObject):
                     detail=draft,
                 )
             except Exception as exc:
+                self.signals.runtime_status.emit(
+                    "Draft", "error", f"Apple · {exc}"
+                )
                 print(f"[Apple Final Translation {chunk_id}] Failed: {exc}")
                 log_stage("apple_final", chunk_id=chunk_id, status="error", detail=str(exc))
 

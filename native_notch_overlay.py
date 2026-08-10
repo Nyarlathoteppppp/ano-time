@@ -27,6 +27,7 @@ class NativeNotchOverlay(QObject):
         self.record_store = SubtitleRecordStore()
         self._last_native_items = None
         self._paused = False
+        self._busy_stages = set()
         self._write_lock = threading.Lock()
         self._write_queue = queue.Queue(maxsize=1)
         self._writer_stop = threading.Event()
@@ -188,6 +189,27 @@ class NativeNotchOverlay(QObject):
             self._last_native_items = latest_items
             self._send({"items": latest_items})
 
+    def update_runtime_status(self, stage, status, detail):
+        """Forward coarse activity state without sending diagnostic details."""
+        if self.delegate:
+            return
+        stage = str(stage)
+        if stage not in {"ASR", "Draft", "Remote"}:
+            return
+        activity_stage = stage
+        if stage == "Remote":
+            provider = str(detail or "").split(" · ", 1)[0].strip()
+            if provider:
+                activity_stage = f"Remote:{provider}"
+        if str(status) == "active":
+            self._busy_stages.add(activity_stage)
+        else:
+            self._busy_stages.discard(activity_stage)
+        payload = {}
+        if self.record_store:
+            payload["items"] = self._latest_items()
+        self._send(payload)
+
     def _latest_items(self):
         rendered = []
         # Display fragments are an ephemeral projection. They never enter the
@@ -295,6 +317,7 @@ class NativeNotchOverlay(QObject):
             return
         payload = dict(payload)
         payload.setdefault("paused", self._paused)
+        payload.setdefault("busyStages", sorted(self._busy_stages))
         line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
         # The UI thread never writes to the subprocess. Keep only the newest
         # complete frame so a slow SwiftUI helper cannot create visual backlog.
@@ -312,6 +335,8 @@ class NativeNotchOverlay(QObject):
 
     def set_paused(self, paused):
         self._paused = bool(paused)
+        if self._paused:
+            self._busy_stages.clear()
         payload = {"paused": self._paused}
         if self.record_store:
             payload["items"] = self._latest_items()

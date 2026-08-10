@@ -108,6 +108,10 @@ class SessionController:
                 log_stage("transcript_recording", status="error", detail=str(exc))
         view.pipeline.signals.pipeline_error.connect(view.on_pipeline_error)
         view.pipeline.signals.runtime_status.connect(view.update_runtime_status)
+        if hasattr(view.overlay_window, "update_runtime_status"):
+            view.pipeline.signals.runtime_status.connect(
+                view.overlay_window.update_runtime_status
+            )
         if hasattr(view.overlay_window, "stop_requested"):
             view.overlay_window.stop_requested.connect(view.on_stop)
         if hasattr(view.overlay_window, "pause_requested"):
