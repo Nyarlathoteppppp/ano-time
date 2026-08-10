@@ -70,6 +70,19 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         )
         self.assertIn("state.replaceItems", self.source)
 
+    def test_pause_compacts_immediately_without_idle_delay(self):
+        pause_helper = self.source.index("func compactForPause")
+        pause_compact = self.source.index("await compactActiveNotch()", pause_helper)
+        helper_end = self.source.index("func terminate", pause_helper)
+
+        self.assertLess(pause_compact, helper_end)
+        self.assertNotIn(
+            "Task.sleep", self.source[pause_helper:helper_end]
+        )
+        self.assertIn("compactForPause()", self.source)
+        self.assertIn("if state.isPaused", self.source)
+        self.assertIn("if !wasPaused", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

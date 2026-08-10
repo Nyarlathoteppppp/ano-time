@@ -376,6 +376,18 @@ private struct RealtimeNotchHelper {
             }
         }
 
+        func compactForPause() {
+            state.compactTask?.cancel()
+            notchTransitionTask?.cancel()
+            notchTransitionTask = Task { @MainActor in
+                guard !Task.isCancelled, !terminationInProgress else { return }
+                // Pause is an explicit user action: begin the existing
+                // animated contraction immediately instead of waiting for
+                // the normal finalized-idle timer.
+                await compactActiveNotch()
+            }
+        }
+
         func terminate(_ event: String) {
             guard !terminationInProgress else { return }
             terminationInProgress = true
@@ -413,6 +425,9 @@ private struct RealtimeNotchHelper {
         state.onGlass = { terminate("glass") }
         state.onPause = {
             state.isPaused.toggle()
+            if state.isPaused {
+                compactForPause()
+            }
             emitEvent(state.isPaused ? "pause" : "resume")
         }
         state.onExit = { terminate("exit") }
@@ -424,6 +439,7 @@ private struct RealtimeNotchHelper {
                 if message.command == "quit" { break }
                 Task { @MainActor in
                     guard !terminationInProgress else { return }
+                    let wasPaused = state.isPaused
                     if let paused = message.paused {
                         state.isPaused = paused
                         if paused { state.clearActivity() }
@@ -444,8 +460,17 @@ private struct RealtimeNotchHelper {
                         }
                     }
                     state.compactTask?.cancel()
-                    await expandActiveNotch()
-                    scheduleAutoCompact()
+                    if state.isPaused {
+                        // The local context-menu action already started the
+                        // transition. Avoid cancelling and restarting it when
+                        // Python acknowledges the same pause state.
+                        if !wasPaused {
+                            compactForPause()
+                        }
+                    } else {
+                        await expandActiveNotch()
+                        scheduleAutoCompact()
+                    }
                 }
             }
             DispatchQueue.main.async {
