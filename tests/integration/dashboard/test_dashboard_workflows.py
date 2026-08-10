@@ -170,6 +170,22 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.model.currentText(), "vendor/custom-course-model"
         )
 
+    def test_provider_profile_snapshot_only_contains_active_single_model(self):
+        self._choose_workflow("single_model")
+        self.dashboard.provider.setCurrentText("OpenAI")
+        self.dashboard.api_key.setText("profile-key")
+        self.dashboard.model.setCurrentText("vendor/custom-course-model")
+        profiles = self.dashboard._provider_profile_snapshot()
+        self.assertEqual(list(profiles), ["OpenAI"])
+        self.assertEqual(profiles["OpenAI"]["api_key"], "profile-key")
+        self.assertEqual(
+            profiles["OpenAI"]["selected_model"], "vendor/custom-course-model"
+        )
+
+    def test_smart_hybrid_save_does_not_touch_single_model_profiles(self):
+        self._choose_workflow("smart_hybrid")
+        self.assertEqual(self.dashboard._provider_profile_snapshot(), {})
+
     def test_pages_explain_when_settings_take_effect(self):
         self.assertIn("重新 Launch", self.dashboard.apply_hint.text())
         self.assertIn("重新 Launch", self.dashboard.audio_panel.apply_hint.text())

@@ -27,6 +27,7 @@ from dashboard_support.workers import (
     SystemAudioTestWorker,
 )
 from dashboard_support.settings_repository import DashboardSettingsRepository
+from dashboard_support.provider_profiles import ProviderProfileRepository
 from dashboard_support.settings_snapshot import (
     AudioSettings,
     DashboardSettingsSnapshot,
@@ -236,6 +237,10 @@ class Dashboard(QWidget):
         # 320 ms proved too strict for normal human double taps. Preserve any
         # explicitly slower setting while migrating the old default to 450 ms.
         self.shortcut_interval = max(0.45, config.shortcut_interval)
+        self.provider_profile_repository = ProviderProfileRepository(
+            os.path.join(os.path.dirname(__file__), "provider_profiles.json")
+        )
+        self.provider_profiles = self.provider_profile_repository.load()
         self.setWindowTitle("Anotime - Control Center")
         self.setMinimumSize(900, 600)
         self.setStyleSheet(STYLESHEET)
@@ -1266,6 +1271,11 @@ class Dashboard(QWidget):
             "OpenRouter": "https://openrouter.ai/api/v1",
             "Custom OpenAI-Compatible": config.api_base_url or "",
         }
+        for provider_name, profile in self.provider_profiles.items():
+            if provider_name in self.provider_keys and profile.get("api_key"):
+                self.provider_keys[provider_name] = profile["api_key"]
+            if provider_name in self.provider_urls and profile.get("base_url"):
+                self.provider_urls[provider_name] = profile["base_url"]
         self.provider_model_presets = {
             "Alibaba Cloud Qwen-MT": ["qwen-mt-flash"],
             "DeepSeek Official": ["deepseek-v4-flash", "deepseek-chat"],
@@ -1281,7 +1291,15 @@ class Dashboard(QWidget):
             "OpenRouter": ["openai/gpt-5-mini", "google/gemini-2.5-flash-lite"],
             "Custom OpenAI-Compatible": [],
         }
-        self.provider_selected_models = {configured_single_provider: config.model}
+        self.provider_selected_models = {
+            name: profile.get("selected_model", "")
+            for name, profile in self.provider_profiles.items()
+        }
+        self.provider_selected_models[configured_single_provider] = config.model
+        self.provider_custom_models = {
+            name: list(profile.get("custom_models", ()))
+            for name, profile in self.provider_profiles.items()
+        }
         self.provider.currentTextChanged.connect(self._on_translation_provider_changed)
         layout.addRow("Final Provider（最终翻译服务）:", self.provider)
         
@@ -1481,6 +1499,9 @@ class Dashboard(QWidget):
         """Expose useful presets without restricting manually entered model IDs."""
         current = self.model.currentText().strip()
         presets = list(self.provider_model_presets.get(provider, ()))
+        for model_id in self.provider_custom_models.get(provider, ()):
+            if model_id not in presets:
+                presets.append(model_id)
         preferred = self.provider_selected_models.get(provider, "").strip()
         if not preferred:
             preferred = presets[0] if presets else current
@@ -1506,8 +1527,29 @@ class Dashboard(QWidget):
             return
         if self.model.findText(model_id) < 0:
             self.model.addItem(model_id)
+        custom_models = self.provider_custom_models.setdefault(
+            self.provider.currentText(), []
+        )
+        if model_id not in custom_models:
+            custom_models.append(model_id)
         self.model.setCurrentText(model_id)
         self._mark_settings_dirty()
+
+    def _provider_profile_snapshot(self):
+        if self.translation_workflow.currentData() != "single_model":
+            return {}
+        current = self.provider.currentText()
+        self.provider_keys[current] = self.api_key.text()
+        self.provider_urls[current] = self.base_url.text()
+        self.provider_selected_models[current] = self.model.currentText().strip()
+        return {
+            current: {
+                "api_key": self.provider_keys.get(current, ""),
+                "base_url": self.provider_urls.get(current, ""),
+                "selected_model": self.provider_selected_models.get(current, ""),
+                "custom_models": self.provider_custom_models.get(current, []),
+            }
+        }
 
     def _on_translation_workflow_changed(self, *_):
         if not hasattr(self, "translation_workflow"):
@@ -1730,11 +1772,21 @@ class Dashboard(QWidget):
             previous_secrets=self._saved_secrets,
         )
         self._saved_secrets.update(saved_secret_updates)
+        profile_warning = ""
+        try:
+            profile_repository = ProviderProfileRepository(
+                os.path.join(os.path.dirname(config_path), "provider_profiles.json")
+            )
+            profile_repository.save(self._provider_profile_snapshot())
+        except Exception as exc:
+            # Profiles are UI convenience only. Never block the active translator.
+            profile_warning = f" Provider profiles not saved: {exc}"
+            print(f"[Dashboard] Provider profile save failed: {exc}")
         config.reload()
         self._settings_saved()
         if show_status:
             suffix = " Applies on next launch." if getattr(self, "pipeline", None) else ""
-            self.status_label.setText(f"Saved.{suffix}")
+            self.status_label.setText(f"Saved.{suffix}{profile_warning}")
 
     def on_start(self):
         self.session_controller.start()

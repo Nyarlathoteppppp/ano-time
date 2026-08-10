@@ -2,6 +2,7 @@ __pycache__
 transcripts
 .DS_Store
 config.ini
+provider_profiles.json
 .venv
 .build/
 logs/
