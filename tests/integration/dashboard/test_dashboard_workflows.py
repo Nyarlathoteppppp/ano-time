@@ -118,6 +118,16 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertEqual(
             self.dashboard.api_test_provider.itemData(0), "single"
         )
+        self.assertIn(
+            "当前最终模型", self.dashboard.api_test_provider.itemText(0)
+        )
+
+    def test_switching_from_hybrid_resets_speed_test_to_single_final_model(self):
+        self._choose_workflow("smart_hybrid")
+        groq_index = self.dashboard.api_test_provider.findData("groq")
+        self.dashboard.api_test_provider.setCurrentIndex(groq_index)
+        self._choose_workflow("single_model")
+        self.assertEqual(self.dashboard.api_test_provider.currentData(), "single")
 
     def test_single_model_credentials_are_grouped_in_visual_order(self):
         layout = self.dashboard.translation_layout

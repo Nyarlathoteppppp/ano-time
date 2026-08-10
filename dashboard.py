@@ -1401,7 +1401,11 @@ class Dashboard(QWidget):
         layout.addRow("Qwen-MT URL（付费兜底接口）:", self.qwen_fallback_url)
 
         self.api_test_provider = ReadableComboBox()
-        layout.addRow("Test Target（测速服务）:", self.api_test_provider)
+        self.api_test_provider.setToolTip(
+            "Single Model 默认测试当前表单中的 Provider、API Key、Base URL 和 Model；"
+            "支持任意 OpenAI-compatible 服务。"
+        )
+        layout.addRow("Test Target（测速对象）:", self.api_test_provider)
 
         self.api_test_btn = QPushButton("Test API · 5 Requests（测试五条）")
         self.api_test_btn.setToolTip(

@@ -55,11 +55,16 @@ class ApiTestController:
     def __init__(self, view):
         self.view = view
         self.worker = None
+        self._last_workflow = None
 
     def refresh_targets(self):
         view = self.view
-        previous = view.api_test_provider.currentData()
         workflow = view.translation_workflow.currentData() or "single_model"
+        previous = (
+            view.api_test_provider.currentData()
+            if workflow == self._last_workflow
+            else None
+        )
         bridge = view.bridge_provider.currentData() or "off"
         targets = []
         if workflow == "smart_hybrid":
@@ -71,9 +76,12 @@ class ApiTestController:
                 ("Qwen-MT Flash（最终兜底）", "qwen"),
             ))
         elif workflow == "single_model":
-            targets.append((f"{view.provider.currentText()}（最终模型）", "single"))
+            targets.append((
+                f"Current Final Model（当前最终模型） · {view.provider.currentText()}",
+                "single",
+            ))
             if bridge == "groq":
-                targets.append(("Groq GPT-OSS 20B（桥接）", "groq"))
+                targets.append(("Optional Bridge（可选桥接） · Groq", "groq"))
 
         view.api_test_provider.blockSignals(True)
         view.api_test_provider.clear()
@@ -82,6 +90,7 @@ class ApiTestController:
         index = view.api_test_provider.findData(previous)
         view.api_test_provider.setCurrentIndex(index if index >= 0 else 0)
         view.api_test_provider.blockSignals(False)
+        self._last_workflow = workflow
         enabled = bool(targets) and self.worker is None
         view.api_test_provider.setEnabled(enabled)
         view.api_test_btn.setEnabled(enabled)
