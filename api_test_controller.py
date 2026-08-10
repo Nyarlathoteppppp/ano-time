@@ -59,7 +59,7 @@ class ApiTestController:
     def refresh_targets(self):
         view = self.view
         previous = view.api_test_provider.currentData()
-        workflow = view.translation_workflow.currentData() or "smart_hybrid"
+        workflow = view.translation_workflow.currentData() or "single_model"
         bridge = view.bridge_provider.currentData() or "off"
         targets = []
         if workflow == "smart_hybrid":

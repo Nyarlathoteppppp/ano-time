@@ -11,5 +11,7 @@ BUILDERS = {
 
 
 def build_translation_workflow(config, usage_path, status_callback=None):
-    builder = BUILDERS.get(config.translation_workflow, build_smart_hybrid)
+    # Unknown/missing workflow values must fall back to the portable path.
+    # Smart Hybrid depends on the project developer's specific API pool.
+    builder = BUILDERS.get(config.translation_workflow, build_single_model)
     return builder(config, usage_path, status_callback=status_callback)

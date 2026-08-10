@@ -129,6 +129,14 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertIn("开发者专用", labels["smart_hybrid"])
         self.assertIn("无需 API", labels["apple_only"])
 
+    def test_workflow_preview_explains_portability_and_failure_behavior(self):
+        self._choose_workflow("smart_hybrid")
+        self.assertIn("目前不通用", self.dashboard.workflow_preview.text())
+        self._choose_workflow("single_model")
+        preview = self.dashboard.workflow_preview.text()
+        self.assertIn("通用流程", preview)
+        self.assertIn("保留 Apple 草稿", preview)
+
     def test_single_model_offers_popular_and_custom_openai_compatible_providers(self):
         providers = [
             self.dashboard.provider.itemText(index)

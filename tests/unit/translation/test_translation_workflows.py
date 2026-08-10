@@ -83,6 +83,15 @@ class TranslationWorkflowTests(unittest.TestCase):
         self.assertIsNone(workflow.final_translator)
         self.assertIsNone(workflow.bridge_translator)
 
+    def test_unknown_workflow_falls_back_to_portable_single_model(self):
+        workflow = self._build(
+            workflow_config(
+                translation_workflow="unknown",
+                single_provider="Alibaba Cloud Qwen-MT",
+            )
+        )
+        self.assertEqual(workflow.name, "single_model")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1512,7 +1512,7 @@ class Dashboard(QWidget):
     def _on_translation_workflow_changed(self, *_):
         if not hasattr(self, "translation_workflow"):
             return
-        workflow = self.translation_workflow.currentData() or "smart_hybrid"
+        workflow = self.translation_workflow.currentData() or "single_model"
         bridge = self.bridge_provider.currentData() or "off"
         apple_only = workflow == "apple_only"
         single = workflow == "single_model"
@@ -1541,13 +1541,19 @@ class Dashboard(QWidget):
         self.fast_translation_backend.setEnabled(not apple_only)
         if apple_only:
             self.fast_translation_backend.setCurrentText("apple")
-            preview = "Apple ASR → Apple Translation（完全本地）"
+            preview = "Apple ASR → Apple Translation（完全本地 · 通用）"
         elif smart:
             middle = "Groq → " if bridge == "groq" else ""
-            preview = f"Apple → {middle}Gemini/GLM → Qwen-MT"
+            preview = (
+                f"Apple → {middle}Gemini/GLM → Qwen-MT\n"
+                "⚠ 开发者专用：依赖本项目固定的多 API 与额度规则，目前不通用"
+            )
         else:
             middle = "Groq → " if bridge == "groq" else ""
-            preview = f"Apple → {middle}{self.provider.currentText()}"
+            preview = (
+                f"Apple 草稿 → {middle}{self.provider.currentText()} 最终稿\n"
+                "✓ 通用流程：超时或 API 失败时继续保留 Apple 草稿"
+            )
         missing = []
         if not apple_only and bridge == "groq" and not self.groq_api_key.text().strip():
             missing.append("Groq Key")
@@ -1643,7 +1649,7 @@ class Dashboard(QWidget):
 
     def collect_settings(self):
         """Create an immutable settings snapshot from the current widgets."""
-        workflow = self.translation_workflow.currentData() or "smart_hybrid"
+        workflow = self.translation_workflow.currentData() or "single_model"
         bridge_provider = (
             "off" if workflow == "apple_only"
             else self.bridge_provider.currentData() or "off"

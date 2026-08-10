@@ -198,6 +198,8 @@ tail -f /tmp/realtime-ton-hotkey.log
 
 桥接模型和最终模型分别配置。修改 Single Model 不会改变 Smart Hybrid 的路由或额度状态。
 
+> Smart Hybrid 目前不是通用工作流：它依赖项目开发者固定的 Groq、Gemini、Cloudflare Workers AI 与 Qwen-MT 账号组合及额度规则。其他用户应优先使用 Single Model；即使没有免费模型池，也可直接选择一个稳定的付费或自托管接口。
+
 填写密钥后，选择 **Test Target** 并点击 **Test API · 5 Requests**。应用会在后台发送五条固定的计算机/AI 技术语句，逐条显示首字延迟、总耗时和译文，最后显示成功率与平均单次总耗时。测速会消耗对应 API 的五次真实请求，但不会进入课堂字幕或对话上下文。
 
 ```text
@@ -540,6 +542,8 @@ The control center exposes three independent workflows:
 
 The bridge is configured separately from the final translator. Changing a
 single-model provider cannot alter the Smart Hybrid routing or quota state.
+
+> Smart Hybrid is not currently a portable workflow. It depends on the project developer's fixed Groq, Gemini, Cloudflare Workers AI, and Qwen-MT account combination and quota policy. Other users should prefer Single Model with a paid, free, or self-hosted OpenAI-compatible endpoint.
 
 After entering a credential, select **Test Target** and click
 **Test API · 5 Requests**. Anotime sends five fixed Computer Science/AI
