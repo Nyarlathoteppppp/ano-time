@@ -77,6 +77,7 @@ class DashboardSettingsRepository:
             parser.set("translation", "model", translation.model)
         parser.set("translation", "target_lang", translation.target_language)
         parser.set("translation", "domain", translation.domain)
+        parser.set("translation", "course_topic", translation.course_topic)
         parser.set("translation", "fast_backend", translation.fast_backend)
         parser.set("translation", "workflow", translation.workflow)
         parser.set("translation", "bridge_provider", translation.bridge_provider)

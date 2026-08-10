@@ -166,6 +166,48 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertTrue(self.dashboard.groq_api_key.isHidden())
         self.assertTrue(self.dashboard.cerebras_api_key.isHidden())
 
+    def test_bridge_toggle_and_provider_selector_stay_in_sync(self):
+        self.dashboard.bridge_toggle.click()
+        self.assertEqual(self.dashboard.bridge_provider.currentData(), "off")
+        self.assertEqual(self.dashboard.bridge_toggle.text(), "Bridge OFF")
+        self.assertFalse(self.dashboard.bridge_toggle.isChecked())
+
+        self.dashboard.bridge_toggle.click()
+        self.assertEqual(self.dashboard.bridge_provider.currentData(), "groq")
+        self.assertEqual(self.dashboard.bridge_toggle.text(), "Bridge ON")
+        self.assertTrue(self.dashboard.bridge_toggle.isChecked())
+
+    def test_save_shows_global_success_feedback(self):
+        with (
+            patch.object(
+                dashboard_module.DashboardSettingsRepository,
+                "save",
+                return_value={},
+            ),
+            patch.object(
+                dashboard_module.ProviderProfileRepository,
+                "save",
+            ),
+            patch.object(dashboard_module.config, "reload"),
+        ):
+            self.assertTrue(self.dashboard.save_config())
+
+        self.assertFalse(self.dashboard.save_feedback_label.isHidden())
+        self.assertIn("Saved", self.dashboard.save_feedback_label.text())
+        self.assertEqual(self.dashboard.save_btn.text(), "✓ Saved")
+
+    def test_save_failure_is_visible_and_returns_false(self):
+        with patch.object(
+            dashboard_module.DashboardSettingsRepository,
+            "save",
+            side_effect=OSError("read-only config"),
+        ):
+            self.assertFalse(self.dashboard.save_config())
+
+        self.assertFalse(self.dashboard.save_feedback_label.isHidden())
+        self.assertIn("read-only config", self.dashboard.save_feedback_label.text())
+        self.assertEqual(self.dashboard.save_btn.text(), "Save Failed")
+
     def test_workflow_labels_separate_regular_users_from_developer_chain(self):
         labels = {
             self.dashboard.translation_workflow.itemData(index):
@@ -237,6 +279,10 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertIn("重新 Launch", self.dashboard.apply_hint.text())
         self.assertIn("重新 Launch", self.dashboard.audio_panel.apply_hint.text())
         self.assertIn("重新 Launch", self.dashboard.asr_panel.apply_hint.text())
+
+    def test_current_lecture_topic_starts_blank_for_each_app_session(self):
+        self.assertEqual(self.dashboard.current_course_topic.text(), "")
+        self.assertIn("session only", self.dashboard.current_course_topic.toolTip())
 
     def test_apple_only_hides_remote_credentials_and_forces_local_draft(self):
         self._choose_workflow("apple_only")

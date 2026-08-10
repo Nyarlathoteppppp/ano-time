@@ -362,6 +362,9 @@ class Dashboard(QWidget):
         self.build_label = QLabel(f"Build {current_version()}")
         self.build_label.setStyleSheet("font-size: 10px; color: #7f849c;")
         footer.addWidget(self.build_label)
+        self.save_feedback_label = QLabel()
+        self.save_feedback_label.setVisible(False)
+        footer.addWidget(self.save_feedback_label)
         self.save_btn = QPushButton("Save Settings")
         self.save_btn.clicked.connect(self.save_config)
         self.save_btn.setStyleSheet("""
@@ -706,6 +709,7 @@ class Dashboard(QWidget):
             self.qwen_fallback_key,
             self.qwen_fallback_url,
             self.translation_domain,
+            self.current_course_topic,
         ):
             field.textChanged.connect(self._mark_settings_dirty)
 
@@ -1269,15 +1273,23 @@ class Dashboard(QWidget):
         bridge_card_layout = QVBoxLayout(self.bridge_card)
         bridge_card_layout.setContentsMargins(12, 10, 12, 10)
         bridge_card_layout.setSpacing(7)
+        bridge_header = QHBoxLayout()
         bridge_title = QLabel("Bridge Translation（桥接翻译 · 可选）")
         bridge_title.setStyleSheet("font-weight: 700; color: #f5a9c7;")
+        self.bridge_toggle = QPushButton()
+        self.bridge_toggle.setCheckable(True)
+        self.bridge_toggle.setFixedWidth(92)
+        self.bridge_toggle.clicked.connect(self._on_bridge_toggle_clicked)
+        bridge_header.addWidget(bridge_title)
+        bridge_header.addStretch()
+        bridge_header.addWidget(self.bridge_toggle)
         bridge_explanation = QLabel(
             "在最终模型返回前抢先显示较自然的过渡译文。关闭不会影响 Apple 草稿或最终翻译；"
             "桥接请求不会阻塞、覆盖最终模型。"
         )
         bridge_explanation.setWordWrap(True)
         bridge_explanation.setStyleSheet("font-size: 12px; color: #bac2de;")
-        bridge_card_layout.addWidget(bridge_title)
+        bridge_card_layout.addLayout(bridge_header)
         bridge_card_layout.addWidget(bridge_explanation)
         self.bridge_layout = QFormLayout()
         self.bridge_layout.setContentsMargins(0, 0, 0, 0)
@@ -1493,6 +1505,21 @@ class Dashboard(QWidget):
         )
         layout.addRow("Course Domain（课程专业背景）:", self.translation_domain)
 
+        # A lecture topic is deliberately session-scoped. Never restore the
+        # previous class's topic when the control center opens again.
+        self.current_course_topic = QLineEdit("")
+        self.current_course_topic.setPlaceholderText(
+            "Regularisation & Bias-variance Trade-off — Statistical Machine Learning"
+        )
+        self.current_course_topic.setToolTip(
+            "Optional topic for this session only. It is sent to the bridge and "
+            "final remote models after Save + relaunch, and starts blank next time."
+        )
+        layout.addRow(
+            "Current Lecture Topic（本节课程主题）:",
+            self.current_course_topic,
+        )
+
         self.fast_translation_backend = ReadableComboBox()
         self.fast_translation_backend.addItems(["apple", "off"])
         self.fast_translation_backend.setCurrentText(config.fast_translation_backend)
@@ -1625,6 +1652,28 @@ class Dashboard(QWidget):
             }
         }
 
+    def _on_bridge_toggle_clicked(self, enabled):
+        index = self.bridge_provider.findData("groq" if enabled else "off")
+        if index >= 0:
+            self.bridge_provider.setCurrentIndex(index)
+
+    def _sync_bridge_toggle(self, enabled=True):
+        active = enabled and (self.bridge_provider.currentData() == "groq")
+        self.bridge_toggle.blockSignals(True)
+        self.bridge_toggle.setChecked(active)
+        self.bridge_toggle.setText("Bridge ON" if active else "Bridge OFF")
+        self.bridge_toggle.setEnabled(enabled)
+        if active:
+            self.bridge_toggle.setStyleSheet(
+                "background-color: #a6e3a1; color: #1e1e2e; font-weight: 700;"
+            )
+        else:
+            self.bridge_toggle.setStyleSheet(
+                "background-color: rgba(127,132,156,90); color: #cdd6f4; "
+                "font-weight: 700;"
+            )
+        self.bridge_toggle.blockSignals(False)
+
     def _on_translation_workflow_changed(self, *_):
         if not hasattr(self, "translation_workflow"):
             return
@@ -1636,6 +1685,7 @@ class Dashboard(QWidget):
 
         self.bridge_card.setVisible(not apple_only)
         self.bridge_provider.setEnabled(not apple_only)
+        self._sync_bridge_toggle(not apple_only)
         for widget in (self.provider, self.api_key, self.base_url, self.model_container):
             self._set_translation_row_visible(widget, single)
         bridge_key_visible = not apple_only and bridge == "groq"
@@ -1817,6 +1867,7 @@ class Dashboard(QWidget):
                     self.target_lang.currentData() or self.target_lang.currentText()
                 ),
                 domain=self.translation_domain.text(),
+                course_topic=self.current_course_topic.text().strip(),
                 fast_backend=(
                     "apple"
                     if workflow == "apple_only"
@@ -1841,13 +1892,36 @@ class Dashboard(QWidget):
             auto_save_transcripts=self.transcript_recording_checkbox.isChecked(),
         )
 
+    def _show_save_feedback(self, message, *, success):
+        color = "#a6e3a1" if success else "#f38ba8"
+        self.save_feedback_label.setText(message)
+        self.save_feedback_label.setStyleSheet(
+            f"font-weight: 700; color: {color};"
+        )
+        self.save_feedback_label.setVisible(True)
+        self.save_btn.setText("✓ Saved" if success else "Save Failed")
+
+        def clear_feedback():
+            self.save_feedback_label.setVisible(False)
+            self.save_btn.setText("Save Settings")
+
+        QTimer.singleShot(4000, clear_feedback)
+
     def save_config(self, checked=False, show_status=True):
         config_path = os.path.join(os.path.dirname(__file__), "config.ini")
         repository = DashboardSettingsRepository(config_path)
-        saved_secret_updates = repository.save(
-            self.collect_settings(),
-            previous_secrets=self._saved_secrets,
-        )
+        try:
+            saved_secret_updates = repository.save(
+                self.collect_settings(),
+                previous_secrets=self._saved_secrets,
+            )
+        except Exception as exc:
+            message = f"Save failed: {exc}"
+            print(f"[Dashboard] {message}")
+            if show_status:
+                self.status_label.setText(message)
+                self._show_save_feedback(message, success=False)
+            return False
         self._saved_secrets.update(saved_secret_updates)
         profile_warning = ""
         try:
@@ -1864,6 +1938,13 @@ class Dashboard(QWidget):
         if show_status:
             suffix = " Applies on next launch." if getattr(self, "pipeline", None) else ""
             self.status_label.setText(f"Saved.{suffix}{profile_warning}")
+            feedback = "✓ Saved"
+            if suffix:
+                feedback += " · Relaunch to apply"
+            if profile_warning:
+                feedback += " · Profile warning"
+            self._show_save_feedback(feedback, success=True)
+        return True
 
     def on_start(self):
         self.session_controller.start()

@@ -23,6 +23,7 @@ def workflow_config(**overrides):
         "single_provider": "Alibaba Cloud Qwen-MT",
         "target_lang": "Chinese",
         "translation_domain": "Computer Science–AI coursework.",
+        "current_course_topic": "Regularisation and bias-variance trade-off",
         "ai_deadline_seconds": 3.0,
         "glossary_path": None,
         "groq_api_key": "groq-key",
@@ -68,6 +69,14 @@ class TranslationWorkflowTests(unittest.TestCase):
         self.assertIsNone(gemini["daily_limit"])
         self.assertEqual(providers["Groq GPT-OSS 20B"]["priority"], 3)
         self.assertEqual(providers["Cerebras GPT-OSS 120B"]["priority"], 4)
+        self.assertIn(
+            "Current lecture topic: Regularisation and bias-variance trade-off",
+            providers["Cloudflare GLM-4.7-Flash"]["translator"].domain_prompt,
+        )
+        self.assertIn(
+            "Current lecture topic: Regularisation and bias-variance trade-off",
+            providers["Groq GPT-OSS 20B"]["translator"].domain_prompt,
+        )
         self.assertNotIn("Qwen-MT Flash fallback", providers)
         bridge_names = {"Groq GPT-OSS 20B", "Cerebras GPT-OSS 120B"}
         self.assertEqual(workflow.final_translator.excluding, bridge_names)
@@ -80,6 +89,13 @@ class TranslationWorkflowTests(unittest.TestCase):
         self.assertIsNone(workflow.bridge_translator)
         self.assertIn("Gemini 3.5 Flash-Lite Paid", names)
         self.assertNotIn("Qwen-MT Flash fallback", names)
+
+    def test_blank_current_course_topic_is_not_injected(self):
+        workflow = self._build(workflow_config(current_course_topic=""))
+        for provider in workflow.final_translator.router.providers:
+            self.assertNotIn(
+                "Current lecture topic:", provider["translator"].domain_prompt
+            )
 
     def test_bridge_uses_cerebras_after_groq_daily_quota_and_returns_to_groq(self):
         workflow = self._build(workflow_config())

@@ -7,10 +7,11 @@ from .providers import bridge_providers, translator_options
 
 def build_smart_hybrid(config, usage_path, status_callback=None):
     """Build the developer hybrid workflow with free-first final routing."""
-    options = translator_options(config)
+    final_options = translator_options(config, include_course_topic=True)
+    bridge_options = translator_options(config, include_course_topic=True)
     providers = []
     bridge_enabled = config.bridge_provider == "groq"
-    bridges = bridge_providers(config, options) if bridge_enabled else []
+    bridges = bridge_providers(config, bridge_options) if bridge_enabled else []
     providers.extend(bridges)
     if config.cloudflare_account_id and config.cloudflare_api_token:
         providers.append({
@@ -22,7 +23,7 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
                 ),
                 api_key=config.cloudflare_api_token,
                 model="@cf/zai-org/glm-4.7-flash",
-                **options,
+                **final_options,
             ),
             "daily_neuron_limit": 10000,
             "neuron_input_per_million": 5500,
@@ -37,7 +38,7 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
                 api_key=config.gemini_api_key,
                 model="gemini-3.5-flash-lite",
-                **options,
+                **final_options,
             ),
             # Billing is enabled for this endpoint. Do not apply the former
             # free-tier RPM/TPM/RPD caps: it is the primary paid final model

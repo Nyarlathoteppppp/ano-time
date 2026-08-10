@@ -5,10 +5,16 @@ GROQ_NAME = "Groq GPT-OSS 20B"
 CEREBRAS_NAME = "Cerebras GPT-OSS 120B"
 
 
-def translator_options(config):
+def translator_options(config, include_course_topic=False):
+    domain_prompt = config.translation_domain
+    course_topic = getattr(config, "current_course_topic", "").strip()
+    if include_course_topic and course_topic:
+        domain_prompt = (
+            f"{domain_prompt} Current lecture topic: {course_topic}."
+        )
     return {
         "target_lang": config.target_lang,
-        "domain_prompt": config.translation_domain,
+        "domain_prompt": domain_prompt,
         "deadline_seconds": config.ai_deadline_seconds,
         "glossary_path": config.glossary_path,
     }

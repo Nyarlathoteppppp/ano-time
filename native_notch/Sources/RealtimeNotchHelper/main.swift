@@ -81,6 +81,10 @@ private final class SubtitleState: ObservableObject {
         items = newItems
     }
 
+    func hasSameItemIdentity(as newItems: [SubtitleLine]) -> Bool {
+        items.map(\.id) == newItems.map(\.id)
+    }
+
     func replaceBusyStages(_ stages: [String]) {
         let replacement = Set(stages)
         guard replacement != busyStages else { return }
@@ -447,10 +451,20 @@ private struct RealtimeNotchHelper {
                     if let busyStages = message.busyStages {
                         state.replaceBusyStages(busyStages)
                     }
-                    withAnimation(.easeOut(duration: 0.14)) {
-                        if let items = message.items, !items.isEmpty {
-                            state.replaceItems(Array(items.suffix(3)))
-                        } else if let original = message.original {
+                    if let items = message.items, !items.isEmpty {
+                        let visibleItems = Array(items.suffix(3))
+                        if state.hasSameItemIdentity(as: visibleItems) {
+                            // Streaming refinements keep the same subtitle views alive.
+                            // SwiftUI then updates only the changed text instead of
+                            // animating the entire stack on every token.
+                            state.replaceItems(visibleItems)
+                        } else {
+                            withAnimation(.easeOut(duration: 0.14)) {
+                                state.replaceItems(visibleItems)
+                            }
+                        }
+                    } else if let original = message.original {
+                        withAnimation(.easeOut(duration: 0.14)) {
                             state.replaceItems([SubtitleLine(
                                 id: 0,
                                 original: original,

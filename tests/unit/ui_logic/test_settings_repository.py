@@ -37,6 +37,7 @@ def make_snapshot(groq_key="groq-secret"):
             "qwen-mt-flash",
             "Chinese",
             "Computer Science–AI",
+            "Regularisation and bias-variance trade-off",
             "apple",
         ),
         providers=ProviderSettings(
@@ -114,6 +115,10 @@ class DashboardSettingsRepositoryTests(unittest.TestCase):
             self.assertEqual(saved.get("translation", "workflow"), "smart_hybrid")
             self.assertEqual(saved.get("translation", "bridge_provider"), "groq")
             self.assertEqual(saved.get("transcription", "source_language"), "en")
+            self.assertEqual(
+                saved.get("translation", "course_topic"),
+                "Regularisation and bias-variance trade-off",
+            )
             self.assertEqual(saved.get("display", "mode"), "notch")
             self.assertTrue(saved.getboolean("records", "auto_save_transcripts"))
 

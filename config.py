@@ -38,6 +38,9 @@ class Config:
             "in AI, machine learning, probability and statistics, linear algebra, "
             "optimization, and software engineering.",
         )
+        self.current_course_topic = self._get(
+            "translation", "course_topic", ""
+        ).strip()
         self.translation_threads = self._getint("translation", "threads", 4)
         self.ai_deadline_seconds = self._getfloat("translation", "ai_deadline_seconds", 3.0)
         self.fast_translation_backend = self._get(

@@ -350,6 +350,7 @@ class Pipeline(QObject):
         """Pause audio ingestion without tearing down capture permissions."""
         if paused:
             self._paused.set()
+            self._clear_finalized_context()
             fast_path = self.__dict__.get("_fast_path")
             if fast_path:
                 fast_path.invalidate_all()
@@ -371,8 +372,19 @@ class Pipeline(QObject):
                 reset_thread.start()
             print("[Pipeline] Paused.")
         else:
+            # Clear again on resume: a final callback already in flight when
+            # pause began may have appended after the first reset.
+            self._clear_finalized_context()
             self._paused.clear()
             print("[Pipeline] Resumed.")
+
+    def _clear_finalized_context(self):
+        context = self.__dict__.get("_finalized_context")
+        lock = self.__dict__.get("_context_lock")
+        if context is None or lock is None:
+            return
+        with lock:
+            context.clear()
 
     @property
     def is_paused(self):

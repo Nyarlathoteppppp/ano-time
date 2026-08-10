@@ -65,11 +65,16 @@ class PipelineContractTests(unittest.TestCase):
     def test_pause_and_resume_are_immediate_and_monotonic(self):
         pipeline = Pipeline.__new__(Pipeline)
         pipeline._paused = threading.Event()
+        pipeline._context_lock = threading.Lock()
+        pipeline._finalized_context = deque(["old lecture sentence"], maxlen=4)
 
         pipeline.set_paused(True)
         self.assertTrue(pipeline.is_paused)
+        self.assertEqual(list(pipeline._finalized_context), [])
+        pipeline._finalized_context.append("late callback during pause")
         pipeline.set_paused(False)
         self.assertFalse(pipeline.is_paused)
+        self.assertEqual(list(pipeline._finalized_context), [])
 
     def test_final_context_contains_only_four_previous_segments(self):
         pipeline = Pipeline.__new__(Pipeline)

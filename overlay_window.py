@@ -85,12 +85,36 @@ class LogItem(QFrame):
         self.layout.addWidget(self.translated_label)
         
     def update_translated(self, text):
+        if text == self.translated_label.text():
+            return False
+        previous_height = self.translated_label.height()
         self.translated_label.setText(text)
-        self.refresh_layout()
+        available_width = max(1, self.width())
+        next_height = max(
+            self.translated_label.fontMetrics().height(),
+            self.translated_label.heightForWidth(available_width),
+        )
+        if next_height != previous_height:
+            self.refresh_layout()
+            return True
+        self.translated_label.update()
+        return False
 
     def update_original(self, text):
+        if text == self.original_label.text():
+            return False
+        previous_height = self.original_label.height()
         self.original_label.setText(text)
-        self.refresh_layout()
+        available_width = max(1, self.width())
+        next_height = max(
+            self.original_label.fontMetrics().height(),
+            self.original_label.heightForWidth(available_width),
+        )
+        if next_height != previous_height:
+            self.refresh_layout()
+            return True
+        self.original_label.update()
+        return False
 
     def refresh_layout(self):
         """Recompute wrapped-label heights after text or width changes."""
@@ -796,9 +820,14 @@ class OverlayWindow(QWidget):
         if not self.items:
             return
         latest_id = max(cid for cid, _ in self.items)
+        visibility_changed = False
         for cid, widget in self.items:
-            widget.setVisible(self.display_mode == "glass" or cid == latest_id)
-        self._schedule_content_reflow()
+            should_show = self.display_mode == "glass" or cid == latest_id
+            if widget.isHidden() == should_show:
+                widget.setVisible(should_show)
+                visibility_changed = True
+        if visibility_changed:
+            self._schedule_content_reflow()
 
     def update_text(self, chunk_id, original_text, translated_text, state="partial"):
         """Append new text or update existing text"""
@@ -832,12 +861,19 @@ class OverlayWindow(QWidget):
         
         if existing_widget:
             # Update existing
+            layout_changed = False
             if original_text:
-                existing_widget.update_original(original_text)
+                layout_changed = (
+                    existing_widget.update_original(original_text) or layout_changed
+                )
             
             if translated_text:
-                existing_widget.update_translated(translated_text)
+                layout_changed = (
+                    existing_widget.update_translated(translated_text) or layout_changed
+                )
             existing_widget.set_finalized(finalized)
+            if layout_changed:
+                self._schedule_content_reflow()
                 
         else:
             # Insert new widget in order

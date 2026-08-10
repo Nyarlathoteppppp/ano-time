@@ -115,6 +115,27 @@ class CourseGlossaryTests(unittest.TestCase):
         self.assertIn("misrecognized words", system_prompt)
         self.assertIn("only obvious ASR errors", system_prompt)
         self.assertIn("never invent missing content", system_prompt)
+        self.assertIn("Start directly with the translation", system_prompt)
+        self.assertIn("Never output analysis, reasoning", system_prompt)
+        self.assertIn("Markdown", system_prompt)
+
+    def test_context_prompt_forbids_notes_and_returns_current_translation_only(self):
+        translator = Translator(
+            api_key="test-key",
+            base_url="https://example.invalid/v1",
+            model="generic-fast-model",
+        )
+        translator.client = _RecordingClient()
+        translator.translate(
+            "We fit a model.",
+            context_text="The lecture discusses linear regression.",
+            remember_context=False,
+        )
+
+        system_prompt = translator.client.chat.completions.options["messages"][0]["content"]
+        self.assertIn("translation of CURRENT only", system_prompt)
+        self.assertIn("Never output analysis, reasoning", system_prompt)
+        self.assertIn("notes, labels, alternatives", system_prompt)
 
     def test_fast_pool_uses_provider_compatible_latency_options(self):
         groq = Translator(

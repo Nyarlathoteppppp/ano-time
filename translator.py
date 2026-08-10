@@ -138,6 +138,12 @@ class Translator:
             )
             terminology_prompt = f" Required terminology: {pairs}."
 
+        output_constraint = (
+            " Output exactly one plain-text translation of the current source text. "
+            "Start directly with the translation. Never output analysis, reasoning, "
+            "explanations, notes, labels, alternatives, Markdown, or the source text."
+        )
+
         # Qwen-MT is a purpose-built, single-turn translation API. It rejects
         # system messages and receives language selection through extra_body.
         if is_qwen_mt:
@@ -149,7 +155,8 @@ class Translator:
                 f"{self.asr_correction_prompt} "
                 f"Improve the draft translation into {self.prompt_target_lang}. "
                 f"Correct mistranslations using the original text, preserve meaning and terminology, "
-                f"and output ONLY the improved translation.{terminology_prompt}"
+                f"and output only the improved translation.{output_constraint}"
+                f"{terminology_prompt}"
             )
             user_message = (
                 f"Original:\n{text}\n\n"
@@ -161,7 +168,8 @@ class Translator:
                 f"Domain: {self.domain_prompt} "
                 f"{self.asr_correction_prompt} "
                 f"Use CONTEXT only to resolve references and terminology. "
-                f"Return the translation of CURRENT only.{terminology_prompt}"
+                f"Return the translation of CURRENT only.{output_constraint}"
+                f"{terminology_prompt}"
             )
             user_message = f"CONTEXT:\n{context_text}\n\nCURRENT:\n{text}"
         elif use_context and self.previous_text:
@@ -178,7 +186,8 @@ class Translator:
                 f"1. Use the <context> ONLY for continuity (consistency in terminology).\\n"
                 f"2. Translate ONLY the text available in the user message.\\n"
                 f"3. Do NOT repeat or include the Previous Sentence/Translation in your output.\\n"
-                f"4. Output ONLY the translation of the user message."
+                f"4. Output only the translation of the user message."
+                f"{output_constraint}"
                 f"{terminology_prompt}"
             )
             user_message = text
@@ -188,7 +197,7 @@ class Translator:
                 f"Domain context: {self.domain_prompt} "
                 f"{self.asr_correction_prompt} "
                 f"Translate the following user input into {self.prompt_target_lang}. "
-                f"Do not add any explanations, just output the translation."
+                f"Do not add any explanations.{output_constraint}"
                 f"{terminology_prompt}"
             )
             user_message = text

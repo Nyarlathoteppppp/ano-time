@@ -30,6 +30,7 @@ class TranslationSettings:
     model: str
     target_language: str
     domain: str
+    course_topic: str
     fast_backend: str
 
 

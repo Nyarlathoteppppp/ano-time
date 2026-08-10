@@ -102,11 +102,17 @@ class ApiTestController:
     def _spec(self):
         view = self.view
         target = view.api_test_provider.currentData()
+        domain_prompt = view.translation_domain.text()
+        course_topic = view.current_course_topic.text().strip()
+        if course_topic:
+            domain_prompt = (
+                f"{domain_prompt} Current lecture topic: {course_topic}."
+            )
         common = {
             "target_lang": str(
                 view.target_lang.currentData() or view.target_lang.currentText()
             ),
-            "domain_prompt": view.translation_domain.text(),
+            "domain_prompt": domain_prompt,
             "deadline_seconds": 3.0,
             "glossary_path": config.glossary_path,
         }

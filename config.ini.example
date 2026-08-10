@@ -6,6 +6,8 @@ api_key =
 model = qwen-mt-flash
 target_lang = Chinese
 domain = Postgraduate Computer Science–AI coursework. Preserve standard terminology in AI, machine learning, probability and statistics, linear algebra, optimization, and software engineering.
+; Optional per-lecture hint, for example: Regularisation & Bias-variance Trade-off — Statistical Machine Learning
+course_topic =
 threads = 4
 ai_deadline_seconds = 3.0
 fast_backend = apple

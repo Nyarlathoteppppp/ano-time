@@ -32,7 +32,8 @@ def _single_endpoint(config):
 
 
 def build_single_model(config, usage_path, status_callback=None):
-    options = translator_options(config)
+    final_options = translator_options(config, include_course_topic=True)
+    bridge_options = translator_options(config, include_course_topic=True)
     base_url, api_key, model, label = _single_endpoint(config)
     final = None
     if base_url and api_key and model:
@@ -40,12 +41,12 @@ def build_single_model(config, usage_path, status_callback=None):
             base_url=base_url,
             api_key=api_key,
             model=model,
-            **options,
+            **final_options,
         )
 
     bridge_view = None
     if config.bridge_provider == "groq":
-        bridges = bridge_providers(config, options)
+        bridges = bridge_providers(config, bridge_options)
         if bridges:
             router = HybridTranslator(bridges, usage_path=usage_path)
             router.status_callback = status_callback
