@@ -2,7 +2,7 @@ from hybrid_translator import HybridTranslator
 from translator import Translator
 
 from .contracts import HybridTranslatorView, TranslationWorkflow
-from .providers import GROQ_NAME, groq_provider, translator_options
+from .providers import bridge_providers, translator_options
 
 
 def build_smart_hybrid(config, usage_path, status_callback=None):
@@ -10,9 +10,8 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
     options = translator_options(config)
     providers = []
     bridge_enabled = config.bridge_provider == "groq"
-    bridge = groq_provider(config, options) if bridge_enabled else None
-    if bridge:
-        providers.append(bridge)
+    bridges = bridge_providers(config, options) if bridge_enabled else []
+    providers.extend(bridges)
     if config.cloudflare_account_id and config.cloudflare_api_token:
         providers.append({
             "name": "Cloudflare GLM-4.7-Flash",
@@ -48,7 +47,8 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
             "fallback_reserve_seconds": 1.8,
             "failure_cooldown_seconds": 3.0,
         })
-    final_names = {provider["name"] for provider in providers} - {GROQ_NAME}
+    bridge_names = {provider["name"] for provider in bridges}
+    final_names = {provider["name"] for provider in providers} - bridge_names
     if not providers:
         return TranslationWorkflow(
             name="smart_hybrid",
@@ -59,17 +59,17 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
     router = HybridTranslator(providers, usage_path=usage_path)
     router.status_callback = status_callback
     final = (
-        HybridTranslatorView(router, excluding={GROQ_NAME})
+        HybridTranslatorView(router, excluding=bridge_names)
         if final_names else None
     )
     bridge_view = (
-        HybridTranslatorView(router, only={GROQ_NAME}) if bridge else None
+        HybridTranslatorView(router, only=bridge_names) if bridge_names else None
     )
     return TranslationWorkflow(
         name="smart_hybrid",
         final_translator=final,
         bridge_translator=bridge_view,
         final_label="GLM Free → Gemini Paid",
-        bridge_label=GROQ_NAME if bridge_view else "Off",
+        bridge_label="Groq → Cerebras" if bridge_view else "Off",
         final_status_managed=True,
     )

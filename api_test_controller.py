@@ -70,6 +70,7 @@ class ApiTestController:
         if workflow == "smart_hybrid":
             if bridge == "groq":
                 targets.append(("Groq GPT-OSS 20B（桥接）", "groq"))
+                targets.append(("Cerebras GPT-OSS 120B（桥接兜底）", "cerebras"))
             targets.extend((
                 ("Gemini 3.5 Flash-Lite Paid（主翻译）", "gemini"),
                 ("Cloudflare GLM-4.7-Flash", "glm"),
@@ -81,6 +82,10 @@ class ApiTestController:
             ))
             if bridge == "groq":
                 targets.append(("Optional Bridge（可选桥接） · Groq", "groq"))
+                targets.append((
+                    "Optional Bridge Fallback（桥接兜底） · Cerebras",
+                    "cerebras",
+                ))
 
         view.api_test_provider.blockSignals(True)
         view.api_test_provider.clear()
@@ -111,6 +116,12 @@ class ApiTestController:
                 "base_url": "https://api.groq.com/openai/v1",
                 "api_key": view.groq_api_key.text().strip(),
                 "model": "openai/gpt-oss-20b",
+            },
+            "cerebras": {
+                "label": "Cerebras GPT-OSS 120B",
+                "base_url": "https://api.cerebras.ai/v1",
+                "api_key": view.cerebras_api_key.text().strip(),
+                "model": "gpt-oss-120b",
             },
             "gemini": {
                 "label": "Gemini 3.5 Flash-Lite",

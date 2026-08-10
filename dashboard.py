@@ -317,6 +317,7 @@ class Dashboard(QWidget):
             "providers.siliconflow": self.provider_keys.get("SiliconFlow", ""),
             "providers.qwen_mt": self.qwen_fallback_key.text(),
             "providers.groq": self.groq_api_key.text(),
+            "providers.cerebras": self.cerebras_api_key.text(),
             "providers.gemini": self.gemini_api_key.text(),
             "providers.cloudflare": self.cloudflare_api_token.text(),
         }
@@ -631,7 +632,7 @@ class Dashboard(QWidget):
                 model = "Apple on-device only"
             elif workflow == "smart_hybrid":
                 model = (
-                    "Apple → Groq → GLM Free → Gemini Paid"
+                    "Apple → Groq/Cerebras → GLM Free → Gemini Paid"
                     if bridge == "groq"
                     else "Apple → GLM Free → Gemini Paid"
                 )
@@ -676,6 +677,7 @@ class Dashboard(QWidget):
             self.api_key,
             self.base_url,
             self.groq_api_key,
+            self.cerebras_api_key,
             self.gemini_api_key,
             self.cloudflare_account_id,
             self.cloudflare_api_token,
@@ -1261,7 +1263,7 @@ class Dashboard(QWidget):
 
         self.bridge_provider = ReadableComboBox()
         self.bridge_provider.addItem("Off（关闭）", "off")
-        self.bridge_provider.addItem("Groq GPT-OSS 20B（快速过渡）", "groq")
+        self.bridge_provider.addItem("Groq → Cerebras（自动轮换）", "groq")
         bridge_index = self.bridge_provider.findData(config.bridge_provider)
         self.bridge_provider.setCurrentIndex(max(0, bridge_index))
         self.bridge_layout.addRow("Bridge Model（桥接模型）:", self.bridge_provider)
@@ -1271,6 +1273,14 @@ class Dashboard(QWidget):
         self.groq_api_key.setPlaceholderText("gsk_...")
         self.bridge_key_label = QLabel("Groq Key（桥接服务密钥）:")
         self.bridge_layout.addRow(self.bridge_key_label, self.groq_api_key)
+
+        self.cerebras_api_key = QLineEdit(config.cerebras_api_key)
+        self.cerebras_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.cerebras_api_key.setPlaceholderText("csk-...")
+        self.cerebras_key_label = QLabel("Cerebras Key（Groq 额度用完后接管）:")
+        self.bridge_layout.addRow(
+            self.cerebras_key_label, self.cerebras_api_key
+        )
         bridge_card_layout.addLayout(self.bridge_layout)
         layout.addRow(self.bridge_card)
 
@@ -1479,6 +1489,7 @@ class Dashboard(QWidget):
             self.api_key,
             self.base_url,
             self.groq_api_key,
+            self.cerebras_api_key,
             self.gemini_api_key,
             self.cloudflare_account_id,
             self.cloudflare_api_token,
@@ -1608,6 +1619,8 @@ class Dashboard(QWidget):
         bridge_key_visible = not apple_only and bridge == "groq"
         self.groq_api_key.setVisible(bridge_key_visible)
         self.bridge_key_label.setVisible(bridge_key_visible)
+        self.cerebras_api_key.setVisible(bridge_key_visible)
+        self.cerebras_key_label.setVisible(bridge_key_visible)
         for widget in (
             self.gemini_api_key,
             self.cloudflare_account_id,
@@ -1629,13 +1642,13 @@ class Dashboard(QWidget):
             self.fast_translation_backend.setCurrentText("apple")
             preview = "Apple ASR → Apple Translation（完全本地 · 通用）"
         elif smart:
-            middle = "Groq → " if bridge == "groq" else ""
+            middle = "Groq/Cerebras → " if bridge == "groq" else ""
             preview = (
                 f"Apple → {middle}GLM Free → Gemini Paid\n"
                 "⚠ 开发者专用：依赖本项目固定的多 API 与额度规则，目前不通用"
             )
         else:
-            middle = "Groq → " if bridge == "groq" else ""
+            middle = "Groq/Cerebras → " if bridge == "groq" else ""
             preview = (
                 f"Apple 草稿 → {middle}{self.provider.currentText()} 最终稿\n"
                 "✓ 通用流程：超时或 API 失败时继续保留 Apple 草稿"
@@ -1643,6 +1656,8 @@ class Dashboard(QWidget):
         missing = []
         if not apple_only and bridge == "groq" and not self.groq_api_key.text().strip():
             missing.append("Groq Key")
+        if not apple_only and bridge == "groq" and not self.cerebras_api_key.text().strip():
+            missing.append("Cerebras Key")
         if smart:
             has_gemini = bool(self.gemini_api_key.text().strip())
             has_glm = bool(
@@ -1792,6 +1807,7 @@ class Dashboard(QWidget):
                 qwen_mt_api_key=qwen_key,
                 qwen_mt_base_url=qwen_url,
                 groq_api_key=self.groq_api_key.text(),
+                cerebras_api_key=self.cerebras_api_key.text(),
                 gemini_api_key=self.gemini_api_key.text(),
                 cloudflare_account_id=self.cloudflare_account_id.text(),
                 cloudflare_api_token=self.cloudflare_api_token.text(),

@@ -12,7 +12,7 @@
 
 **面向 macOS 课堂、会议和全屏视频的速度优先型英译中实时字幕工具。**
 
-Anotime 使用 Apple 端侧语音识别与即时翻译提供低延迟草稿，并可接入 Groq 桥接模型和带严格截止时间的 AI 精修。即使远程模型变慢、不可用或免费额度耗尽，Apple 草稿也不会被阻塞。
+Anotime 使用 Apple 端侧语音识别与即时翻译提供低延迟草稿，并可通过 Groq → Cerebras 自动轮换桥接池和带严格截止时间的 AI 精修。即使远程模型变慢、不可用或免费额度耗尽，Apple 草稿也不会被阻塞。
 
 应用可通过 ScreenCaptureKit 直接监听 Mac 本机音频，无需配置 BlackHole；字幕可以显示为可调整大小的磨砂玻璃窗口，也可以贴合 MacBook 物理刘海显示。
 
@@ -64,13 +64,14 @@ Anotime 已经不只是原项目的界面换皮，而是围绕 macOS 课堂使�
 - 支持可选 TSV 术语表和 finalized ASR 纠错表；新用户默认不会加载维护者的课程术语。
 - Single Model 支持 Qwen-MT、DeepSeek、SiliconFlow、OpenAI、Gemini、Groq、OpenRouter 和自定义 OpenAI-compatible 接口。
 - 每个 Single Model 服务可独立保存 Key、Base URL、当前模型和自定义模型列表，切换后自动恢复。
-- 开发者 Smart Hybrid 使用免费 GLM 额度管理与 Gemini 3.5 Flash-Lite 付费主翻译；Qwen-MT 仅保留为可选 Single Model。
+- 开发者 Smart Hybrid 使用 Groq → Cerebras 桥接轮换、免费 GLM 额度管理与 Gemini 3.5 Flash-Lite 付费主翻译；Qwen-MT 仅保留为可选 Single Model。
 - `Control + S` 全局快捷键可启动、暂停和恢复刘海翻译，无需辅助功能或输入监控权限。
 
 #### 可用的免费模型
 
 - Apple Speech + Apple Translation：[macOS 26+ 内置](https://support.apple.com/)；首次使用可能需要后台准备中英文语言资源。
 - GPT-OSS 20B：[Groq Console](https://console.groq.com/)。
+- GPT-OSS 120B：[Cerebras Inference](https://cloud.cerebras.ai/)。
 - Gemini 3.5 Flash-Lite：[Google AI Studio](https://aistudio.google.com/)。
 - GLM-4.7-Flash：[Cloudflare Dashboard](https://dash.cloudflare.com/)。
 - Qwen-MT Flash：[阿里云百炼](https://bailian.console.aliyun.com/)。
@@ -205,13 +206,13 @@ tail -f /tmp/realtime-ton-hotkey.log
 
 控制中心提供三种互相独立的流程：
 
-- **Single Model（普通用户推荐）**：Apple 草稿 → 可选 Groq → 用户指定的常见服务或自定义 OpenAI-compatible 模型。
-- **Smart Hybrid（开发者专用）**：使用 Apple → 可选 Groq → GLM 免费额度 → Gemini 3.5 Flash-Lite 付费主翻译路由。
+- **Single Model（普通用户推荐）**：Apple 草稿 → 可选 Groq/Cerebras 桥接池 → 用户指定的常见服务或自定义 OpenAI-compatible 模型。
+- **Smart Hybrid（开发者专用）**：使用 Apple → Groq/Cerebras 桥接池 → GLM 免费额度 → Gemini 3.5 Flash-Lite 付费主翻译路由。
 - **Apple Only（普通用户，无需 API）**：完全使用 Apple ASR 和 Apple Translation，不发送远程请求。
 
 桥接模型和最终模型分别配置。修改 Single Model 不会改变 Smart Hybrid 的路由或额度状态。
 
-> Smart Hybrid 目前不是通用工作流：它依赖项目开发者固定的 Groq、Gemini 与 Cloudflare Workers AI 账号组合及额度规则。其他用户应优先使用 Single Model；Qwen-MT 仍可作为独立 Single Model 使用。
+> Smart Hybrid 目前不是通用工作流：它依赖项目开发者固定的 Groq、Cerebras、Gemini 与 Cloudflare Workers AI 账号组合及额度规则。其他用户应优先使用 Single Model；Qwen-MT 仍可作为独立 Single Model 使用。
 
 填写密钥后，选择 **Test Target** 并点击 **Test API · 5 Requests**。应用会在后台发送五条固定的计算机/AI 技术语句，逐条显示首字延迟、总耗时和译文，最后显示成功率与平均单次总耗时。测速会消耗对应 API 的五次真实请求，但不会进入课堂字幕或对话上下文。
 
@@ -219,7 +220,7 @@ tail -f /tmp/realtime-ton-hotkey.log
 音频
   → Apple ASR 临时英文
   → Apple 即时翻译草稿
-  → 可选 Groq 低延迟桥接
+  → 可选 Groq → Cerebras 低延迟桥接池
   → finalized 英文句段
   → 当前 Single Model 最终稿 / 开发者 Smart Hybrid 限时精修
 ```
@@ -338,7 +339,7 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -q
 
 **Speed-first English → Chinese live subtitles for macOS classes, meetings, and fullscreen video.**
 
-Anotime combines Apple on-device speech recognition and instant translation with an optional Groq bridge and deadline-limited AI refinement. Apple drafts stay responsive even when a remote model is slow, unavailable, or out of free quota.
+Anotime combines Apple on-device speech recognition and instant translation with an optional Groq → Cerebras bridge pool and deadline-limited AI refinement. Apple drafts stay responsive even when a remote model is slow, unavailable, or out of free quota.
 
 It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHole setup required—and render subtitles either as a resizable glass overlay or as an adaptive window attached to the physical MacBook notch.
 
@@ -390,7 +391,7 @@ Anotime is no longer a cosmetic fork. Its runtime has been reorganized around la
 - **Optional terminology profiles** through editable TSV glossaries and finalized-ASR correction files; no maintainer-specific course vocabulary is enabled for new users.
 - **Portable Single Model providers**, including Qwen-MT, DeepSeek, SiliconFlow, OpenAI, Gemini, Groq, OpenRouter, and custom OpenAI-compatible endpoints.
 - **Per-provider profiles** retain each service's Keychain credential, URL, selected model, and custom model list.
-- **Developer-only Smart Hybrid pool** with minute/day/token accounting, automatic fallback, cooldown recovery, and Qwen-MT fallback.
+- **Developer-only Smart Hybrid pool** with Groq → Cerebras bridge failover, minute/day/token accounting, cooldown recovery, and paid Gemini final translation.
 - **Failure-safe model routing**: rate limits and timeouts fall through without removing the Apple draft or blocking newer sentences.
 - **Latest-wins refinement queue**: stale work is dropped so subtitles cannot accumulate seconds behind the speaker.
 - **Runtime latency log** for audio, ASR, local draft, bridge model, and final refinement stages.
@@ -400,6 +401,7 @@ Anotime is no longer a cosmetic fork. Its runtime has been reorganized around la
 
 - **Apple Speech + Apple Translation** — on-device on macOS 26+; first use may prepare the source/target language assets in the background.
 - **GPT-OSS 20B** — GroqCloud free API tier: [Groq Console](https://console.groq.com/).
+- **GPT-OSS 120B** — Cerebras paid bridge fallback: [Cerebras Inference](https://cloud.cerebras.ai/).
 - **Gemini 3.5 Flash-Lite** — free tier: [Google AI Studio](https://aistudio.google.com/).
 - **GLM-4.7-Flash** — Workers AI daily free allocation: [Cloudflare Dashboard](https://dash.cloudflare.com/).
 - **Qwen-MT Flash** — Model Studio trial/new-user quota and fallback: [Alibaba Cloud Model Studio](https://bailian.console.aliyun.com/).
@@ -562,14 +564,14 @@ A successful startup includes:
 
 The control center exposes three independent workflows:
 
-- **Single Model (recommended for regular users)** — Apple drafts followed by an optional Groq bridge and one explicitly selected common provider or custom OpenAI-compatible endpoint.
-- **Smart Hybrid (developer only)** — uses Apple → optional Groq → free GLM quota → paid Gemini 3.5 Flash-Lite routing.
+- **Single Model (recommended for regular users)** — Apple drafts followed by an optional Groq/Cerebras bridge pool and one explicitly selected common provider or custom OpenAI-compatible endpoint.
+- **Smart Hybrid (developer only)** — uses Apple → Groq/Cerebras bridge failover → free GLM quota → paid Gemini 3.5 Flash-Lite routing.
 - **Apple Only (regular users, no API required)** — fully local Apple ASR and Apple Translation with no remote requests.
 
 The bridge is configured separately from the final translator. Changing a
 single-model provider cannot alter the Smart Hybrid routing or quota state.
 
-> Smart Hybrid is not currently a portable workflow. It depends on the project developer's fixed Groq, Gemini, and Cloudflare Workers AI accounts and quota policy. Other users should prefer Single Model; Qwen-MT remains available there as an independent provider.
+> Smart Hybrid is not currently a portable workflow. It depends on the project developer's fixed Groq, Cerebras, Gemini, and Cloudflare Workers AI accounts and quota policy. Other users should prefer Single Model; Qwen-MT remains available there as an independent provider.
 
 After entering a credential, select **Test Target** and click
 **Test API · 5 Requests**. Anotime sends five fixed Computer Science/AI
@@ -582,7 +584,7 @@ pipeline or its conversational context.
 Audio
   → provisional Apple ASR
   → immediate Apple Translation draft
-  → optional low-latency Groq bridge
+  → optional low-latency Groq → Cerebras bridge pool
   → finalized ASR segment
   → selected Single Model final / developer Smart Hybrid refinement
 ```

@@ -80,6 +80,7 @@ class Config:
         self.qwen_mt_api_key = self._secret("providers", "qwen_mt_api_key")
         self.qwen_mt_base_url = self._get("providers", "qwen_mt_base_url", "")
         self.groq_api_key = self._secret("providers", "groq_api_key")
+        self.cerebras_api_key = self._secret("providers", "cerebras_api_key")
         self.gemini_api_key = self._secret("providers", "gemini_api_key")
         self.cloudflare_account_id = self._get("providers", "cloudflare_account_id", "")
         self.cloudflare_api_token = self._secret("providers", "cloudflare_api_token")

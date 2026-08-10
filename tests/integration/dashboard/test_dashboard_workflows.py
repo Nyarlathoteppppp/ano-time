@@ -108,7 +108,7 @@ class DashboardWorkflowTests(unittest.TestCase):
                 self.dashboard.api_test_provider.itemData(index)
                 for index in range(self.dashboard.api_test_provider.count())
             ],
-            ["groq", "gemini", "glm"],
+            ["groq", "cerebras", "gemini", "glm"],
         )
 
     def test_single_model_exposes_provider_and_optional_bridge(self):
@@ -124,6 +124,13 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertIn(
             "当前最终模型", self.dashboard.api_test_provider.itemText(0)
         )
+        self.assertIn(
+            "cerebras",
+            [
+                self.dashboard.api_test_provider.itemData(index)
+                for index in range(self.dashboard.api_test_provider.count())
+            ],
+        )
 
     def test_switching_from_hybrid_resets_speed_test_to_single_final_model(self):
         self._choose_workflow("smart_hybrid")
@@ -137,6 +144,10 @@ class DashboardWorkflowTests(unittest.TestCase):
         row = lambda widget: layout.getWidgetPosition(widget)[0]
         bridge_row = lambda widget: self.dashboard.bridge_layout.getWidgetPosition(widget)[0]
         self.assertLess(bridge_row(self.dashboard.bridge_provider), bridge_row(self.dashboard.groq_api_key))
+        self.assertLess(
+            bridge_row(self.dashboard.groq_api_key),
+            bridge_row(self.dashboard.cerebras_api_key),
+        )
         self.assertLess(row(self.dashboard.bridge_card), row(self.dashboard.provider))
         self.assertLess(row(self.dashboard.provider), row(self.dashboard.api_key))
         self.assertLess(row(self.dashboard.api_key), row(self.dashboard.base_url))
@@ -153,6 +164,7 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.bridge_provider.findData("off")
         )
         self.assertTrue(self.dashboard.groq_api_key.isHidden())
+        self.assertTrue(self.dashboard.cerebras_api_key.isHidden())
 
     def test_workflow_labels_separate_regular_users_from_developer_chain(self):
         labels = {
@@ -230,6 +242,7 @@ class DashboardWorkflowTests(unittest.TestCase):
         self._choose_workflow("apple_only")
         self.assertTrue(self.dashboard.provider.isHidden())
         self.assertTrue(self.dashboard.groq_api_key.isHidden())
+        self.assertTrue(self.dashboard.cerebras_api_key.isHidden())
         self.assertTrue(self.dashboard.gemini_api_key.isHidden())
         self.assertEqual(self.dashboard.fast_translation_backend.currentText(), "apple")
         self.assertIn("完全本地", self.dashboard.workflow_preview.text())

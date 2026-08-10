@@ -15,6 +15,7 @@ SECRET_FIELDS = {
     ("providers", "siliconflow_api_key"): "providers.siliconflow",
     ("providers", "qwen_mt_api_key"): "providers.qwen_mt",
     ("providers", "groq_api_key"): "providers.groq",
+    ("providers", "cerebras_api_key"): "providers.cerebras",
     ("providers", "gemini_api_key"): "providers.gemini",
     ("providers", "cloudflare_api_token"): "providers.cloudflare",
 }

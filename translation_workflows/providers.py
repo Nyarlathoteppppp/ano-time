@@ -2,6 +2,7 @@ from translator import Translator
 
 
 GROQ_NAME = "Groq GPT-OSS 20B"
+CEREBRAS_NAME = "Cerebras GPT-OSS 120B"
 
 
 def translator_options(config):
@@ -30,3 +31,31 @@ def groq_provider(config, options):
         "daily_timezone": "UTC",
         "priority": 3,
     }
+
+
+def cerebras_provider(config, options):
+    if not config.cerebras_api_key:
+        return None
+    return {
+        "name": CEREBRAS_NAME,
+        "translator": Translator(
+            base_url="https://api.cerebras.ai/v1",
+            api_key=config.cerebras_api_key,
+            model="gpt-oss-120b",
+            **options,
+        ),
+        # Paid bridge fallback. It is selected only after Groq is unavailable,
+        # quota-limited, or cooling down.
+        "priority": 4,
+        "failure_cooldown_seconds": 3.0,
+    }
+
+
+def bridge_providers(config, options):
+    """Return the ordered bridge pool without coupling it to a workflow."""
+    providers = []
+    for factory in (groq_provider, cerebras_provider):
+        provider = factory(config, options)
+        if provider:
+            providers.append(provider)
+    return providers

@@ -6,6 +6,16 @@ from types import SimpleNamespace
 from translation_workflows import build_translation_workflow
 
 
+class _NamedTranslator:
+    def __init__(self, name):
+        self.name = name
+        self.calls = 0
+
+    def translate(self, *_args, **_kwargs):
+        self.calls += 1
+        return self.name
+
+
 def workflow_config(**overrides):
     values = {
         "translation_workflow": "smart_hybrid",
@@ -16,6 +26,7 @@ def workflow_config(**overrides):
         "ai_deadline_seconds": 3.0,
         "glossary_path": None,
         "groq_api_key": "groq-key",
+        "cerebras_api_key": "cerebras-key",
         "gemini_api_key": "gemini-key",
         "cloudflare_account_id": "cloudflare-account",
         "cloudflare_api_token": "cloudflare-token",
@@ -56,9 +67,11 @@ class TranslationWorkflowTests(unittest.TestCase):
         self.assertIsNone(gemini["tpm_limit"])
         self.assertIsNone(gemini["daily_limit"])
         self.assertEqual(providers["Groq GPT-OSS 20B"]["priority"], 3)
+        self.assertEqual(providers["Cerebras GPT-OSS 120B"]["priority"], 4)
         self.assertNotIn("Qwen-MT Flash fallback", providers)
-        self.assertEqual(workflow.final_translator.excluding, {"Groq GPT-OSS 20B"})
-        self.assertEqual(workflow.bridge_translator.only, {"Groq GPT-OSS 20B"})
+        bridge_names = {"Groq GPT-OSS 20B", "Cerebras GPT-OSS 120B"}
+        self.assertEqual(workflow.final_translator.excluding, bridge_names)
+        self.assertEqual(workflow.bridge_translator.only, bridge_names)
 
     def test_smart_hybrid_can_disable_bridge_without_changing_final_pool(self):
         workflow = self._build(workflow_config(bridge_provider="off"))
@@ -67,6 +80,34 @@ class TranslationWorkflowTests(unittest.TestCase):
         self.assertIsNone(workflow.bridge_translator)
         self.assertIn("Gemini 3.5 Flash-Lite Paid", names)
         self.assertNotIn("Qwen-MT Flash fallback", names)
+
+    def test_bridge_uses_cerebras_after_groq_daily_quota_and_returns_to_groq(self):
+        workflow = self._build(workflow_config())
+        router = workflow.bridge_translator.router
+        providers = {provider["name"]: provider for provider in router.providers}
+        groq = providers["Groq GPT-OSS 20B"]
+        cerebras = providers["Cerebras GPT-OSS 120B"]
+        groq_fake = _NamedTranslator("groq")
+        cerebras_fake = _NamedTranslator("cerebras")
+        groq["translator"] = groq_fake
+        cerebras["translator"] = cerebras_fake
+
+        router._usage[groq["name"]] = {
+            "date": router._today(groq),
+            "attempts": groq["daily_limit"],
+        }
+        self.assertEqual(workflow.bridge_translator.translate("first"), "cerebras")
+        self.assertEqual((groq_fake.calls, cerebras_fake.calls), (0, 1))
+
+        # Simulate the persisted daily counter resetting on the next quota day.
+        router._usage[groq["name"]] = {
+            "date": "expired-day",
+            "attempts": groq["daily_limit"],
+        }
+        groq["cooldown_until"] = 0.0
+        groq["daily_block_date"] = None
+        self.assertEqual(workflow.bridge_translator.translate("second"), "groq")
+        self.assertEqual((groq_fake.calls, cerebras_fake.calls), (1, 1))
 
     def test_single_model_has_independent_optional_bridge(self):
         workflow = self._build(
@@ -78,6 +119,10 @@ class TranslationWorkflowTests(unittest.TestCase):
         self.assertEqual(workflow.name, "single_model")
         self.assertEqual(workflow.final_translator.model, "qwen-mt-flash")
         self.assertIsNotNone(workflow.bridge_translator)
+        self.assertEqual(
+            workflow.bridge_translator.only,
+            {"Groq GPT-OSS 20B", "Cerebras GPT-OSS 120B"},
+        )
         self.assertFalse(workflow.final_status_managed)
 
     def test_apple_only_initializes_no_remote_clients(self):

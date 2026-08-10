@@ -129,6 +129,26 @@ class ConfigContractTests(unittest.TestCase):
 
             self.assertEqual(loaded.groq_api_key, "resolved-secret")
 
+    def test_cerebras_keychain_reference_is_resolved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.ini")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "[providers]\n"
+                    "cerebras_api_key = keychain://com.nyarlathotep.realtime-ton/providers.cerebras\n"
+                )
+            with patch.object(
+                config_module.keychain,
+                "resolve",
+                side_effect=lambda value, account: (
+                    "cerebras-secret"
+                    if account == "providers.cerebras"
+                    else value
+                ),
+            ):
+                loaded = config_module.Config(path)
+            self.assertEqual(loaded.cerebras_api_key, "cerebras-secret")
+
 
 if __name__ == "__main__":
     unittest.main()

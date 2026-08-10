@@ -128,6 +128,20 @@ class CourseGlossaryTests(unittest.TestCase):
             groq.client.chat.completions.options["reasoning_effort"], "low"
         )
 
+        cerebras = Translator(
+            api_key="test-key",
+            base_url="https://api.cerebras.ai/v1",
+            model="gpt-oss-120b",
+        )
+        cerebras.client = _RecordingClient()
+        cerebras.translate(
+            "Translate this.", use_context=False, remember_context=False
+        )
+        self.assertEqual(
+            cerebras.client.chat.completions.options["reasoning_effort"],
+            "low",
+        )
+
         gemini = Translator(
             api_key="test-key",
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",

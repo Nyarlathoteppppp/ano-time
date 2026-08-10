@@ -54,8 +54,18 @@ class KeychainStoreTest(unittest.TestCase):
             self.assertNotIn("old-secret", contents)
             self.assertNotIn("groq-secret", contents)
             self.assertIn("keychain://test.realtime-ton/api.default", contents)
-            self.assertEqual(store.values["api.default"], "old-secret")
-            self.assertEqual(store.values["providers.groq"], "groq-secret")
+        self.assertEqual(store.values["api.default"], "old-secret")
+        self.assertEqual(store.values["providers.groq"], "groq-secret")
+
+    def test_cerebras_secret_uses_its_own_keychain_account(self):
+        store = MemoryKeychain()
+        reference = store.store_for_config(
+            "providers.cerebras", "cerebras-secret"
+        )
+        self.assertEqual(
+            reference,
+            "keychain://test.realtime-ton/providers.cerebras",
+        )
 
     def test_failed_migration_keeps_plaintext_file(self):
         store = MemoryKeychain(enabled=False)

@@ -45,6 +45,7 @@ def make_snapshot(groq_key="groq-secret"):
             "qwen-secret",
             "https://qwen.example/v1",
             groq_key,
+            "cerebras-secret",
             "gemini-secret",
             "cloudflare-account",
             "cloudflare-secret",

@@ -40,6 +40,7 @@ class ProviderSettings:
     qwen_mt_api_key: str
     qwen_mt_base_url: str
     groq_api_key: str
+    cerebras_api_key: str
     gemini_api_key: str
     cloudflare_account_id: str
     cloudflare_api_token: str

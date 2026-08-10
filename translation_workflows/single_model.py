@@ -2,7 +2,7 @@ from hybrid_translator import HybridTranslator
 from translator import Translator
 
 from .contracts import HybridTranslatorView, TranslationWorkflow
-from .providers import GROQ_NAME, groq_provider, translator_options
+from .providers import bridge_providers, translator_options
 
 
 def _single_endpoint(config):
@@ -45,17 +45,19 @@ def build_single_model(config, usage_path, status_callback=None):
 
     bridge_view = None
     if config.bridge_provider == "groq":
-        bridge = groq_provider(config, options)
-        if bridge:
-            router = HybridTranslator([bridge], usage_path=usage_path)
+        bridges = bridge_providers(config, options)
+        if bridges:
+            router = HybridTranslator(bridges, usage_path=usage_path)
             router.status_callback = status_callback
-            bridge_view = HybridTranslatorView(router, only={GROQ_NAME})
+            bridge_view = HybridTranslatorView(
+                router, only={provider["name"] for provider in bridges}
+            )
 
     return TranslationWorkflow(
         name="single_model",
         final_translator=final,
         bridge_translator=bridge_view,
         final_label=label or config.single_provider,
-        bridge_label=GROQ_NAME if bridge_view else "Off",
+        bridge_label="Groq → Cerebras" if bridge_view else "Off",
         final_status_managed=False,
     )

@@ -53,6 +53,7 @@ class Translator:
                 host in base_url
                 for host in (
                     "api.groq.com",
+                    "api.cerebras.ai",
                     "generativelanguage.googleapis.com",
                     "api.cloudflare.com",
                 )
@@ -221,6 +222,8 @@ class Translator:
                 request_options["extra_body"] = {"thinking": {"type": "disabled"}}
 
             if self.base_url and "api.groq.com" in self.base_url and self.model.startswith("openai/gpt-oss-"):
+                request_options["reasoning_effort"] = "low"
+            if self.base_url and "api.cerebras.ai" in self.base_url and self.model == "gpt-oss-120b":
                 request_options["reasoning_effort"] = "low"
             if self.base_url and "api.cloudflare.com" in self.base_url and self.model == "@cf/zai-org/glm-4.7-flash":
                 request_options["extra_body"] = {

@@ -95,6 +95,7 @@ class DashboardSettingsRepository:
             "siliconflow_api_key": providers.siliconflow_api_key,
             "qwen_mt_api_key": providers.qwen_mt_api_key,
             "groq_api_key": providers.groq_api_key,
+            "cerebras_api_key": providers.cerebras_api_key,
             "gemini_api_key": providers.gemini_api_key,
             "cloudflare_api_token": providers.cloudflare_api_token,
         }
