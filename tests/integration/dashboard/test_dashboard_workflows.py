@@ -50,6 +50,15 @@ class DashboardWorkflowTests(unittest.TestCase):
             )
         )
 
+    def test_asr_panel_keeps_legacy_dashboard_control_aliases(self):
+        self.assertIs(self.dashboard.asr_backend, self.dashboard.asr_panel.asr_backend)
+        self.assertIs(
+            self.dashboard.whisper_model, self.dashboard.asr_panel.whisper_model
+        )
+        self.assertIs(
+            self.dashboard.source_language, self.dashboard.asr_panel.source_language
+        )
+
     def test_user_titlebar_close_requests_full_quit(self):
         spontaneous = MagicMock()
         spontaneous.spontaneous.return_value = True

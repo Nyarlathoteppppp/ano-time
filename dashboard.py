@@ -34,6 +34,7 @@ from dashboard_support.settings_snapshot import (
     TranscriptionSettings,
     TranslationSettings,
 )
+from dashboard_support.panels import AsrPanel
 
 try:
     from ctypes import c_void_p
@@ -1190,179 +1191,42 @@ class Dashboard(QWidget):
         self.refresh_models_btn.setText("🔄")
 
     def init_transcription_tab(self):
-        tab = QWidget()
-        layout = QFormLayout()
-        layout.setVerticalSpacing(14)
-        self.transcription_layout = layout
-        
-        # ASR Backend Selection
-        self.asr_backend = ReadableComboBox()
-        self.asr_backend.addItems(["apple", "whisper", "mlx", "funasr"])
-        self.asr_backend.setCurrentText(config.asr_backend)
-        self.asr_backend.setToolTip(
-            "whisper: CPU/CUDA (faster-whisper)\n"
-            "mlx: Apple Silicon GPU (mlx-whisper)\n"
-            "funasr: Alibaba ASR (excellent for Chinese)"
-        )
-        self.asr_backend.currentTextChanged.connect(self._on_backend_changed)
+        panel = AsrPanel(config)
+        self.asr_panel = panel
+        # Compatibility aliases keep controllers, settings collection, and
+        # third-party callers stable while the Dashboard becomes componentized.
+        self.transcription_layout = panel.form_layout
+        self.asr_backend = panel.asr_backend
+        self.backend_hint = panel.backend_hint
+        self.whisper_model = panel.whisper_model
+        self.funasr_model = panel.funasr_model
+        self.device_type = panel.device_type
+        self.compute_type = panel.compute_type
+        self.source_language = panel.source_language
         self.asr_backend.currentTextChanged.connect(self.update_home_summary)
-        layout.addRow("ASR Backend（语音识别引擎）:", self.asr_backend)
-
-        self.backend_hint = QLabel()
-        self.backend_hint.setWordWrap(True)
-        self.backend_hint.setStyleSheet(
-            "color: #a6e3a1; padding: 8px 10px; "
-            "background: rgba(255, 255, 255, 12); border-radius: 7px;"
-        )
-        layout.addRow("", self.backend_hint)
-        
-        # Whisper Model
-        self.whisper_model = ReadableComboBox()
-        self.whisper_model.addItems(["tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en", "large-v3", "turbo"])
-        self.whisper_model.setCurrentText(config.whisper_model)
-        layout.addRow("Whisper Model（Whisper 模型大小）:", self.whisper_model)
-        
-        # FunASR Model
-        self.funasr_model = ReadableComboBox()
-        self.funasr_model.setEditable(True)
-        self.funasr_model.addItems([
-            "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
-            "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
-            "iic/speech_paraformer_asr_nat-zh-cn-16k-common-vocab8404-online",
-            "iic/speech_UniASR_asr_2pass-vi-16k-common-vocab1001-pytorch-online",
-            "iic/speech_UniASR_asr_2pass-en-16k-common-vocab1080-tensorflow1-online",
-            "iic/SenseVoiceSmall",
-            "FunAudioLLM/SenseVoiceSmall",
-            "FunAudioLLM/Fun-ASR-Nano-2512",
-            "iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
-        ])
-        self.funasr_model.setCurrentText(config.funasr_model)
-        self.funasr_model.setToolTip(
-            "Chinese (Offline): iic/speech_paraformer-large...\n"
-            "Chinese (Streaming): iic/speech_paraformer_asr_nat...online\n"
-            "English (Streaming): iic/speech_UniASR_asr_2pass-en...\n"
-            "Multi-language: iic/SenseVoiceSmall\n"
-            "Latest 31-lang model: FunAudioLLM/Fun-ASR-Nano-2512"
-        )
-        layout.addRow("FunASR Model（FunASR 模型）:", self.funasr_model)
-        
-        self.device_type = ReadableComboBox()
-        self.device_type.addItems(["cpu", "cuda", "mps", "auto"])
-        self.device_type.setCurrentText(config.whisper_device)
-        self.device_type.currentTextChanged.connect(self._on_device_changed)
-        layout.addRow("Compute Device（计算设备）:", self.device_type)
-        
-        self.compute_type = ReadableComboBox()
-        self.compute_type.addItems(["int8", "float16", "float32"])
-        self.compute_type.setCurrentText(config.whisper_compute_type)
-        self.compute_type.currentTextChanged.connect(self._on_quantization_changed)
-        layout.addRow("Quantization（推理精度与内存占用）:", self.compute_type)
-        
-        # Source Language Configuration
-        self.source_language = ReadableComboBox()
-        self.source_language.setEditable(True)
-        for label, code in (
-            ("Auto Detect（自动检测） · auto", "auto"),
-            ("English（英语） · en", "en"),
-            ("Chinese（中文） · zh", "zh"),
-            ("Vietnamese（越南语） · vi", "vi"),
-            ("Japanese（日语） · ja", "ja"),
-            ("Korean（韩语） · ko", "ko"),
-            ("Spanish（西班牙语） · es", "es"),
-            ("French（法语） · fr", "fr"),
-            ("German（德语） · de", "de"),
-            ("Russian（俄语） · ru", "ru"),
-            ("Arabic（阿拉伯语） · ar", "ar"),
-            ("Portuguese（葡萄牙语） · pt", "pt"),
-            ("Italian（意大利语） · it", "it"),
-        ):
-            self.source_language.addItem(label, code)
-        source_lang = config.source_language if config.source_language else "auto"
-        source_index = self.source_language.findData(source_lang)
-        if source_index >= 0:
-            self.source_language.setCurrentIndex(source_index)
-        else:
-            self.source_language.setCurrentText(source_lang)
-        layout.addRow("Source Language（原文语言）:", self.source_language)
-        
-        # Update UI based on initial backend
-        self._on_backend_changed(config.asr_backend)
-        
-        tab.setLayout(layout)
         self.tabs.addTab(
-            tab,
+            panel,
             QIcon(os.path.join(os.path.dirname(__file__), "assets", "tab-asr-ano.png")),
             "ASR · 语音识别",
         )
     
     def _on_backend_changed(self, backend):
-        """Show only settings consumed by the selected ASR backend."""
-        is_whisper_or_mlx = backend in ["whisper", "mlx"]
-        is_funasr = backend == "funasr"
-
-        self._set_transcription_row_visible(self.whisper_model, is_whisper_or_mlx)
-        self._set_transcription_row_visible(self.funasr_model, is_funasr)
-        self._set_transcription_row_visible(
-            self.device_type, backend in ["whisper", "funasr"]
-        )
-        self._set_transcription_row_visible(self.compute_type, backend == "whisper")
-
-        hints = {
-            "apple": "Apple 原生实时识别：只使用原文语言，其他模型参数已隐藏。",
-            "mlx": "MLX Whisper：使用所选 Whisper 模型，并自动调用 Apple Silicon Metal。",
-            "whisper": "Faster-Whisper：模型、计算设备和推理精度均会参与运行。",
-            "funasr": "FunASR：使用所选模型和计算设备；MPS 会自动采用 float32。",
-        }
-        self.backend_hint.setText(hints.get(backend, ""))
-        
-        # Check MPS + FunASR quantization compatibility
-        if is_funasr:
-            self._check_funasr_mps_compatibility()
+        self.asr_panel.on_backend_changed(backend)
 
     def _set_transcription_row_visible(self, field, visible):
-        field.setVisible(visible)
-        label = self.transcription_layout.labelForField(field)
-        if label:
-            label.setVisible(visible)
+        self.asr_panel.set_row_visible(field, visible)
     
     def _check_funasr_mps_compatibility(self):
-        """Check if MPS device is used with FunASR and enforce float32"""
-        current_device = self.device_type.currentText()
-        current_quantization = self.compute_type.currentText()
-        
-        if current_device == "mps" and current_quantization != "float32":
-            self._show_mps_float32_warning()
-            # Auto-switch to float32
-            float32_index = self.compute_type.findText("float32")
-            if float32_index >= 0:
-                self.compute_type.setCurrentIndex(float32_index)
+        self.asr_panel.check_funasr_mps_compatibility()
     
     def _show_mps_float32_warning(self):
-        """Show warning about MPS requiring float32 with FunASR"""
-        from PyQt6.QtWidgets import QMessageBox
-        msg = QMessageBox(self)
-        msg.setIcon(QMessageBox.Icon.Warning)
-        msg.setWindowTitle("Quantization Compatibility")
-        msg.setText("MPS device requires float32 quantization with FunASR")
-        msg.setInformativeText(
-            "Apple's MPS (Metal Performance Shaders) does not support float64 operations.\n\n"
-            "When using FunASR with MPS device, quantization must be set to 'float32'.\n\n"
-            "The quantization has been automatically switched to float32."
-        )
-        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-        msg.exec()
+        self.asr_panel.show_mps_float32_warning()
     
     def _on_device_changed(self, device):
-        """Check device compatibility when user changes device selection"""
-        # Check MPS + FunASR quantization compatibility
-        if self.asr_backend.currentText() == "funasr":
-            self._check_funasr_mps_compatibility()
+        self.asr_panel.on_device_changed(device)
     
     def _on_quantization_changed(self, quantization):
-        """Check quantization compatibility when user changes quantization"""
-        # Check MPS + FunASR quantization compatibility
-        if self.asr_backend.currentText() == "funasr":
-            self._check_funasr_mps_compatibility()
+        self.asr_panel.on_quantization_changed(quantization)
 
     def init_translation_tab(self):
         tab = QWidget()
