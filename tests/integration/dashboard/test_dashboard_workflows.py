@@ -167,6 +167,11 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertTrue(self.dashboard.cerebras_api_key.isHidden())
 
     def test_bridge_toggle_and_provider_selector_stay_in_sync(self):
+        self.assertGreater(
+            self.dashboard.bridge_toggle.width(),
+            self.dashboard.bridge_toggle.fontMetrics().horizontalAdvance("Bridge OFF") + 24,
+        )
+        self.assertGreaterEqual(self.dashboard.bridge_toggle.height(), 42)
         self.dashboard.bridge_toggle.click()
         self.assertEqual(self.dashboard.bridge_provider.currentData(), "off")
         self.assertEqual(self.dashboard.bridge_toggle.text(), "Bridge OFF")

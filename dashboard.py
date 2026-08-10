@@ -1278,7 +1278,7 @@ class Dashboard(QWidget):
         bridge_title.setStyleSheet("font-weight: 700; color: #f5a9c7;")
         self.bridge_toggle = QPushButton()
         self.bridge_toggle.setCheckable(True)
-        self.bridge_toggle.setFixedWidth(92)
+        self.bridge_toggle.setFixedSize(132, 42)
         self.bridge_toggle.clicked.connect(self._on_bridge_toggle_clicked)
         bridge_header.addWidget(bridge_title)
         bridge_header.addStretch()
@@ -1665,12 +1665,13 @@ class Dashboard(QWidget):
         self.bridge_toggle.setEnabled(enabled)
         if active:
             self.bridge_toggle.setStyleSheet(
-                "background-color: #a6e3a1; color: #1e1e2e; font-weight: 700;"
+                "background-color: #a6e3a1; color: #1e1e2e; font-weight: 700; "
+                "padding: 4px 12px; border-radius: 8px;"
             )
         else:
             self.bridge_toggle.setStyleSheet(
                 "background-color: rgba(127,132,156,90); color: #cdd6f4; "
-                "font-weight: 700;"
+                "font-weight: 700; padding: 4px 12px; border-radius: 8px;"
             )
         self.bridge_toggle.blockSignals(False)
 
