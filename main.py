@@ -6,6 +6,7 @@ import signal
 import threading
 import queue
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
@@ -26,6 +27,9 @@ from runtime_performance import RuntimePerformanceSampler
 from segment_store import SegmentStore
 from fast_path import FastPath
 from translation_workflows import build_translation_workflow
+
+
+FINAL_CONTEXT_SEGMENTS = 4
 
 
 def diagnostic_audio_activity_threshold(silence_threshold):
@@ -80,7 +84,7 @@ class Pipeline(QObject):
             else None
         )
         self._context_lock = threading.Lock()
-        self._last_finalized_segment = ""
+        self._finalized_context = deque(maxlen=FINAL_CONTEXT_SEGMENTS)
         self._refine_queue_lock = threading.RLock()
         self._refine_futures = {}
         self._bridge_queue_lock = threading.RLock()
@@ -1007,11 +1011,11 @@ class Pipeline(QObject):
             log_stage("partial_translation", chunk_id=chunk_id, status="error", detail=str(e))
 
     def _snapshot_finalized_context(self, text):
-        """Return the previous finalized sentence and advance context atomically."""
+        """Snapshot four prior finalized segments, then append the current one."""
         with self._context_lock:
-            previous = self._last_finalized_segment
-            self._last_finalized_segment = text
-        return previous
+            context = "\n".join(self._finalized_context)
+            self._finalized_context.append(text)
+        return context
 
     def _forget_refinement(self, future):
         with self._refine_queue_lock:

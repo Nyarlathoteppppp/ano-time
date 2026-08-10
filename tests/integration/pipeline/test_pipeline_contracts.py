@@ -1,6 +1,7 @@
 import threading
 import time
 import unittest
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from types import MethodType, SimpleNamespace
 
@@ -69,6 +70,26 @@ class PipelineContractTests(unittest.TestCase):
         self.assertTrue(pipeline.is_paused)
         pipeline.set_paused(False)
         self.assertFalse(pipeline.is_paused)
+
+    def test_final_context_contains_only_four_previous_segments(self):
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline._context_lock = threading.Lock()
+        pipeline._finalized_context = deque(maxlen=4)
+
+        snapshots = [
+            pipeline._snapshot_finalized_context(f"sentence {index}")
+            for index in range(1, 7)
+        ]
+
+        self.assertEqual(snapshots[0], "")
+        self.assertEqual(
+            snapshots[4],
+            "sentence 1\nsentence 2\nsentence 3\nsentence 4",
+        )
+        self.assertEqual(
+            snapshots[5],
+            "sentence 2\nsentence 3\nsentence 4\nsentence 5",
+        )
 
     def test_pause_seals_boundary_and_resets_apple_session_in_background(self):
         boundary_called = threading.Event()
