@@ -15,6 +15,13 @@ from tests.support.recorders import RecordingSignal
 
 
 class PipelineContractTests(unittest.TestCase):
+    def test_fast_translation_readiness_is_optional_for_legacy_fakes(self):
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.fast_translator = SimpleNamespace()
+        self.assertTrue(pipeline._fast_translation_ready())
+        pipeline.fast_translator = SimpleNamespace(is_ready=False)
+        self.assertFalse(pipeline._fast_translation_ready())
+
     def test_diagnostic_audio_anchor_accepts_quiet_recent_speech_only(self):
         self.assertAlmostEqual(
             diagnostic_audio_activity_threshold(0.005), 0.00175

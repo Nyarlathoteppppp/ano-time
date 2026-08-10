@@ -56,7 +56,7 @@ Anotime 使用 Apple 端侧语音识别与即时翻译提供低延迟草稿，�
 
 #### 可用的免费模型
 
-- Apple Speech + Apple Translation：[macOS 内置](https://support.apple.com/)。
+- Apple Speech + Apple Translation：[macOS 26+ 内置](https://support.apple.com/)；首次使用可能需要后台准备中英文语言资源。
 - GPT-OSS 20B：[Groq Console](https://console.groq.com/)。
 - Gemini 3.5 Flash-Lite：[Google AI Studio](https://aistudio.google.com/)。
 - GLM-4.7-Flash：[Cloudflare Dashboard](https://dash.cloudflare.com/)。
@@ -67,12 +67,12 @@ Anotime 使用 Apple 端侧语音识别与即时翻译提供低延迟草稿，�
 ### 环境要求
 
 - 推荐 Apple Silicon Mac。
-- 原生 Apple `SpeechAnalyzer` / `SpeechTranscriber` 推荐 macOS 26 或更高版本。
+- 原生 Apple `SpeechAnalyzer`、`SpeechTranscriber` 和本地 Apple Translation 要求 macOS 26 或更高版本。
 - Python 3.10+。
 - Xcode Command Line Tools。
 - Homebrew 和 FFmpeg。
 
-Apple Speech 不可用时可以选择 Whisper/MLX。Windows 保留旧启动脚本，但当前低延迟原生功能主要面向 macOS。
+Apple Speech/Translation 不可用时可以选择 Whisper/MLX 与远程翻译。首次准备 Apple Translation 语言资源期间，Pipeline 会继续运行，并在控制中心显示准备状态。Windows 保留旧启动脚本，但当前低延迟原生功能主要面向 macOS。
 
 ### 安装
 
@@ -370,7 +370,7 @@ It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHo
 
 ### Free model options
 
-- **Apple Speech + Apple Translation** — on-device and included with macOS.
+- **Apple Speech + Apple Translation** — on-device on macOS 26+; first use may prepare the source/target language assets in the background.
 - **GPT-OSS 20B** — GroqCloud free API tier: [Groq Console](https://console.groq.com/).
 - **Gemini 3.5 Flash-Lite** — free tier: [Google AI Studio](https://aistudio.google.com/).
 - **GLM-4.7-Flash** — Workers AI daily free allocation: [Cloudflare Dashboard](https://dash.cloudflare.com/).
@@ -383,12 +383,12 @@ Free quotas and model availability can change; check each provider's console bef
 Recommended configuration:
 
 - Apple Silicon Mac
-- macOS 26+ for native Apple `SpeechAnalyzer` / `SpeechTranscriber`
+- macOS 26+ is required for native Apple `SpeechAnalyzer`, `SpeechTranscriber`, and Apple Translation
 - Python 3.10+
 - Xcode Command Line Tools
 - Homebrew and FFmpeg
 
-Whisper/MLX can be used when Apple Speech is unavailable. Windows has legacy launch scripts, but the current low-latency native feature set is macOS-focused.
+Whisper/MLX and a remote translator can be used when Apple Speech/Translation is unavailable. While first-use Apple Translation assets are being prepared, the Pipeline remains available and the control center shows the preparation state. Windows has legacy launch scripts, but the current low-latency native feature set is macOS-focused.
 
 ## Install
 

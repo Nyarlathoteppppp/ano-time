@@ -1,4 +1,5 @@
 import subprocess
+import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -28,6 +29,32 @@ class _StubbornProcess:
 
 
 class TransportAndHelperTests(unittest.TestCase):
+    def test_apple_translation_normalizes_auto_source_to_english(self):
+        self.assertEqual(AppleTranslator.normalize_source_language("auto"), "en")
+        self.assertEqual(AppleTranslator.normalize_source_language(""), "en")
+        self.assertEqual(AppleTranslator.normalize_source_language("ja"), "ja")
+
+    def test_apple_language_preparation_starts_without_claiming_ready(self):
+        statuses = []
+        translator = AppleTranslator.__new__(AppleTranslator)
+        translator.started = threading.Event()
+        translator.ready = threading.Event()
+        translator.error = None
+        translator.status = "initializing"
+        translator.status_callback = lambda *args: statuses.append(args)
+        translator._lock = threading.Lock()
+        translator._pending = {}
+
+        translator._handle_event({"type": "status", "status": "preparing_languages"})
+
+        self.assertTrue(translator.started.is_set())
+        self.assertFalse(translator.is_ready)
+        self.assertEqual(statuses[-1][0], "preparing")
+
+        translator._handle_event({"type": "status", "status": "ready"})
+        self.assertTrue(translator.is_ready)
+        self.assertEqual(statuses[-1][0], "ready")
+
     def test_remote_translation_verifies_tls_certificates(self):
         http_client = object()
         with (

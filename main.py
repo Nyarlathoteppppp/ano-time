@@ -157,6 +157,7 @@ class Pipeline(QObject):
         self.translator = self.final_translator
 
         self.fast_translator = None
+        self._apple_translation_status = None
         if (
             config.fast_translation_backend == "apple"
             or config.translation_workflow == "apple_only"
@@ -164,10 +165,13 @@ class Pipeline(QObject):
             try:
                 from apple_translation import AppleTranslator
                 self.fast_translator = AppleTranslator(
-                    source=config.source_language or "en",
+                    source=config.source_language,
                     target=config.target_lang,
+                    status_callback=self._on_apple_translation_status,
                 )
             except Exception as exc:
+                message = f"Apple · unavailable: {exc}"
+                self._apple_translation_status = ("error", message)
                 print(f"[Pipeline] Apple Translation unavailable, using LLM only: {exc}")
         
         # Warmup Transcriber (Critical for MLX/GPU)
@@ -189,6 +193,19 @@ class Pipeline(QObject):
         network_status = "ok" if status in ("active", "ok") else status
         network_message = "Online" if network_status == "ok" else detail or status
         self.signals.runtime_status.emit("Network", network_status, network_message)
+
+    def _on_apple_translation_status(self, status, message):
+        ui_status = "ok" if status == "ready" else (
+            "warning" if status == "preparing" else "error"
+        )
+        self._apple_translation_status = (ui_status, message)
+        self.signals.runtime_status.emit("Draft", ui_status, message)
+
+    def _fast_translation_ready(self):
+        translator = self.fast_translator
+        if not translator:
+            return False
+        return bool(getattr(translator, "is_ready", True))
 
     def _final_translation_client(self):
         return self.__dict__.get(
@@ -304,6 +321,9 @@ class Pipeline(QObject):
         sampler = self.__dict__.get("_performance_sampler")
         if sampler:
             sampler.start()
+        apple_status = self.__dict__.get("_apple_translation_status")
+        if apple_status:
+            self.signals.runtime_status.emit("Draft", *apple_status)
         self.thread.start()
 
     def stop(self):
@@ -946,7 +966,7 @@ class Pipeline(QObject):
                     )
 
             draft = None
-            if self.fast_translator:
+            if self._fast_translation_ready():
                 try:
                     self.signals.runtime_status.emit(
                         "Draft", "active", "Apple · translating"
@@ -1111,7 +1131,7 @@ class Pipeline(QObject):
         if not self.running or (paused is not None and paused.is_set()):
             return
         draft = None
-        if self.fast_translator:
+        if self._fast_translation_ready():
             try:
                 self.signals.runtime_status.emit(
                     "Draft", "active", "Apple · translating"
@@ -1253,7 +1273,7 @@ class Pipeline(QObject):
         try:
             if not self.running or self._paused.is_set() or time.monotonic() >= deadline:
                 return
-            if self.fast_translator:
+            if self._fast_translation_ready():
                 try:
                     draft = self.fast_translator.translate(text)
                     if not self._paused.is_set():

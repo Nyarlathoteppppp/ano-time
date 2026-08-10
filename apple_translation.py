@@ -17,13 +17,16 @@ class AppleTranslator:
         "Korean": "ko",
     }
 
-    def __init__(self, source="en", target="Chinese", timeout=20):
-        self.source = source or "en"
+    def __init__(self, source="en", target="Chinese", timeout=20, status_callback=None):
+        self.source = self.normalize_source_language(source)
         self.target = self.LANGUAGE_CODES.get(target, target)
         self.timeout = timeout
+        self.status_callback = status_callback
         self.process = None
+        self.started = threading.Event()
         self.ready = threading.Event()
         self.error = None
+        self.status = "initializing"
         self._lock = threading.Lock()
         self._write_lock = threading.Lock()
         self._next_id = 1
@@ -35,6 +38,26 @@ class AppleTranslator:
         self.build_script = os.path.join(root, "build_apple_speech.sh")
         self._ensure_built()
         self._start()
+
+    @staticmethod
+    def normalize_source_language(source):
+        normalized = str(source or "").strip()
+        if not normalized or normalized.lower() == "auto":
+            return "en"
+        return normalized
+
+    @property
+    def is_ready(self):
+        return self.ready.is_set() and not self.error
+
+    def _notify_status(self, status, message):
+        self.status = status
+        callback = self.status_callback
+        if callback:
+            try:
+                callback(status, message)
+            except Exception as exc:
+                print(f"[Apple Translation] Status callback failed: {exc}")
 
     def _ensure_built(self):
         needs_build = not os.path.exists(self.binary_path)
@@ -53,12 +76,50 @@ class AppleTranslator:
         )
         threading.Thread(target=self._read_stdout, daemon=True).start()
         threading.Thread(target=self._read_stderr, daemon=True).start()
-        if not self.ready.wait(self.timeout):
+        # The helper can be alive while macOS downloads its language assets.
+        # Wait only for process startup; preparation continues in the helper
+        # without blocking the Pipeline or remote translation path.
+        if not self.started.wait(self.timeout):
             self.stop()
-            raise RuntimeError("Apple Translation helper did not become ready")
+            raise RuntimeError("Apple Translation helper did not start")
         if self.error:
             self.stop()
             raise RuntimeError(self.error)
+
+    def _handle_event(self, event):
+        if event.get("type") == "status":
+            status = event.get("status")
+            if status == "preparing_languages":
+                print("[Apple Translation] Preparing language resources")
+                self._notify_status(
+                    "preparing",
+                    "Apple · downloading language resources",
+                )
+                self.started.set()
+            elif status == "ready":
+                print("[Apple Translation] Ready")
+                self.ready.set()
+                self.started.set()
+                self._notify_status("ready", "Apple · ready")
+            return
+        if event.get("type") == "result":
+            with self._lock:
+                pending = self._pending.get(event.get("id"))
+            if pending:
+                pending["result"] = event.get("text", "")
+                pending["event"].set()
+            return
+        if event.get("type") == "error":
+            message = event.get("message", "Unknown Apple Translation error")
+            print(f"[Apple Translation] Error: {message}")
+            self.error = message
+            self.started.set()
+            self._notify_status("error", f"Apple · {message}")
+            with self._lock:
+                pending_items = list(self._pending.values())
+            for pending in pending_items:
+                pending["error"] = message
+                pending["event"].set()
 
     def _read_stdout(self):
         assert self.process and self.process.stdout
@@ -68,25 +129,7 @@ class AppleTranslator:
             except Exception as exc:
                 print(f"[Apple Translation] Invalid output: {exc}")
                 continue
-            if event.get("type") == "status" and event.get("status") == "ready":
-                print("[Apple Translation] Ready")
-                self.ready.set()
-            elif event.get("type") == "result":
-                with self._lock:
-                    pending = self._pending.get(event.get("id"))
-                if pending:
-                    pending["result"] = event.get("text", "")
-                    pending["event"].set()
-            elif event.get("type") == "error":
-                message = event.get("message", "Unknown Apple Translation error")
-                print(f"[Apple Translation] Error: {message}")
-                self.error = message
-                self.ready.set()
-                with self._lock:
-                    pending_items = list(self._pending.values())
-                for pending in pending_items:
-                    pending["error"] = message
-                    pending["event"].set()
+            self._handle_event(event)
 
     def _read_stderr(self):
         assert self.process and self.process.stderr
@@ -96,6 +139,10 @@ class AppleTranslator:
     def translate(self, text, timeout=3):
         if not text or not text.strip():
             return ""
+        if self.error:
+            raise RuntimeError(self.error)
+        if not self.is_ready:
+            raise RuntimeError("Apple Translation is preparing language resources")
         if not self.process or self.process.poll() is not None or not self.process.stdin:
             raise RuntimeError(self.error or "Apple Translation helper is not running")
 

@@ -133,6 +133,27 @@ else
     echo "  -> Install Xcode Command Line Tools: xcode-select --install"
 fi
 
+# Apple SpeechAnalyzer and the persistent Apple Translation helper used by
+# Anotime require the macOS 26 SDK/runtime. Build them during installation so
+# users see compatibility errors here instead of a silent missing draft later.
+MACOS_MAJOR=$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)
+if [ "$ARCH" != "arm64" ]; then
+    echo "[Apple Native] Apple Speech/Translation fast path requires Apple Silicon."
+elif [ -n "$MACOS_MAJOR" ] && [ "$MACOS_MAJOR" -lt 26 ]; then
+    echo "[Apple Native] macOS 26+ is required for Apple Speech/Translation."
+    echo "  -> Use MLX/Whisper ASR and a remote translation workflow on this Mac."
+elif command -v xcrun &> /dev/null; then
+    echo "[Apple Native] Building Apple Speech/Translation helpers..."
+    chmod +x build_apple_speech.sh
+    if ! ./build_apple_speech.sh; then
+        echo "[WARNING] Apple native helpers could not be built."
+        echo "  -> Install/update Xcode Command Line Tools, then rerun this installer."
+    fi
+else
+    echo "[WARNING] xcrun is missing; Apple Speech/Translation cannot be built."
+    echo "  -> Run: xcode-select --install"
+fi
+
 echo ""
 echo "==================================================="
 echo "  Installation Complete!"
