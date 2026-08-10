@@ -18,6 +18,18 @@ Anotime 使用 Apple 端侧语音识别与即时翻译提供低延迟草稿，�
 
 > 主要面向 Apple Silicon MacBook。通用 Python/Qt 路径可以在其他平台运行，但 Apple Speech、Apple Translation、ScreenCaptureKit 系统音频和物理刘海界面仅支持 macOS。
 
+### 与原始 realtime-subtitle 的区别
+
+Anotime 已经不只是原项目的界面换皮，而是围绕 macOS 课堂使用重新组织了实时链路：
+
+- 使用 Apple 原生流式 ASR、Apple Translation 快速草稿和独立远程定稿路径，网络请求不会阻塞本地字幕。
+- 使用 ScreenCaptureKit 直接捕获网页、播放器和会议软件的系统音频，不再把 BlackHole 作为默认方案。
+- 增加贴合 MacBook 物理刘海的原生字幕，以及可在全屏视频上置顶、任意边缘缩放的玻璃字幕。
+- 将翻译拆为通用 Single Model、完全本地 Apple Only，以及维护者使用的 Smart Hybrid；普通用户不需要复刻维护者的 API 池。
+- Single Model 支持常见 OpenAI-compatible 服务、自定义 Base URL/模型、五次测速和按服务保存的本地 Profile。
+- API Key 进入 macOS Keychain；服务档案和配置文件只保存 Keychain 引用。
+- 增加 stable/finalized 字幕状态、latest-wins、硬截止时间、长句显示切分、后台课堂记录与延迟诊断。
+
 ### 界面预览
 
 #### 控制中心
@@ -45,13 +57,14 @@ Anotime 使用 Apple 端侧语音识别与即时翻译提供低延迟草稿，�
 - Apple Speech 实时识别，并用透明度区分临时英文与 finalized 英文。
 - 通过 ScreenCaptureKit 直接翻译浏览器视频、网课、Zoom 和其他应用音频。
 - Apple 草稿走独立快速路径，远程模型限时执行，不阻塞后续字幕。
-- 三种可选流程：智能混合、单模型和完全本地 Apple；桥接模型与最终模型互相独立。
+- 三种独立流程：普通用户优先使用通用 Single Model，也可选择完全本地 Apple Only；Smart Hybrid 仅供维护者的固定 API 池使用。
 - 内置 API 测速：发送五条固定技术语句，显示首字延迟和平均单次总耗时。
 - 物理刘海支持显示 1/2/3 条消息、自动宽度、长译文切段、暂停、玻璃模式和退出菜单。
 - 磨砂玻璃字幕可以从任意边缘或角落调整大小，并保持在全屏视频上方。
 - 支持可选 TSV 术语表和 finalized ASR 纠错表；新用户默认不会加载维护者的课程术语。
-- 支持 Qwen-MT、DeepSeek、SiliconFlow、Groq、Gemini、Cloudflare Workers AI 和自定义 OpenAI-compatible 接口。
-- 免费模型额度按分钟、token 和每日额度管理；失败后自动切换，并由 Qwen-MT 付费接口兜底。
+- Single Model 支持 Qwen-MT、DeepSeek、SiliconFlow、OpenAI、Gemini、Groq、OpenRouter 和自定义 OpenAI-compatible 接口。
+- 每个 Single Model 服务可独立保存 Key、Base URL、当前模型和自定义模型列表，切换后自动恢复。
+- 开发者 Smart Hybrid 才使用免费模型额度管理、自动切换和 Qwen-MT 付费兜底。
 - `Control + S` 全局快捷键可启动、暂停和恢复刘海翻译，无需辅助功能或输入监控权限。
 
 #### 可用的免费模型
@@ -208,7 +221,7 @@ tail -f /tmp/realtime-ton-hotkey.log
   → Apple 即时翻译草稿
   → 可选 Groq 低延迟桥接
   → finalized 英文句段
-  → Gemini / Cloudflare / Qwen-MT 限时精修
+  → 当前 Single Model 最终稿 / 开发者 Smart Hybrid 限时精修
 ```
 
 实时策略：
@@ -331,6 +344,18 @@ It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHo
 
 > Built primarily for Apple Silicon MacBooks. The generic Python/Qt path can run on other platforms, but Apple Speech, Apple Translation, ScreenCaptureKit system audio, and the physical-notch UI are macOS-only.
 
+## How this differs from realtime-subtitle
+
+Anotime is no longer a cosmetic fork. Its runtime has been reorganized around latency-sensitive macOS classroom use:
+
+- Native streaming Apple ASR and Apple Translation drafts run independently from deadline-limited remote finalization, so network work cannot block local captions.
+- ScreenCaptureKit captures browser, player, and meeting audio directly; BlackHole is no longer the default path.
+- A native physical-notch subtitle UI and a fullscreen-safe, edge-resizable glass overlay replace the original single overlay experience.
+- Translation is separated into portable Single Model, local Apple Only, and the maintainer-specific Smart Hybrid API pool.
+- Single Model supports common OpenAI-compatible providers, custom URLs/model IDs, five-request benchmarking, and per-provider local profiles.
+- API keys live in macOS Keychain; configuration and provider-profile files contain Keychain references instead of plaintext secrets.
+- Stable/finalized subtitle states, latest-wins queues, hard deadlines, display-aware segmentation, background transcripts, and latency diagnostics are built into the pipeline.
+
 ## Screenshots
 
 ### Control center
@@ -363,8 +388,9 @@ It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHo
 - **Physical MacBook notch subtitles** with 1/2/3-message modes, centered adaptive width, long-translation segmentation, pause/resume, glass-mode switch, and exit controls.
 - **Resizable glass overlay** that stays above fullscreen video and supports edge/corner resizing.
 - **Optional terminology profiles** through editable TSV glossaries and finalized-ASR correction files; no maintainer-specific course vocabulary is enabled for new users.
-- **OpenAI-compatible providers**, including Qwen-MT, DeepSeek, SiliconFlow, Groq, Gemini, Cloudflare Workers AI, and custom endpoints.
-- **Quota-aware free-provider pool** with minute/day/token accounting, automatic fallback, cooldown recovery, and Qwen-MT fallback.
+- **Portable Single Model providers**, including Qwen-MT, DeepSeek, SiliconFlow, OpenAI, Gemini, Groq, OpenRouter, and custom OpenAI-compatible endpoints.
+- **Per-provider profiles** retain each service's Keychain credential, URL, selected model, and custom model list.
+- **Developer-only Smart Hybrid pool** with minute/day/token accounting, automatic fallback, cooldown recovery, and Qwen-MT fallback.
 - **Failure-safe model routing**: rate limits and timeouts fall through without removing the Apple draft or blocking newer sentences.
 - **Latest-wins refinement queue**: stale work is dropped so subtitles cannot accumulate seconds behind the speaker.
 - **Runtime latency log** for audio, ASR, local draft, bridge model, and final refinement stages.
@@ -558,7 +584,7 @@ Audio
   → immediate Apple Translation draft
   → optional low-latency Groq bridge
   → finalized ASR segment
-  → deadline-limited Gemini / Cloudflare / Qwen-MT refinement
+  → selected Single Model final / developer Smart Hybrid refinement
 ```
 
 Important real-time behavior:
