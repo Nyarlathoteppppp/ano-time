@@ -1177,10 +1177,14 @@ class Dashboard(QWidget):
 
         self.translation_workflow = ReadableComboBox()
         self.translation_workflow.addItem(
-            "Smart Hybrid（智能混合 · 推荐）", "smart_hybrid"
+            "Single Model（普通用户 · 推荐）", "single_model"
         )
-        self.translation_workflow.addItem("Single Model（单模型）", "single_model")
-        self.translation_workflow.addItem("Apple Only（仅 Apple 本地）", "apple_only")
+        self.translation_workflow.addItem(
+            "Smart Hybrid（开发者专用 · 多 API 路由）", "smart_hybrid"
+        )
+        self.translation_workflow.addItem(
+            "Apple Only（普通用户 · 无需 API）", "apple_only"
+        )
         workflow_index = self.translation_workflow.findData(
             config.translation_workflow
         )

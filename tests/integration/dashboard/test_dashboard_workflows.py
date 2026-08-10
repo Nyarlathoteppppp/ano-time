@@ -119,6 +119,16 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.api_test_provider.itemData(0), "single"
         )
 
+    def test_workflow_labels_separate_regular_users_from_developer_chain(self):
+        labels = {
+            self.dashboard.translation_workflow.itemData(index):
+            self.dashboard.translation_workflow.itemText(index)
+            for index in range(self.dashboard.translation_workflow.count())
+        }
+        self.assertIn("普通用户", labels["single_model"])
+        self.assertIn("开发者专用", labels["smart_hybrid"])
+        self.assertIn("无需 API", labels["apple_only"])
+
     def test_single_model_offers_popular_and_custom_openai_compatible_providers(self):
         providers = [
             self.dashboard.provider.itemText(index)

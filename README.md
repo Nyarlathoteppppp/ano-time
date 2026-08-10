@@ -192,9 +192,9 @@ tail -f /tmp/realtime-ton-hotkey.log
 
 控制中心提供三种互相独立的流程：
 
-- **Smart Hybrid（推荐）**：Apple → 可选 Groq → Gemini/GLM → Qwen-MT。
-- **Single Model**：Apple 草稿 → 可选 Groq → 用户指定的 Qwen-MT、DeepSeek、SiliconFlow 或自定义模型。
-- **Apple Only**：完全使用 Apple ASR 和 Apple Translation，不发送远程请求。
+- **Single Model（普通用户推荐）**：Apple 草稿 → 可选 Groq → 用户指定的常见服务或自定义 OpenAI-compatible 模型。
+- **Smart Hybrid（开发者专用）**：保留项目开发者使用的 Apple → 可选 Groq → Gemini/GLM → Qwen-MT 多 API 路由。
+- **Apple Only（普通用户，无需 API）**：完全使用 Apple ASR 和 Apple Translation，不发送远程请求。
 
 桥接模型和最终模型分别配置。修改 Single Model 不会改变 Smart Hybrid 的路由或额度状态。
 
@@ -356,7 +356,7 @@ It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHo
 - **Live Apple Speech transcription** with visibly distinct provisional and finalized English.
 - **Direct system-audio capture** through ScreenCaptureKit for browser videos, lectures, Zoom, and media apps—BlackHole is optional.
 - **Speed-first translation pipeline**: Apple drafts appear immediately while remote AI refinement runs under a strict deadline.
-- **Three selectable workflows**: Smart Hybrid, Single Model, or fully local Apple Only; bridge and final translators remain independent.
+- **Three selectable workflows**: Single Model for regular users, developer-only Smart Hybrid, or fully local Apple Only; bridge and final translators remain independent.
 - **Built-in API speed test** sends five fixed technical sentences and reports first-token and average per-request latency before class.
 - **Physical MacBook notch subtitles** with 1/2/3-message modes, centered adaptive width, long-translation segmentation, pause/resume, glass-mode switch, and exit controls.
 - **Resizable glass overlay** that stays above fullscreen video and supports edge/corner resizing.
@@ -534,9 +534,9 @@ A successful startup includes:
 
 The control center exposes three independent workflows:
 
-- **Smart Hybrid (recommended)** — preserves Anotime's quota-aware Apple → optional Groq → Gemini/GLM → Qwen-MT pipeline.
-- **Single Model** — Apple drafts followed by an optional Groq bridge and one explicitly selected final provider (Qwen-MT, DeepSeek, SiliconFlow, or a custom OpenAI-compatible endpoint).
-- **Apple Only** — fully local Apple ASR and Apple Translation with no remote requests.
+- **Single Model (recommended for regular users)** — Apple drafts followed by an optional Groq bridge and one explicitly selected common provider or custom OpenAI-compatible endpoint.
+- **Smart Hybrid (developer only)** — preserves the project developer's quota-aware Apple → optional Groq → Gemini/GLM → Qwen-MT multi-API pipeline.
+- **Apple Only (regular users, no API required)** — fully local Apple ASR and Apple Translation with no remote requests.
 
 The bridge is configured separately from the final translator. Changing a
 single-model provider cannot alter the Smart Hybrid routing or quota state.

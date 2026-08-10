@@ -44,7 +44,7 @@ class Config:
             "translation", "fast_backend", "apple"
         ).lower()
         self.translation_provider = self._get(
-            "translation", "provider", "Fast Free Pool → Qwen-MT"
+            "translation", "provider", "Alibaba Cloud Qwen-MT"
         )
         configured_workflow = self._get("translation", "workflow", "").strip().lower()
         if configured_workflow not in ("smart_hybrid", "single_model", "apple_only"):
