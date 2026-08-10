@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QTextEdit, QVBoxLayout,
                              QSizeGrip, QHBoxLayout, QScrollArea, QLabel, QFrame,
-                             QSizePolicy, QLayout)
+                             QSizePolicy, QLayout, QMenu)
 from PyQt6.QtCore import Qt, QPoint, QRect, QSettings, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QPalette, QPainter, QPainterPath
 
@@ -247,7 +247,7 @@ class NotchSurface(QFrame):
         self.update()
 
     def mouseDoubleClickEvent(self, event):
-        if self.notch_mode and event.button() == Qt.MouseButton.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.mode_switch_requested.emit()
             event.accept()
             return
@@ -522,7 +522,10 @@ class OverlayWindow(QWidget):
         # Container for LogItems
         self.container = NotchSurface()
         self.container.setObjectName("glassPanel")
-        self.container.mode_switch_requested.connect(self.toggle_display_mode)
+        if self.allow_notch_switch:
+            self.container.mode_switch_requested.connect(self.notch_requested.emit)
+        else:
+            self.container.mode_switch_requested.connect(self.toggle_display_mode)
         self._set_glass_style()
         self.container_layout = QVBoxLayout()
         self.container_layout.setContentsMargins(10, 10, 10, 10)
@@ -871,6 +874,27 @@ class OverlayWindow(QWidget):
     def _scroll_to_bottom(self):
         sb = self.scroll_area.verticalScrollBar()
         sb.setValue(sb.maximum())
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        if self.allow_notch_switch and self.display_mode == "glass":
+            switch_action = menu.addAction("切换到物理刘海")
+            switch_action.triggered.connect(self.notch_requested.emit)
+            menu.addSeparator()
+        stop_action = menu.addAction("退出翻译")
+        stop_action.triggered.connect(self.stop_requested.emit)
+        menu.exec(event.globalPos())
+
+    def mouseDoubleClickEvent(self, event):
+        if (
+            self.allow_notch_switch
+            and self.display_mode == "glass"
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self.notch_requested.emit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def _save_transcript(self):
         """Save history to file"""

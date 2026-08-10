@@ -32,6 +32,7 @@ class NativeNotchOverlay(QObject):
         self._write_queue = queue.Queue(maxsize=1)
         self._writer_stop = threading.Event()
         self._writer_thread = None
+        self._display_mode = "notch"
         self._event_received.connect(self._handle_event)
 
         root = os.path.dirname(os.path.abspath(__file__))
@@ -135,6 +136,11 @@ class NativeNotchOverlay(QObject):
     def _show_glass_overlay(self):
         if self.delegate:
             return
+        # The Swift helper emits `glass` before its closing animation exits.
+        # Detach it immediately so a quick switch back cannot mistake that
+        # terminating process for a live notch renderer.
+        self._display_mode = "glass"
+        self._retire_native_process()
         from overlay_window import OverlayWindow
 
         self.delegate = OverlayWindow(
@@ -159,12 +165,49 @@ class NativeNotchOverlay(QObject):
         self.delegate.show()
 
     def _show_native_overlay(self):
+        self._display_mode = "notch"
         if self.delegate:
             self.delegate.close()
             self.delegate = None
+        self._discard_pending_frames()
         self.show()
+        # A newly started helper has no knowledge of the previous frame even
+        # when the semantic subtitle projection itself is unchanged.
+        self._last_native_items = None
         if self.record_store:
             self._send({"items": self._latest_items()})
+
+    def _discard_pending_frames(self):
+        while True:
+            try:
+                self._write_queue.get_nowait()
+            except queue.Empty:
+                return
+
+    def _retire_native_process(self):
+        """Detach and asynchronously reap a helper that is already exiting."""
+        process = self.process
+        if process is None:
+            return
+        self.process = None
+        self._discard_pending_frames()
+
+        def reap():
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=1)
+
+        threading.Thread(
+            target=reap,
+            name="notch-retired-process-reaper",
+            daemon=True,
+        ).start()
 
     def update_text(self, chunk_id, original_text, translated_text, state="partial"):
         record = self.record_store.update(

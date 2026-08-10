@@ -2,6 +2,7 @@ import json
 import os
 import struct
 import unittest
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -73,6 +74,34 @@ class NativeNotchOverlayTest(unittest.TestCase):
         overlay._send({"items": [{"id": 2}]})
         payload = json.loads(overlay._write_queue.get_nowait().decode("utf-8"))
         self.assertEqual(payload["items"][0]["id"], 2)
+
+    def test_glass_transition_detaches_terminating_native_process(self):
+        overlay = NativeNotchOverlay()
+        process = MagicMock()
+        process.wait.return_value = 0
+        overlay.process = process
+
+        with patch("native_notch_overlay.threading.Thread") as thread:
+            overlay._retire_native_process()
+
+        self.assertIsNone(overlay.process)
+        thread.assert_called_once()
+
+    def test_return_to_notch_restarts_helper_and_replays_latest_frame(self):
+        overlay = RecordingNotchOverlay()
+        overlay.update_text(1, "A sentence", "一句话", "final")
+        overlay.sent.clear()
+        delegate = MagicMock()
+        overlay.delegate = delegate
+
+        with patch.object(NativeNotchOverlay, "show") as show:
+            overlay._show_native_overlay()
+
+        delegate.close.assert_called_once()
+        self.assertIsNone(overlay.delegate)
+        show.assert_called_once()
+        self.assertEqual(overlay._display_mode, "notch")
+        self.assertEqual(overlay.sent[-1]["items"][0]["translated"], "一句话")
 
     def test_long_translation_is_split_for_display_not_transcript_semantics(self):
         overlay = RecordingNotchOverlay()
