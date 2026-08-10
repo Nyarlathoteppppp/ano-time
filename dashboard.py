@@ -1,11 +1,10 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QPushButton, QFrame, QComboBox, QLineEdit, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                             QPushButton, QFrame, QLineEdit,
                              QTabWidget, QSpinBox, QDoubleSpinBox, QGridLayout,
                              QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
                              QMessageBox, QTextEdit, QDialog, QLayout)
 from PyQt6.QtWidgets import QCheckBox
-from PyQt6.QtCore import Qt, QSize, pyqtSignal, QThread, QTimer
-from PyQt6.QtNetwork import QLocalServer, QLocalSocket
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap
 import sys
 import os
@@ -16,6 +15,17 @@ from permission_controller import PermissionController
 from session_controller import SessionController
 from shortcut_controller import ShortcutController
 from api_test_controller import ApiTestController
+from dashboard_support.app_runtime import (
+    notify_existing_instance,
+    start_instance_server,
+)
+from dashboard_support.style import STYLESHEET
+from dashboard_support.widgets import ReadableComboBox
+from dashboard_support.workers import (
+    ModelListWorker,
+    StartupWorker,
+    SystemAudioTestWorker,
+)
 
 try:
     from ctypes import c_void_p
@@ -34,89 +44,6 @@ try:
 except ImportError:
     HAS_NATIVE_GLASS = False
 
-# Modern QSS Styles
-STYLESHEET = """
-QWidget {
-    background: transparent;
-    color: #cdd6f4;
-    font-family: 'Helvetica Neue', Arial, sans-serif;
-}
-QWidget#DashboardRoot {
-    background-color: rgba(255, 184, 211, 46);
-}
-QTabWidget::pane {
-    border: 1px solid rgba(255, 214, 229, 72);
-    background: rgba(255, 207, 224, 28);
-    border-radius: 12px;
-}
-QTabBar::tab {
-    background: rgba(255, 220, 232, 28);
-    color: #a6adc8;
-    padding: 9px 15px;
-    min-height: 56px;
-    font-size: 16px;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    margin-right: 2px;
-}
-QTabBar::tab:selected {
-    background: rgba(247, 168, 201, 220);
-    color: #10131c;
-    font-weight: bold;
-}
-QLabel {
-    font-size: 14px;
-}
-QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
-    background-color: rgba(255, 224, 235, 30);
-    border: 1px solid rgba(255, 207, 225, 70);
-    border-radius: 7px;
-    padding: 6px;
-    color: #cdd6f4;
-    selection-background-color: #585b70;
-}
-QComboBox QAbstractItemView {
-    background-color: rgba(28, 32, 44, 245);
-    border: 1px solid rgba(255, 255, 255, 45);
-    color: #cdd6f4;
-    selection-background-color: rgba(137, 180, 250, 190);
-    selection-color: #10131c;
-}
-QComboBox QAbstractItemView::item {
-    min-height: 30px;
-    padding: 4px 10px;
-}
-QPushButton {
-    background-color: rgba(247, 168, 201, 210);
-    color: #10131c;
-    border: 1px solid rgba(255, 255, 255, 30);
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-weight: bold;
-}
-QPushButton:hover {
-    background-color: rgba(255, 193, 218, 235);
-}
-QPushButton#StopButton {
-    background-color: #f38ba8;
-}
-QPushButton#StopButton:hover {
-    background-color: #eba0ac;
-}
-QGroupBox {
-    border: 1px solid rgba(255, 255, 255, 38);
-    border-radius: 6px;
-    margin-top: 10px;
-    padding-top: 10px;
-}
-QGroupBox::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    padding: 0 5px;
-    color: #fab387;
-}
-"""
-
 DEFAULT_AUDIO_SETTINGS = {
     "device_index": "auto",
     "sample_rate": 16000,
@@ -125,32 +52,6 @@ DEFAULT_AUDIO_SETTINGS = {
     "update_interval": 0.5,
 }
 
-
-class ReadableComboBox(QComboBox):
-    """Combo box whose popup fits its longest item without clipping."""
-
-    def addItem(self, text, userData=None):
-        super().addItem(text, userData)
-        self.setItemData(
-            self.count() - 1, str(text), Qt.ItemDataRole.ToolTipRole
-        )
-
-    def addItems(self, texts):
-        for text in texts:
-            self.addItem(text)
-
-    def showPopup(self):
-        metrics = self.fontMetrics()
-        content_width = max(
-            [metrics.horizontalAdvance(self.itemText(i)) for i in range(self.count())]
-            or [self.width()]
-        ) + 56
-        screen = self.screen() or QApplication.primaryScreen()
-        screen_limit = int(screen.availableGeometry().width() * 0.72) if screen else 760
-        self.view().setMinimumWidth(
-            max(self.width(), min(content_width, screen_limit, 760))
-        )
-        super().showPopup()
 
 class Dashboard(QWidget):
     start_requested = pyqtSignal()
@@ -2022,193 +1923,7 @@ class Dashboard(QWidget):
     def on_stop(self):
         self.session_controller.stop()
 
-class ModelListWorker(QThread):
-    loaded = pyqtSignal(object)
-    failed = pyqtSignal(str)
-
-    def __init__(self, api_key, base_url):
-        super().__init__()
-        self.api_key = api_key
-        self.base_url = base_url
-
-    def run(self):
-        try:
-            import httpx
-            from openai import OpenAI
-
-            timeout = httpx.Timeout(5.0)
-            with httpx.Client(timeout=timeout, verify=True) as http_client:
-                client = OpenAI(
-                    api_key=self.api_key,
-                    base_url=self.base_url,
-                    http_client=http_client,
-                    max_retries=0,
-                )
-                response = client.models.list()
-                model_ids = [model.id for model in response.data]
-            self.loaded.emit(model_ids)
-        except Exception as exc:
-            self.failed.emit(f"{type(exc).__name__}: {exc}")
-
-
-class SystemAudioTestWorker(QThread):
-    result = pyqtSignal(bool, str, float)
-
-    def __init__(self, sample_rate):
-        super().__init__()
-        self.sample_rate = sample_rate
-
-    def run(self):
-        capture = None
-        peak = 0.0
-        success = False
-        message = ""
-        try:
-            import numpy as np
-            from system_audio_capture import SystemAudioCapture
-
-            capture = SystemAudioCapture(
-                sample_rate=self.sample_rate,
-                streaming_step_size=0.2,
-            )
-            generator = capture.generator()
-            for _ in range(10):
-                chunk = next(generator)
-                if len(chunk):
-                    peak = max(peak, float(np.max(np.abs(chunk))))
-            success = True
-            message = "System audio permission is available."
-        except Exception as exc:
-            message = (
-                "System Audio could not start. Open permission settings, allow the "
-                f"translator/Python helper, then restart. Detail: {exc}"
-            )
-        finally:
-            if capture:
-                capture.stop()
-        self.result.emit(success, message, peak)
-
-
-class StartupWorker(QThread):
-    ready = pyqtSignal(int, object)
-
-    def __init__(self, generation):
-        super().__init__()
-        self.generation = generation
-
-    def run(self):
-        try:
-            from main import Pipeline
-            pipeline = Pipeline()
-            self.ready.emit(self.generation, pipeline)
-        except Exception as e:
-            print(f"Startup Error: {e}")
-            import traceback
-            traceback.print_exc()
-            self.ready.emit(self.generation, None)
-
-
-INSTANCE_SERVER_NAME = "com.realtime-ton.dashboard"
-
-
-def notify_existing_instance(command=b"activate"):
-    """Send a command to the running Dashboard process."""
-    socket = QLocalSocket()
-    socket.connectToServer(INSTANCE_SERVER_NAME)
-    if not socket.waitForConnected(250):
-        return False
-    socket.write(command)
-    socket.waitForBytesWritten(250)
-    socket.disconnectFromServer()
-    return True
-
-
-def start_instance_server(on_activate, on_quit, on_toggle=None):
-    """Own the process-wide singleton socket, recovering stale socket files."""
-    server = QLocalServer()
-    if not server.listen(INSTANCE_SERVER_NAME):
-        # A process may have won the singleton race after our initial probe.
-        # Never unlink its live socket; only remove the path if connection fails.
-        if notify_existing_instance():
-            return None
-        QLocalServer.removeServer(INSTANCE_SERVER_NAME)
-        if not server.listen(INSTANCE_SERVER_NAME):
-            return None
-
-    def accept_connections():
-        while server.hasPendingConnections():
-            connection = server.nextPendingConnection()
-            connection.waitForReadyRead(100)
-            command = bytes(connection.readAll()).strip()
-            if command == b"quit":
-                on_quit()
-            elif command == b"toggle" and on_toggle is not None:
-                on_toggle()
-            else:
-                on_activate()
-            connection.disconnectFromServer()
-            connection.deleteLater()
-
-    server.newConnection.connect(accept_connections)
-    return server
-
 if __name__ == "__main__":
-    def exception_hook(exctype, value, traceback_obj):
-        import traceback
-        traceback_str = ''.join(traceback.format_tb(traceback_obj))
-        error_msg = f"Unhandled Exception: {value}\n\n{traceback_str}"
-        print(error_msg)
-        from PyQt6.QtWidgets import QMessageBox
-        if QApplication.instance():
-            QMessageBox.critical(None, "Crash", error_msg)
-        else:
-            # If no app, just print (already done)
-            pass
-        sys.exit(1)
+    from dashboard_support.app_runtime import run_dashboard
 
-    sys.excepthook = exception_hook
-
-    app = QApplication(sys.argv)
-    from app_identity import apply_app_identity
-    apply_app_identity(app)
-    app.setQuitOnLastWindowClosed(False)
-
-    if "--quit-existing" in sys.argv:
-        sys.exit(0 if notify_existing_instance(b"quit") else 1)
-
-    if notify_existing_instance():
-        sys.exit(0)
-
-    w = Dashboard()
-
-    def activate_dashboard():
-        import time
-        from runtime_log import log_stage
-        started = time.perf_counter()
-        previous_state = "minimized" if w.isMinimized() else "visible"
-        w.showNormal()
-        w.raise_()
-        w.activateWindow()
-        QTimer.singleShot(
-            0,
-            lambda: log_stage(
-                "dashboard_restore",
-                elapsed_ms=(time.perf_counter() - started) * 1000,
-                previous_state=previous_state,
-                session_state=w._session_state,
-            ),
-        )
-
-    instance_server = start_instance_server(
-        activate_dashboard,
-        w.request_full_quit,
-        w.on_global_shortcut,
-    )
-    if instance_server is None:
-        # Another instance won a simultaneous-launch race after our first probe.
-        notify_existing_instance()
-        sys.exit(0)
-    from runtime_log import begin_runtime_session
-    begin_runtime_session(reset=True, enabled=config.diagnostics_enabled)
-    w.show()
-    sys.exit(app.exec())
+    sys.exit(run_dashboard(Dashboard, config))
