@@ -119,6 +119,44 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.api_test_provider.itemData(0), "single"
         )
 
+    def test_single_model_offers_popular_and_custom_openai_compatible_providers(self):
+        providers = [
+            self.dashboard.provider.itemText(index)
+            for index in range(self.dashboard.provider.count())
+        ]
+        self.assertIn("OpenAI", providers)
+        self.assertIn("Google Gemini", providers)
+        self.assertIn("Groq", providers)
+        self.assertIn("OpenRouter", providers)
+        self.assertIn("Custom OpenAI-Compatible", providers)
+
+    def test_provider_presets_do_not_prevent_custom_model_ids(self):
+        self._choose_workflow("single_model")
+        self.dashboard.provider.setCurrentText("OpenAI")
+        self.assertIn("gpt-5-mini", [
+            self.dashboard.model.itemText(index)
+            for index in range(self.dashboard.model.count())
+        ])
+        self.dashboard.model.setCurrentText("vendor/custom-course-model")
+        self.assertEqual(
+            self.dashboard.model.currentText(), "vendor/custom-course-model"
+        )
+
+    def test_custom_model_selection_survives_provider_switching(self):
+        self._choose_workflow("single_model")
+        self.dashboard.provider.setCurrentText("OpenAI")
+        self.dashboard.model.setCurrentText("vendor/custom-course-model")
+        self.dashboard.provider.setCurrentText("Groq")
+        self.dashboard.provider.setCurrentText("OpenAI")
+        self.assertEqual(
+            self.dashboard.model.currentText(), "vendor/custom-course-model"
+        )
+
+    def test_pages_explain_when_settings_take_effect(self):
+        self.assertIn("重新 Launch", self.dashboard.apply_hint.text())
+        self.assertIn("重新 Launch", self.dashboard.audio_panel.apply_hint.text())
+        self.assertIn("重新 Launch", self.dashboard.asr_panel.apply_hint.text())
+
     def test_apple_only_hides_remote_credentials_and_forces_local_draft(self):
         self._choose_workflow("apple_only")
         self.assertTrue(self.dashboard.provider.isHidden())

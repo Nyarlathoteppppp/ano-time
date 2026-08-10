@@ -128,7 +128,13 @@ class AudioPanel(QWidget):
             "padding: 10px; border-radius: 8px;"
         )
         layout.addWidget(self.audio_test_status, 7, 0, 1, 3)
-        layout.setRowStretch(8, 1)
+        self.apply_hint = QLabel(
+            "生效时间：权限测试立即执行；音频来源和参数保存后重新 Launch 生效。"
+        )
+        self.apply_hint.setWordWrap(True)
+        self.apply_hint.setStyleSheet("font-size: 11px; color: #f9e2af;")
+        layout.addWidget(self.apply_hint, 8, 0, 1, 3)
+        layout.setRowStretch(9, 1)
 
     def restore_defaults(self):
         defaults = DEFAULT_AUDIO_SETTINGS

@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QFrame, QLineEdit,
                              QTabWidget, QGridLayout,
                              QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
-                             QMessageBox, QTextEdit, QDialog, QLayout)
+                             QMessageBox, QTextEdit, QDialog, QLayout, QInputDialog)
 from PyQt6.QtWidgets import QCheckBox
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap
@@ -362,6 +362,17 @@ class Dashboard(QWidget):
         self.pending_settings_label.hide()
         layout.addWidget(self.pending_settings_label)
 
+        self.apply_hint = QLabel(
+            "生效规则：启动/暂停/停止立即生效；普通设置保存后重新 Launch 生效；"
+            "Diagnostics 保存后重启 App 生效。"
+        )
+        self.apply_hint.setWordWrap(True)
+        self.apply_hint.setStyleSheet(
+            "font-size: 12px; color: #bac2de; "
+            "background: rgba(255,255,255,10); border-radius: 7px; padding: 7px 10px;"
+        )
+        layout.addWidget(self.apply_hint)
+
         summary = QFrame()
         summary.setObjectName("ClassroomSummary")
         summary.setStyleSheet("""
@@ -445,6 +456,10 @@ class Dashboard(QWidget):
         self.display_mode.setCurrentIndex(max(0, mode_index))
         display_row.addWidget(self.display_mode)
         layout.addLayout(display_row)
+
+        display_apply_hint = QLabel("保存后重新 Launch 生效")
+        display_apply_hint.setStyleSheet("font-size: 11px; color: #f9e2af;")
+        layout.addWidget(display_apply_hint)
 
         self.notch_help = QLabel(
             "刘海操作：点击刘海可按 小 → 中 → 大 循环切换；"
@@ -1150,6 +1165,16 @@ class Dashboard(QWidget):
         layout.setVerticalSpacing(12)
         self.translation_layout = layout
 
+        translation_apply_hint = QLabel(
+            "生效时间：流程、模型、密钥和目标语言保存后，重新 Launch 生效。"
+        )
+        translation_apply_hint.setWordWrap(True)
+        translation_apply_hint.setStyleSheet(
+            "color: #f9e2af; background: rgba(255,255,255,10); "
+            "border-radius: 7px; padding: 8px 10px;"
+        )
+        layout.addRow(translation_apply_hint)
+
         self.translation_workflow = ReadableComboBox()
         self.translation_workflow.addItem(
             "Smart Hybrid（智能混合 · 推荐）", "smart_hybrid"
@@ -1204,22 +1229,55 @@ class Dashboard(QWidget):
             "Alibaba Cloud Qwen-MT",
             "DeepSeek Official",
             "SiliconFlow",
-            "Custom",
+            "OpenAI",
+            "Google Gemini",
+            "Groq",
+            "OpenRouter",
+            "Custom OpenAI-Compatible",
         ])
-        self.provider.setCurrentText(config.single_provider)
+        configured_single_provider = (
+            "Custom OpenAI-Compatible"
+            if config.single_provider == "Custom"
+            else config.single_provider
+        )
+        self.provider.setCurrentText(configured_single_provider)
         self._current_provider = self.provider.currentText()
         self.provider_keys = {
             "DeepSeek Official": config.deepseek_api_key or config.api_key,
             "SiliconFlow": config.siliconflow_api_key,
             "Alibaba Cloud Qwen-MT": config.qwen_mt_api_key,
-            "Custom": config.api_key,
+            "OpenAI": config.api_key,
+            "Google Gemini": config.api_key,
+            "Groq": config.groq_api_key or config.api_key,
+            "OpenRouter": config.api_key,
+            "Custom OpenAI-Compatible": config.api_key,
         }
         self.provider_urls = {
             "DeepSeek Official": "https://api.deepseek.com",
             "SiliconFlow": "https://api.siliconflow.cn/v1",
             "Alibaba Cloud Qwen-MT": config.qwen_mt_base_url,
-            "Custom": config.api_base_url or "",
+            "OpenAI": "https://api.openai.com/v1",
+            "Google Gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
+            "Groq": "https://api.groq.com/openai/v1",
+            "OpenRouter": "https://openrouter.ai/api/v1",
+            "Custom OpenAI-Compatible": config.api_base_url or "",
         }
+        self.provider_model_presets = {
+            "Alibaba Cloud Qwen-MT": ["qwen-mt-flash"],
+            "DeepSeek Official": ["deepseek-v4-flash", "deepseek-chat"],
+            "SiliconFlow": [
+                "deepseek-ai/DeepSeek-V4-Flash",
+                "Qwen/Qwen3.5-4B",
+                "Qwen/Qwen3-8B",
+                "Qwen/Qwen3-30B-A3B-Instruct-2507",
+            ],
+            "OpenAI": ["gpt-5-mini", "gpt-5-nano"],
+            "Google Gemini": ["gemini-2.5-flash-lite", "gemini-2.5-flash"],
+            "Groq": ["openai/gpt-oss-20b"],
+            "OpenRouter": ["openai/gpt-5-mini", "google/gemini-2.5-flash-lite"],
+            "Custom OpenAI-Compatible": [],
+        }
+        self.provider_selected_models = {configured_single_provider: config.model}
         self.provider.currentTextChanged.connect(self._on_translation_provider_changed)
         layout.addRow("Final Provider（最终翻译服务）:", self.provider)
         
@@ -1271,8 +1329,17 @@ class Dashboard(QWidget):
         self.model = ReadableComboBox()
         self.model.setEditable(True)
         self.model.addItem(config.model)
+        self.model.setToolTip(
+            "可以选择预设，也可以直接输入任意服务支持的模型 ID。"
+        )
         self.model.currentTextChanged.connect(self.update_home_summary)
         model_layout.addWidget(self.model)
+
+        self.add_custom_model_btn = QPushButton("＋")
+        self.add_custom_model_btn.setFixedWidth(40)
+        self.add_custom_model_btn.setToolTip("Add a custom model ID（添加自定义模型）")
+        self.add_custom_model_btn.clicked.connect(self.add_custom_model)
+        model_layout.addWidget(self.add_custom_model_btn)
         
         self.refresh_models_btn = QPushButton("🔄")
         self.refresh_models_btn.setFixedWidth(40)
@@ -1382,6 +1449,9 @@ class Dashboard(QWidget):
         if hasattr(self, "api_key"):
             self.provider_keys[self._current_provider] = self.api_key.text()
             self.provider_urls[self._current_provider] = self.base_url.text()
+            self.provider_selected_models[self._current_provider] = (
+                self.model.currentText().strip()
+            )
             self.api_key.setText(self.provider_keys.get(provider, ""))
         self._current_provider = provider
         if hasattr(self, "base_url"):
@@ -1391,23 +1461,49 @@ class Dashboard(QWidget):
             self.refresh_models_btn.setEnabled(True)
         if provider == "DeepSeek Official":
             self.base_url.setText("https://api.deepseek.com")
-            self.model.setCurrentText("deepseek-v4-flash")
         elif provider == "SiliconFlow":
             self.base_url.setText("https://api.siliconflow.cn/v1")
-            if (
-                self.model.currentText() == "qwen-mt-flash"
-                or self.model.currentText().startswith("deepseek-v4-")
-            ):
-                self.model.setCurrentText("deepseek-ai/DeepSeek-V4-Flash")
         elif provider == "Alibaba Cloud Qwen-MT":
             self.base_url.setText(self.provider_urls.get(provider, ""))
             self.base_url.setPlaceholderText(
                 "https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
             )
-            self.model.setCurrentText("qwen-mt-flash")
         else:
             self.base_url.setText(self.provider_urls.get(provider, self.base_url.text()))
+        self._populate_provider_models(provider)
         self._on_translation_workflow_changed()
+
+    def _populate_provider_models(self, provider):
+        """Expose useful presets without restricting manually entered model IDs."""
+        current = self.model.currentText().strip()
+        presets = list(self.provider_model_presets.get(provider, ()))
+        preferred = self.provider_selected_models.get(provider, "").strip()
+        if not preferred:
+            preferred = presets[0] if presets else current
+        self.model.blockSignals(True)
+        self.model.clear()
+        for model_id in presets:
+            self.model.addItem(model_id)
+        if preferred and self.model.findText(preferred) < 0:
+            self.model.addItem(preferred)
+        self.model.setCurrentText(preferred)
+        self.model.blockSignals(False)
+        self.provider_selected_models[provider] = preferred
+        self.update_home_summary()
+
+    def add_custom_model(self):
+        model_id, accepted = QInputDialog.getText(
+            self,
+            "Add Custom Model",
+            "Model ID（填写服务商文档中的完整模型 ID）:",
+        )
+        model_id = model_id.strip()
+        if not accepted or not model_id:
+            return
+        if self.model.findText(model_id) < 0:
+            self.model.addItem(model_id)
+        self.model.setCurrentText(model_id)
+        self._mark_settings_dirty()
 
     def _on_translation_workflow_changed(self, *_):
         if not hasattr(self, "translation_workflow"):

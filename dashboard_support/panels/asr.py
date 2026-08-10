@@ -16,6 +16,15 @@ class AsrPanel(QWidget):
 
     def _build(self):
         layout = self.form_layout
+        self.apply_hint = QLabel(
+            "生效时间：语音识别引擎、模型、设备和语言保存后重新 Launch 生效。"
+        )
+        self.apply_hint.setWordWrap(True)
+        self.apply_hint.setStyleSheet(
+            "color: #f9e2af; background: rgba(255,255,255,10); "
+            "border-radius: 7px; padding: 8px 10px;"
+        )
+        layout.addRow(self.apply_hint)
         self.asr_backend = ReadableComboBox()
         self.asr_backend.addItems(["apple", "whisper", "mlx", "funasr"])
         self.asr_backend.setCurrentText(self.settings.asr_backend)
