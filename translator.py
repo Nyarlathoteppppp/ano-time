@@ -29,7 +29,7 @@ class Translator:
             "optimization, and software engineering."
         )
         self.asr_correction_prompt = (
-            "The source text comes from live speech recognition and may contain "
+            "The source text comes from speech recognition and may contain "
             "misrecognized words, homophones, or incorrect sentence boundaries. "
             "Silently correct only obvious ASR errors using the sentence meaning, "
             "course domain, and supplied terminology; never invent missing content."
