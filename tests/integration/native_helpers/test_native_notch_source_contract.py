@@ -1,10 +1,9 @@
-import os
 import unittest
 
+from tests.support.paths import project_path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SOURCE_PATH = os.path.join(
-    ROOT,
+
+SOURCE_PATH = project_path(
     "native_notch",
     "Sources",
     "RealtimeNotchHelper",
@@ -15,7 +14,7 @@ SOURCE_PATH = os.path.join(
 class NativeNotchSourceContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        with open(SOURCE_PATH, encoding="utf-8") as handle:
+        with SOURCE_PATH.open(encoding="utf-8") as handle:
             cls.source = handle.read()
 
     def test_all_display_counts_share_one_dynamic_notch_instance(self):

@@ -11,14 +11,7 @@ from main import (
     recent_audio_anchor,
 )
 from subtitle_event import SubtitleStage
-
-
-class RecordingSignal:
-    def __init__(self):
-        self.events = []
-
-    def emit(self, *args):
-        self.events.append(args)
+from tests.support.recorders import RecordingSignal
 
 
 class PipelineContractTests(unittest.TestCase):

@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 
 from native_notch_overlay import NativeNotchOverlay
+from tests.support.paths import project_path
 
 
 class RecordingNotchOverlay(NativeNotchOverlay):
@@ -25,14 +26,10 @@ class NativeNotchOverlayTest(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def test_mascots_are_fixed_to_both_expanded_notch_edges(self):
-        source = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "native_notch",
-            "Sources",
-            "RealtimeNotchHelper",
-            "main.swift",
+        source = project_path(
+            "native_notch", "Sources", "RealtimeNotchHelper", "main.swift"
         )
-        with open(source, encoding="utf-8") as handle:
+        with source.open(encoding="utf-8") as handle:
             swift = handle.read()
         self.assertIn("ZStack(alignment: .top)", swift)
         self.assertIn("HStack(spacing: 0)", swift)

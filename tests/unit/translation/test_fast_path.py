@@ -1,17 +1,15 @@
 import threading
-from pathlib import Path
 import unittest
 
 from fast_path import FastPath
+from tests.support.paths import project_path
 from segment_store import SegmentStore
 from subtitle_event import SubtitleStage
 
 
 class FastPathTests(unittest.TestCase):
     def test_short_distinct_apple_partials_are_not_length_gated(self):
-        source = (
-            Path(__file__).resolve().parents[1] / "main.py"
-        ).read_text(encoding="utf-8")
+        source = project_path("main.py").read_text(encoding="utf-8")
         self.assertNotIn("len(remainder) < 6", source)
         self.assertIn("if previous == remainder:", source)
 
