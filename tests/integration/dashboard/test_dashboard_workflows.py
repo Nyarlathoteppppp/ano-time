@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QLabel
 
 from dashboard import Dashboard
 from dashboard import DEFAULT_AUDIO_SETTINGS
@@ -118,6 +118,28 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertEqual(
             self.dashboard.api_test_provider.itemData(0), "single"
         )
+
+    def test_single_model_credentials_are_grouped_in_visual_order(self):
+        layout = self.dashboard.translation_layout
+        row = lambda widget: layout.getWidgetPosition(widget)[0]
+        bridge_row = lambda widget: self.dashboard.bridge_layout.getWidgetPosition(widget)[0]
+        self.assertLess(bridge_row(self.dashboard.bridge_provider), bridge_row(self.dashboard.groq_api_key))
+        self.assertLess(row(self.dashboard.bridge_card), row(self.dashboard.provider))
+        self.assertLess(row(self.dashboard.provider), row(self.dashboard.api_key))
+        self.assertLess(row(self.dashboard.api_key), row(self.dashboard.base_url))
+        self.assertLess(row(self.dashboard.base_url), row(self.dashboard.model_container))
+        self.assertLess(row(self.dashboard.model_container), row(self.dashboard.gemini_api_key))
+
+    def test_bridge_card_explains_optional_non_blocking_behavior(self):
+        labels = " ".join(
+            label.text() for label in self.dashboard.bridge_card.findChildren(QLabel)
+        )
+        self.assertIn("可选", labels)
+        self.assertIn("不会阻塞", labels)
+        self.dashboard.bridge_provider.setCurrentIndex(
+            self.dashboard.bridge_provider.findData("off")
+        )
+        self.assertTrue(self.dashboard.groq_api_key.isHidden())
 
     def test_workflow_labels_separate_regular_users_from_developer_chain(self):
         labels = {

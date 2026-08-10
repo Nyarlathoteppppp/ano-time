@@ -1226,12 +1226,44 @@ class Dashboard(QWidget):
         workflow_card_layout.addWidget(self.workflow_preview)
         layout.addRow(workflow_card)
 
+        self.bridge_card = QFrame()
+        self.bridge_card.setObjectName("BridgeCard")
+        self.bridge_card.setStyleSheet(
+            "QFrame#BridgeCard { background: rgba(245,169,199,18); "
+            "border: 1px solid rgba(245,169,199,55); border-radius: 9px; }"
+            "QFrame#BridgeCard QLabel { background: transparent; border: none; }"
+        )
+        bridge_card_layout = QVBoxLayout(self.bridge_card)
+        bridge_card_layout.setContentsMargins(12, 10, 12, 10)
+        bridge_card_layout.setSpacing(7)
+        bridge_title = QLabel("Bridge Translation（桥接翻译 · 可选）")
+        bridge_title.setStyleSheet("font-weight: 700; color: #f5a9c7;")
+        bridge_explanation = QLabel(
+            "在最终模型返回前抢先显示较自然的过渡译文。关闭不会影响 Apple 草稿或最终翻译；"
+            "桥接请求不会阻塞、覆盖最终模型。"
+        )
+        bridge_explanation.setWordWrap(True)
+        bridge_explanation.setStyleSheet("font-size: 12px; color: #bac2de;")
+        bridge_card_layout.addWidget(bridge_title)
+        bridge_card_layout.addWidget(bridge_explanation)
+        self.bridge_layout = QFormLayout()
+        self.bridge_layout.setContentsMargins(0, 0, 0, 0)
+        self.bridge_layout.setVerticalSpacing(8)
+
         self.bridge_provider = ReadableComboBox()
         self.bridge_provider.addItem("Off（关闭）", "off")
         self.bridge_provider.addItem("Groq GPT-OSS 20B（快速过渡）", "groq")
         bridge_index = self.bridge_provider.findData(config.bridge_provider)
         self.bridge_provider.setCurrentIndex(max(0, bridge_index))
-        layout.addRow("Bridge（桥接翻译，可选）:", self.bridge_provider)
+        self.bridge_layout.addRow("Bridge Model（桥接模型）:", self.bridge_provider)
+
+        self.groq_api_key = QLineEdit(config.groq_api_key)
+        self.groq_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.groq_api_key.setPlaceholderText("gsk_...")
+        self.bridge_key_label = QLabel("Groq Key（桥接服务密钥）:")
+        self.bridge_layout.addRow(self.bridge_key_label, self.groq_api_key)
+        bridge_card_layout.addLayout(self.bridge_layout)
+        layout.addRow(self.bridge_card)
 
         self.provider = ReadableComboBox()
         self.provider.addItems([
@@ -1310,36 +1342,6 @@ class Dashboard(QWidget):
         self.api_key.setPlaceholderText("sk-...")
         layout.addRow("API Key（主翻译服务密钥）:", self.api_key)
 
-        self.groq_api_key = QLineEdit(config.groq_api_key)
-        self.groq_api_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.groq_api_key.setPlaceholderText("gsk_...")
-        layout.addRow("Groq Key（快速过渡翻译密钥）:", self.groq_api_key)
-
-        self.gemini_api_key = QLineEdit(config.gemini_api_key)
-        self.gemini_api_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.gemini_api_key.setPlaceholderText("Google AI Studio key")
-        layout.addRow("Gemini Key（Gemini 免费池密钥）:", self.gemini_api_key)
-
-        self.cloudflare_account_id = QLineEdit(config.cloudflare_account_id)
-        self.cloudflare_account_id.setPlaceholderText("Cloudflare account ID")
-        layout.addRow("Cloudflare Account（账户 ID）:", self.cloudflare_account_id)
-
-        self.cloudflare_api_token = QLineEdit(config.cloudflare_api_token)
-        self.cloudflare_api_token.setEchoMode(QLineEdit.EchoMode.Password)
-        self.cloudflare_api_token.setPlaceholderText("Cloudflare API token")
-        layout.addRow("Cloudflare Token（Workers AI 访问令牌）:", self.cloudflare_api_token)
-        
-        self.qwen_fallback_key = QLineEdit(config.qwen_mt_api_key)
-        self.qwen_fallback_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.qwen_fallback_key.setPlaceholderText("Alibaba Cloud Qwen-MT key")
-        layout.addRow("Qwen-MT Key（付费兜底密钥）:", self.qwen_fallback_key)
-
-        self.qwen_fallback_url = QLineEdit(config.qwen_mt_base_url)
-        self.qwen_fallback_url.setPlaceholderText(
-            "https://{WorkspaceId}.maas.aliyuncs.com/compatible-mode/v1"
-        )
-        layout.addRow("Qwen-MT URL（付费兜底接口）:", self.qwen_fallback_url)
-
         self.base_url = QLineEdit(
             self.provider_urls.get(self.provider.currentText(), config.api_base_url or "")
         )
@@ -1348,6 +1350,7 @@ class Dashboard(QWidget):
         
         # Model selection with refresh button
         model_layout = QHBoxLayout()
+        model_layout.setContentsMargins(0, 0, 0, 0)
         self.model = ReadableComboBox()
         self.model.setEditable(True)
         self.model.addItem(config.model)
@@ -1371,6 +1374,31 @@ class Dashboard(QWidget):
         self.model_container = QWidget()
         self.model_container.setLayout(model_layout)
         layout.addRow("Model（翻译模型）:", self.model_container)
+
+        self.gemini_api_key = QLineEdit(config.gemini_api_key)
+        self.gemini_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.gemini_api_key.setPlaceholderText("Google AI Studio key")
+        layout.addRow("Gemini Key（免费池密钥）:", self.gemini_api_key)
+
+        self.cloudflare_account_id = QLineEdit(config.cloudflare_account_id)
+        self.cloudflare_account_id.setPlaceholderText("Cloudflare account ID")
+        layout.addRow("Cloudflare Account（免费池账户 ID）:", self.cloudflare_account_id)
+
+        self.cloudflare_api_token = QLineEdit(config.cloudflare_api_token)
+        self.cloudflare_api_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.cloudflare_api_token.setPlaceholderText("Cloudflare API token")
+        layout.addRow("Cloudflare Token（免费池访问令牌）:", self.cloudflare_api_token)
+
+        self.qwen_fallback_key = QLineEdit(config.qwen_mt_api_key)
+        self.qwen_fallback_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.qwen_fallback_key.setPlaceholderText("Alibaba Cloud Qwen-MT key")
+        layout.addRow("Qwen-MT Key（付费兜底密钥）:", self.qwen_fallback_key)
+
+        self.qwen_fallback_url = QLineEdit(config.qwen_mt_base_url)
+        self.qwen_fallback_url.setPlaceholderText(
+            "https://{WorkspaceId}.maas.aliyuncs.com/compatible-mode/v1"
+        )
+        layout.addRow("Qwen-MT URL（付费兜底接口）:", self.qwen_fallback_url)
 
         self.api_test_provider = ReadableComboBox()
         layout.addRow("Test Target（测速服务）:", self.api_test_provider)
@@ -1560,12 +1588,13 @@ class Dashboard(QWidget):
         single = workflow == "single_model"
         smart = workflow == "smart_hybrid"
 
+        self.bridge_card.setVisible(not apple_only)
         self.bridge_provider.setEnabled(not apple_only)
         for widget in (self.provider, self.api_key, self.base_url, self.model_container):
             self._set_translation_row_visible(widget, single)
-        self._set_translation_row_visible(
-            self.groq_api_key, not apple_only and bridge == "groq"
-        )
+        bridge_key_visible = not apple_only and bridge == "groq"
+        self.groq_api_key.setVisible(bridge_key_visible)
+        self.bridge_key_label.setVisible(bridge_key_visible)
         for widget in (
             self.gemini_api_key,
             self.cloudflare_account_id,
