@@ -59,6 +59,16 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.source_language, self.dashboard.asr_panel.source_language
         )
 
+    def test_audio_panel_keeps_legacy_dashboard_control_aliases(self):
+        self.assertIs(
+            self.dashboard.device_combo, self.dashboard.audio_panel.device_combo
+        )
+        self.assertIs(self.dashboard.sample_rate, self.dashboard.audio_panel.sample_rate)
+        self.assertIs(
+            self.dashboard.audio_test_status,
+            self.dashboard.audio_panel.audio_test_status,
+        )
+
     def test_user_titlebar_close_requests_full_quit(self):
         spontaneous = MagicMock()
         spontaneous.spontaneous.return_value = True

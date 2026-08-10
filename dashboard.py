@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QFrame, QLineEdit,
-                             QTabWidget, QSpinBox, QDoubleSpinBox, QGridLayout,
+                             QTabWidget, QGridLayout,
                              QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
                              QMessageBox, QTextEdit, QDialog, QLayout)
 from PyQt6.QtWidgets import QCheckBox
@@ -34,7 +34,7 @@ from dashboard_support.settings_snapshot import (
     TranscriptionSettings,
     TranslationSettings,
 )
-from dashboard_support.panels import AsrPanel
+from dashboard_support.panels import AsrPanel, AudioPanel, DEFAULT_AUDIO_SETTINGS
 
 try:
     from ctypes import c_void_p
@@ -52,15 +52,6 @@ try:
     HAS_NATIVE_GLASS = True
 except ImportError:
     HAS_NATIVE_GLASS = False
-
-DEFAULT_AUDIO_SETTINGS = {
-    "device_index": "auto",
-    "sample_rate": 16000,
-    "silence_threshold": 0.005,
-    "silence_duration": 0.5,
-    "update_interval": 0.5,
-}
-
 
 class Dashboard(QWidget):
     start_requested = pyqtSignal()
@@ -728,124 +719,45 @@ class Dashboard(QWidget):
         self.permission_controller.on_system_audio_test_result(success, message, peak)
 
     def init_audio_tab(self):
-        tab = QWidget()
-        layout = QGridLayout() # Use Grid for organized form
-        layout.setSpacing(15)
-        
-        # Device Selection
-        layout.addWidget(QLabel("Input Device（音频来源）:"), 0, 0)
-        self.device_combo = ReadableComboBox()
+        panel = AudioPanel(
+            config,
+            on_device_changed=self._on_input_device_changed,
+            on_refresh=self.populate_devices,
+            on_use_system_audio=self.use_system_audio,
+            on_test_system_audio=self.test_system_audio,
+            on_open_permissions=self.open_system_audio_settings,
+            on_restore_defaults=self.restore_audio_defaults,
+        )
+        self.audio_panel = panel
+        self.device_combo = panel.device_combo
+        self.sample_rate = panel.sample_rate
+        self.silence_thresh = panel.silence_thresh
+        self.silence_dur = panel.silence_dur
+        self.update_interval = panel.update_interval
+        self.use_system_audio_btn = panel.use_system_audio_btn
+        self.test_system_audio_btn = panel.test_system_audio_btn
+        self.open_audio_permission_btn = panel.open_audio_permission_btn
+        self.restore_audio_defaults_btn = panel.restore_audio_defaults_btn
+        self.audio_test_status = panel.audio_test_status
         self.populate_devices()
-        self.device_combo.currentIndexChanged.connect(
-            lambda: self._on_input_device_changed(self.device_combo)
-        )
-        layout.addWidget(self.device_combo, 0, 1)
-        
-        # Refresh Button
-        refresh_btn = QPushButton("🔄")
-        refresh_btn.setFixedWidth(40)
-        refresh_btn.clicked.connect(self.populate_devices)
-        layout.addWidget(refresh_btn, 0, 2)
-        
-        # Sample Rate
-        layout.addWidget(QLabel("Sample Rate（采样率）:"), 1, 0)
-        self.sample_rate = QSpinBox()
-        self.sample_rate.setRange(8000, 48000)
-        self.sample_rate.setValue(config.sample_rate)
-        layout.addWidget(self.sample_rate, 1, 1)
-
-        # Silence Threshold
-        layout.addWidget(QLabel("Silence Threshold（静音判定阈值）:"), 2, 0)
-        self.silence_thresh = QDoubleSpinBox()
-        self.silence_thresh.setRange(0.001, 1.0)
-        self.silence_thresh.setSingleStep(0.001)
-        self.silence_thresh.setDecimals(3)
-        self.silence_thresh.setValue(config.silence_threshold)
-        layout.addWidget(self.silence_thresh, 2, 1)
-        
-        layout.addWidget(QLabel("Silence Duration（持续静音多久才断句，秒）:"), 3, 0)
-        self.silence_dur = QDoubleSpinBox()
-        self.silence_dur.setValue(config.silence_duration)
-        layout.addWidget(self.silence_dur, 3, 1)
-
-        layout.addWidget(QLabel("Live Refresh Interval（临时字幕刷新间隔，秒）:"), 4, 0)
-        self.update_interval = QDoubleSpinBox()
-        self.update_interval.setRange(0.2, 2.0)
-        self.update_interval.setSingleStep(0.1)
-        self.update_interval.setDecimals(1)
-        self.update_interval.setValue(config.update_interval)
-        self.update_interval.setToolTip(
-            "Lower values update partial subtitles faster. 0.5 s is recommended for class."
-        )
-        layout.addWidget(self.update_interval, 4, 1)
-
-        action_row = QHBoxLayout()
-        self.use_system_audio_btn = QPushButton("Use System Audio")
-        self.use_system_audio_btn.setToolTip(
-            "Select native ScreenCaptureKit audio from videos and applications"
-        )
-        self.use_system_audio_btn.clicked.connect(self.use_system_audio)
-        action_row.addWidget(self.use_system_audio_btn)
-
-        self.test_system_audio_btn = QPushButton("Test Permission & Audio")
-        self.test_system_audio_btn.clicked.connect(self.test_system_audio)
-        action_row.addWidget(self.test_system_audio_btn)
-
-        self.open_audio_permission_btn = QPushButton("Open Permission Settings")
-        self.open_audio_permission_btn.clicked.connect(self.open_system_audio_settings)
-        action_row.addWidget(self.open_audio_permission_btn)
-
-        self.restore_audio_defaults_btn = QPushButton(
-            "Restore Audio Defaults（恢复音频默认值）"
-        )
-        self.restore_audio_defaults_btn.setToolTip(
-            "Reset only Audio settings. API, ASR, translation, and display settings stay unchanged."
-        )
-        self.restore_audio_defaults_btn.clicked.connect(self.restore_audio_defaults)
-        layout.addLayout(action_row, 5, 0, 1, 3)
-        layout.addWidget(self.restore_audio_defaults_btn, 6, 0, 1, 3)
-
-        self.audio_test_status = QLabel(
-            "System Audio uses macOS ScreenCaptureKit; BlackHole is not required."
-        )
-        self.audio_test_status.setWordWrap(True)
-        self.audio_test_status.setStyleSheet(
-            "color: #a6adc8; background: rgba(255,255,255,14); padding: 10px; border-radius: 8px;"
-        )
-        layout.addWidget(self.audio_test_status, 7, 0, 1, 3)
-
-        layout.setRowStretch(8, 1) # Push to top
-        
-        tab.setLayout(layout)
         self.tabs.addTab(
-            tab,
+            panel,
             QIcon(os.path.join(os.path.dirname(__file__), "assets", "tab-audio-ano.png")),
             "Audio",
         )
 
     def restore_audio_defaults(self):
         """Restore only documented Audio defaults; Save remains explicit."""
-        defaults = DEFAULT_AUDIO_SETTINGS
-        self.sample_rate.setValue(defaults["sample_rate"])
-        self.silence_thresh.setValue(defaults["silence_threshold"])
-        self.silence_dur.setValue(defaults["silence_duration"])
-        self.update_interval.setValue(defaults["update_interval"])
-
-        for combo in (self.device_combo, self.home_device_combo):
-            index = combo.findData(defaults["device_index"])
-            if index >= 0:
-                combo.blockSignals(True)
-                combo.setCurrentIndex(index)
-                combo.blockSignals(False)
+        self.audio_panel.restore_defaults()
+        index = self.home_device_combo.findData(
+            DEFAULT_AUDIO_SETTINGS["device_index"]
+        )
+        if index >= 0:
+            self.home_device_combo.blockSignals(True)
+            self.home_device_combo.setCurrentIndex(index)
+            self.home_device_combo.blockSignals(False)
 
         self.update_home_summary()
-        self.audio_test_status.setText(
-            "Audio defaults restored in the control center. Click Save Settings to apply."
-        )
-        self.audio_test_status.setStyleSheet(
-            "color: #a6e3a1; background: rgba(255,255,255,14); "
-            "padding: 10px; border-radius: 8px;"
-        )
         if self._session_state == "running":
             self.status_label.setText(
                 "Audio defaults restored · Stop, save, and launch again to apply"
