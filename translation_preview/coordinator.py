@@ -31,12 +31,14 @@ class ProgressivePreviewCoordinator:
             for future in list(self._futures):
                 if not future.running() and future.cancel():
                     self._futures.pop(future, None)
+            submitted_at = time.monotonic()
             request = PreviewRequest(
                 segment_id=int(segment_id),
                 hypothesis_revision=int(hypothesis_revision),
                 source_text=str(source_text),
                 generation=generation,
-                deadline=time.monotonic() + self.deadline_seconds,
+                submitted_at=submitted_at,
+                deadline=submitted_at + self.deadline_seconds,
             )
             future = self._executor.submit(worker, request)
             self._futures[future] = request
@@ -69,4 +71,3 @@ class ProgressivePreviewCoordinator:
             self._generation += 1
             self._invalidated_generation = self._generation
         self._executor.shutdown(wait=False, cancel_futures=True)
-

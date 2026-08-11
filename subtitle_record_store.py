@@ -11,7 +11,14 @@ class SubtitleRecordStore:
         self._lock = threading.RLock()
         self._records = {}
 
-    def update(self, segment_id, original_text, translated_text, state="partial"):
+    def update(
+        self,
+        segment_id,
+        original_text,
+        translated_text,
+        state="partial",
+        committed_prefix_length=0,
+    ):
         segment_id = int(segment_id)
         with self._lock:
             current = self._records.get(segment_id)
@@ -24,6 +31,7 @@ class SubtitleRecordStore:
                     "original": "",
                     "translated": "",
                     "finalized": False,
+                    "committed_prefix_length": 0,
                 },
             )
             record["finalized"] = record["finalized"] or state == "final"
@@ -31,6 +39,10 @@ class SubtitleRecordStore:
                 record["original"] = str(original_text)
             if translated_text:
                 record["translated"] = str(translated_text)
+                record["committed_prefix_length"] = max(
+                    0,
+                    min(int(committed_prefix_length), len(str(translated_text))),
+                )
             return dict(record)
 
     def get(self, segment_id):

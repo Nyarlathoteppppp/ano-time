@@ -28,6 +28,7 @@ class SegmentState:
     translation_rank: int = 0
     translation_stage: SubtitleStage | None = None
     translation_source_text: str = ""
+    committed_prefix_length: int = 0
     stage: SubtitleStage = SubtitleStage.ASR_PARTIAL
 
 
@@ -52,6 +53,7 @@ class SegmentStore:
         expected_hypothesis=None,
         translation_rank=None,
         translation_source_text=None,
+        committed_prefix_length=None,
     ):
         """Return a typed event when an update is current, otherwise ``None``."""
         stage = SubtitleStage(stage)
@@ -84,6 +86,7 @@ class SegmentStore:
                     state.translation_stage = None
                     state.translation_source_text = ""
                     state.translated_text = ""
+                    state.committed_prefix_length = 0
 
             elif stage == SubtitleStage.APPLE_PARTIAL:
                 if state.finalized:
@@ -138,7 +141,32 @@ class SegmentStore:
                 else int(translation_rank)
             )
             if rank:
-                if rank < state.translation_rank:
+                incoming_translation_source = str(
+                    translation_source_text or original_text
+                )
+                current_translation_source = state.translation_source_text
+                incoming_is_newer_source = bool(
+                    current_translation_source
+                    and incoming_translation_source.startswith(
+                        current_translation_source
+                    )
+                    and incoming_translation_source != current_translation_source
+                )
+                incoming_is_older_source = bool(
+                    current_translation_source
+                    and current_translation_source.startswith(
+                        incoming_translation_source
+                    )
+                    and incoming_translation_source != current_translation_source
+                )
+                # Source freshness wins before provider quality. A fast Apple
+                # draft for a longer ASR hypothesis must remain visible until
+                # Gemini catches up; conversely, an older Gemini request must
+                # never replace that newer draft merely because its rank is
+                # higher.
+                if incoming_is_older_source:
+                    return None
+                if rank < state.translation_rank and not incoming_is_newer_source:
                     return None
                 if (
                     rank == state.translation_rank
@@ -149,9 +177,7 @@ class SegmentStore:
                 state.translation_rank = rank
                 if translated_text:
                     state.translation_stage = stage
-                    state.translation_source_text = str(
-                        translation_source_text or original_text
-                    )
+                    state.translation_source_text = incoming_translation_source
                 state.finalized = state.finalized or bool(finalized)
 
             state.revision += 1
@@ -166,7 +192,19 @@ class SegmentStore:
             ):
                 state.original_text = original_text
             if translated_text:
+                previous_translation = state.translated_text
                 state.translated_text = translated_text
+                if committed_prefix_length is not None:
+                    state.committed_prefix_length = max(
+                        0,
+                        min(int(committed_prefix_length), len(translated_text)),
+                    )
+                elif stage == SubtitleStage.AI_FINAL:
+                    state.committed_prefix_length = len(translated_text)
+                elif not translated_text.startswith(
+                    previous_translation[:state.committed_prefix_length]
+                ):
+                    state.committed_prefix_length = 0
 
             return SubtitleEvent.create(
                 state.segment_id,
@@ -175,6 +213,7 @@ class SegmentStore:
                 state.original_text,
                 state.translated_text,
                 finalized=state.finalized,
+                committed_prefix_length=state.committed_prefix_length,
             )
 
     def preview_is_compatible(self, segment_id, hypothesis_revision, stable_text):
@@ -234,5 +273,6 @@ class SegmentStore:
                 translation_rank=state.translation_rank,
                 translation_stage=state.translation_stage,
                 translation_source_text=state.translation_source_text,
+                committed_prefix_length=state.committed_prefix_length,
                 stage=state.stage,
             )

@@ -91,7 +91,14 @@ class SessionController:
         view.overlay_window = OverlayClass(**overlay_kwargs)
         view.overlay_window.show()
 
-        view.pipeline.signals.update_text.connect(view.overlay_window.update_text)
+        if hasattr(view.overlay_window, "update_event"):
+            view.pipeline.signals.subtitle_event.connect(
+                view.overlay_window.update_event
+            )
+        else:
+            view.pipeline.signals.update_text.connect(
+                view.overlay_window.update_text
+            )
         previous_recorder = getattr(view, "transcript_recorder", None)
         if previous_recorder:
             previous_recorder.stop()

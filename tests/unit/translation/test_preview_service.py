@@ -69,6 +69,18 @@ class ProgressiveTranslationPreviewTests(unittest.TestCase):
         finally:
             service.shutdown()
 
+    def test_final_model_preview_first_triggers_at_five_words(self):
+        final = _Translator("五词即可开始预览")
+        service, store, _emitted, completed = self._service(final=final)
+        source = "one two three four five"
+        try:
+            store.publish(10, SubtitleStage.ASR_PARTIAL, source)
+            service.observe(10, store.hypothesis_revision(10), source)
+            self.assertTrue(completed.wait(0.5))
+            self.assertEqual(final.calls[0][0], source)
+        finally:
+            service.shutdown()
+
     def test_optional_bridge_uses_stable_source_without_final_client(self):
         bridge = _Translator("桥接译文")
         service, store, _emitted, completed = self._service(bridge=bridge)
@@ -104,4 +116,3 @@ class ProgressiveTranslationPreviewTests(unittest.TestCase):
             )
         finally:
             service.shutdown()
-

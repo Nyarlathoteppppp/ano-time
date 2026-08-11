@@ -94,6 +94,37 @@ class Translator:
         cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
         return cleaned.strip()
 
+    def warmup(self, timeout=2.5):
+        """Prime one remote connection/model without touching subtitle state."""
+        if not (
+            self.base_url
+            and "generativelanguage.googleapis.com" in self.base_url
+            and self.model.startswith("gemini-")
+        ):
+            return False
+        response = None
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "user", "content": "Translate to Chinese: ready"}
+                ],
+                max_tokens=4,
+                timeout=max(0.1, float(timeout)),
+                stream=True,
+                reasoning_effort="minimal",
+            )
+            for chunk in response:
+                if not chunk.choices:
+                    continue
+                if chunk.choices[0].delta.content:
+                    return True
+            return True
+        finally:
+            close = getattr(response, "close", None)
+            if close:
+                close()
+
     @staticmethod
     def _report_usage(usage, callback):
         if not usage or not callback:

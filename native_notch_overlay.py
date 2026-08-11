@@ -161,6 +161,7 @@ class NativeNotchOverlay(QObject):
                 item["original"],
                 item["translated"],
                 "final" if item["finalized"] else "partial",
+                item.get("committed_prefix_length", 0),
             )
         self.delegate.show()
 
@@ -232,6 +233,24 @@ class NativeNotchOverlay(QObject):
             self._last_native_items = latest_items
             self._send({"items": latest_items})
 
+    def update_event(self, event):
+        record = self.record_store.update(
+            event.segment_id,
+            event.original_text,
+            event.translated_text,
+            event.legacy_state,
+            event.committed_prefix_length,
+        )
+        if record is None:
+            return
+        if self.delegate:
+            self.delegate.update_event(event)
+            return
+        latest_items = self._latest_items()
+        if latest_items != self._last_native_items:
+            self._last_native_items = latest_items
+            self._send({"items": latest_items})
+
     def update_runtime_status(self, stage, status, detail):
         """Forward coarse activity state without sending diagnostic details."""
         if self.delegate:
@@ -254,7 +273,7 @@ class NativeNotchOverlay(QObject):
         self._send(payload)
 
     def _latest_items(self):
-        rendered = []
+        rendered_rows = []
         # Display fragments are an ephemeral projection. They never enter the
         # complete semantic record store or classroom export data.
         for chunk_id, item in self.record_store.latest_items(3):
@@ -265,11 +284,15 @@ class NativeNotchOverlay(QObject):
             )
             part_count = max(len(original_parts), len(translated_parts))
             if part_count <= 1:
-                rendered.append({
-                    "id": chunk_id,
+                rendered_rows.append({
+                    "id": chunk_id * 1000,
+                    "segmentID": chunk_id,
                     "original": item["original"],
                     "translated": item["translated"],
                     "finalized": item["finalized"],
+                    "committedPrefixLength": item.get(
+                        "committed_prefix_length", 0
+                    ),
                 })
                 continue
 
@@ -281,16 +304,41 @@ class NativeNotchOverlay(QObject):
                 translated_parts = self._semantic_parts_for_count(
                     item["translated"], part_count
                 )
+            remaining_committed = item.get("committed_prefix_length", 0)
             for index, (original, translated) in enumerate(zip(
                 original_parts, translated_parts
             )):
-                rendered.append({
+                part_committed = min(len(translated), remaining_committed)
+                rendered_rows.append({
                     "id": chunk_id * 1000 + index,
+                    "segmentID": chunk_id,
                     "original": original,
                     "translated": translated,
                     "finalized": item["finalized"],
+                    "committedPrefixLength": part_committed,
                 })
-        return rendered[-3:]
+                remaining_committed = max(
+                    0, remaining_committed - len(translated)
+                )
+        # Keep semantic segments as the stable top-level SwiftUI identity.
+        # Display fragments live inside their segment, so crossing a wrapping
+        # threshold inserts one row instead of deleting/recreating the entire
+        # notch content tree.
+        grouped = []
+        for row in rendered_rows[-3:]:
+            if not grouped or grouped[-1]["id"] != row["segmentID"]:
+                grouped.append({
+                    "id": row["segmentID"],
+                    "original": row["original"],
+                    "translated": row["translated"],
+                    "finalized": row["finalized"],
+                    "committedPrefixLength": row["committedPrefixLength"],
+                    "fragments": [],
+                })
+            grouped[-1]["fragments"].append({
+                key: value for key, value in row.items() if key != "segmentID"
+            })
+        return grouped
 
     @staticmethod
     def _split_finalized_source(text, max_words):

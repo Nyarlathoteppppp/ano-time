@@ -26,6 +26,7 @@ class SubtitleEvent:
     original_text: str
     translated_text: str
     finalized: bool
+    committed_prefix_length: int
     timestamp: float
 
     @classmethod
@@ -37,6 +38,7 @@ class SubtitleEvent:
         original_text,
         translated_text="",
         finalized=False,
+        committed_prefix_length=0,
     ):
         return cls(
             segment_id=int(segment_id),
@@ -45,6 +47,10 @@ class SubtitleEvent:
             original_text=str(original_text),
             translated_text=str(translated_text),
             finalized=bool(finalized),
+            committed_prefix_length=max(
+                0,
+                min(int(committed_prefix_length), len(str(translated_text))),
+            ),
             timestamp=time.time(),
         )
 

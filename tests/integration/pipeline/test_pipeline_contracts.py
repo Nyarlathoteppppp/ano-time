@@ -42,6 +42,24 @@ class PipelineContractTests(unittest.TestCase):
         pipeline.thread.join(timeout=0.5)
         self.assertTrue(pipeline.thread.daemon)
 
+    def test_gemini_warmup_runs_in_background_without_blocking_start(self):
+        warmed = threading.Event()
+        translator = SimpleNamespace(warmup=lambda: warmed.set() or True)
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.translation_workflow = SimpleNamespace(
+            warmup_translator=translator
+        )
+        ran = threading.Event()
+        pipeline.processing_loop = ran.set
+
+        started = time.perf_counter()
+        pipeline.start()
+
+        self.assertLess(time.perf_counter() - started, 0.1)
+        self.assertTrue(ran.wait(timeout=0.5))
+        self.assertTrue(warmed.wait(timeout=0.5))
+        self.assertTrue(pipeline._remote_warmup_thread.daemon)
+
     def test_stop_releases_audio_thread_and_fast_translator(self):
         calls = []
         pipeline = Pipeline.__new__(Pipeline)
@@ -206,6 +224,10 @@ class PipelineContractTests(unittest.TestCase):
         self.assertEqual(second.stage, SubtitleStage.AI_FINAL)
         self.assertTrue(second.finalized)
         self.assertEqual(
+            second.committed_prefix_length,
+            len("一个终稿"),
+        )
+        self.assertEqual(
             legacy,
             [
                 (12, "A partial", "一个草稿", "partial"),
@@ -243,6 +265,43 @@ class PipelineContractTests(unittest.TestCase):
         self.assertEqual(len(typed), 3)
         self.assertEqual(typed[-1].original_text, "A heuristic is admissible")
         self.assertEqual(typed[-1].translated_text, "一种启发式方法")
+
+    def test_typed_preview_carries_stable_target_prefix_without_legacy_change(self):
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.signals = WorkerSignals()
+        typed = []
+        legacy = []
+        pipeline.signals.subtitle_event.connect(typed.append)
+        pipeline.signals.update_text.connect(lambda *args: legacy.append(args))
+
+        source = "A heuristic estimates the remaining cost"
+        pipeline._emit_subtitle(
+            21,
+            source,
+            "",
+            "partial",
+            SubtitleStage.ASR_PARTIAL,
+        )
+        hypothesis = pipeline._segment_state_store().hypothesis_revision(21)
+        event = pipeline._emit_subtitle(
+            21,
+            source,
+            "启发式函数估计剩余代价",
+            "partial",
+            SubtitleStage.AI_PREVIEW,
+            expected_hypothesis=hypothesis,
+            translation_source_text=source,
+            committed_prefix_length=6,
+        )
+
+        self.assertEqual(event.committed_prefix_length, 6)
+        self.assertEqual(
+            legacy,
+            [
+                (21, source, "", "partial"),
+                (21, source, "启发式函数估计剩余代价", "partial"),
+            ],
+        )
 
 
 if __name__ == "__main__":

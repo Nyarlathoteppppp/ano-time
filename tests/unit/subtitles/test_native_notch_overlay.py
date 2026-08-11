@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 
 from native_notch_overlay import NativeNotchOverlay
+from subtitle_event import SubtitleEvent, SubtitleStage
 from tests.support.paths import project_path
 
 
@@ -110,7 +111,8 @@ class NativeNotchOverlayTest(unittest.TestCase):
         rendered = overlay._latest_items()
         self.assertEqual(list(overlay.transcript_data), [7])
         self.assertEqual(overlay.transcript_data[7]["translated"], translation)
-        self.assertGreater(len(rendered), 1)
+        self.assertEqual(len(rendered), 1)
+        self.assertGreater(len(rendered[0]["fragments"]), 1)
 
     def test_long_finalized_source_splits_only_at_clause_boundaries(self):
         overlay = RecordingNotchOverlay()
@@ -120,8 +122,9 @@ class NativeNotchOverlayTest(unittest.TestCase):
         overlay.update_text(12, original, "第一部分，第二部分。", "final")
 
         rendered = overlay._latest_items()
-        self.assertEqual(len(rendered), 2)
-        self.assertTrue(rendered[0]["original"].endswith(","))
+        self.assertEqual(len(rendered), 1)
+        self.assertEqual(len(rendered[0]["fragments"]), 2)
+        self.assertTrue(rendered[0]["fragments"][0]["original"].endswith(","))
         self.assertEqual(overlay.transcript_data[12]["original"], original)
 
     def test_long_final_without_safe_boundary_remains_one_semantic_record(self):
@@ -135,11 +138,12 @@ class NativeNotchOverlayTest(unittest.TestCase):
         translation = "正在增长的苹果实时翻译草稿会持续追加中文内容" * 7
         overlay.update_text(8, "A growing provisional sentence", translation, "partial")
         rendered = overlay._latest_items()
-        self.assertGreater(len(rendered), 1)
-        self.assertTrue(all(item["finalized"] is False for item in rendered))
+        fragments = rendered[0]["fragments"]
+        self.assertGreater(len(fragments), 1)
+        self.assertTrue(all(item["finalized"] is False for item in fragments))
         self.assertTrue(all(
             overlay._visual_width(item["translated"]) <= 58 * 16
-            for item in rendered
+            for item in fragments
         ))
         self.assertEqual(overlay.transcript_data[8]["translated"], translation)
 
@@ -202,6 +206,33 @@ class NativeNotchOverlayTest(unittest.TestCase):
         real._send({"items": [{"id": 2}]})
         payload = json.loads(real._write_queue.get_nowait().decode("utf-8"))
         self.assertEqual(payload["busyStages"], ["Remote:Gemini"])
+
+    def test_typed_event_projects_committed_target_prefix_to_native_frame(self):
+        overlay = RecordingNotchOverlay()
+        event = SubtitleEvent.create(
+            15,
+            3,
+            SubtitleStage.AI_PREVIEW,
+            "A heuristic estimates the remaining cost",
+            "启发式函数估计剩余代价",
+            committed_prefix_length=6,
+        )
+
+        overlay.update_event(event)
+
+        item = overlay.sent[-1]["items"][0]["fragments"][0]
+        self.assertEqual(item["committedPrefixLength"], 6)
+
+    def test_crossing_display_split_threshold_keeps_semantic_identity(self):
+        overlay = RecordingNotchOverlay()
+        overlay.update_text(22, "source", "较短的翻译", "partial")
+        before = overlay.sent[-1]["items"][0]
+        overlay.update_text(22, "source", "很长的翻译内容" * 20, "partial")
+        after = overlay.sent[-1]["items"][0]
+
+        self.assertEqual(before["id"], after["id"])
+        self.assertEqual(before["fragments"][0]["id"], after["fragments"][0]["id"])
+        self.assertGreater(len(after["fragments"]), 1)
 
 
 if __name__ == "__main__":

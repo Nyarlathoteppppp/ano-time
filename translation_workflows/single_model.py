@@ -61,4 +61,11 @@ def build_single_model(config, usage_path, status_callback=None):
         final_label=label or config.single_provider,
         bridge_label="Groq → Cerebras" if bridge_view else "Off",
         final_status_managed=False,
+        warmup_translator=(
+            final
+            if final is not None
+            and "generativelanguage.googleapis.com" in str(base_url)
+            and str(model).startswith("gemini-")
+            else None
+        ),
     )

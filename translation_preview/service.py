@@ -40,7 +40,7 @@ class ProgressiveTranslationPreview:
             minimum_interval=0.8,
         )
         self._final_policy = PreviewTriggerPolicy(
-            first_words=6,
+            first_words=5,
             growth_words=6,
             minimum_interval=0.6,
         )
@@ -173,6 +173,13 @@ class ProgressiveTranslationPreview:
             )
 
     def _run_final_model(self, request):
+        queue_wait_ms = (time.monotonic() - request.submitted_at) * 1000
+        log_stage(
+            "ai_preview_queue",
+            chunk_id=request.segment_id,
+            elapsed_ms=queue_wait_ms,
+            words=len(request.source_text.split()),
+        )
         if not self._final_coordinator.is_valid(request) or not self._compatible(request):
             return
         translator = self._final_client()
@@ -206,6 +213,7 @@ class ProgressiveTranslationPreview:
                 expected_hypothesis=request.hypothesis_revision,
                 translation_rank=3,
                 translation_source_text=request.source_text,
+                committed_prefix_length=len(projection.committed_prefix),
             ))
             if emitted and not first_display_logged:
                 first_display_logged = True
@@ -213,6 +221,11 @@ class ProgressiveTranslationPreview:
                     "ai_preview_first",
                     chunk_id=request.segment_id,
                     elapsed_ms=(time.perf_counter() - started) * 1000,
+                    queue_wait_ms=queue_wait_ms,
+                    total_ms=(
+                        queue_wait_ms
+                        + (time.perf_counter() - started) * 1000
+                    ),
                     words=len(request.source_text.split()),
                 )
                 self._status_callback(

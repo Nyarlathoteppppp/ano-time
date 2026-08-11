@@ -63,6 +63,7 @@ class TranslationWorkflowTests(unittest.TestCase):
         self.assertEqual(providers["Cloudflare GLM-4.7-Flash"]["priority"], 1)
         self.assertEqual(gemini["priority"], 50)
         self.assertTrue(gemini["terminal_fallback"])
+        self.assertIs(workflow.warmup_translator, gemini["translator"])
         self.assertEqual(gemini["fallback_reserve_seconds"], 1.8)
         self.assertIsNone(gemini["rpm_limit"])
         self.assertIsNone(gemini["tpm_limit"])

@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt, QPoint, QRect, QSettings, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QPalette, QPainter, QPainterPath
 
 from ctypes import CDLL, c_int32, c_void_p
+import html
 import time
 
 _CORE_GRAPHICS = CDLL(
@@ -48,7 +49,7 @@ except ImportError:
 class LogItem(QFrame):
     """A widget representing a single chunk of transcription/translation"""
     def __init__(self, chunk_id, timestamp, original_text, translated_text="",
-                 finalized=False):
+                 finalized=False, committed_prefix_length=0):
         super().__init__()
         self.chunk_id = chunk_id
         self.finalized = bool(finalized)
@@ -73,7 +74,13 @@ class LogItem(QFrame):
         self.layout.addWidget(self.original_label)
         
         # Translated Text Label
-        self.translated_label = QLabel(translated_text if translated_text else "...")
+        self._translated_text = str(translated_text or "")
+        self._committed_prefix_length = self._clamp_committed_prefix(
+            committed_prefix_length,
+            self._translated_text,
+        )
+        self.translated_label = QLabel()
+        self.translated_label.setTextFormat(Qt.TextFormat.RichText)
         self.translated_label.setWordWrap(True)
         self.translated_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
@@ -82,13 +89,40 @@ class LogItem(QFrame):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
         )
         self.translated_label.setStyleSheet("color: #ffffff; font-family: Arial; font-size: 20px; font-weight: bold;")
+        self._render_translation()
         self.layout.addWidget(self.translated_label)
         
-    def update_translated(self, text):
-        if text == self.translated_label.text():
+    @staticmethod
+    def _clamp_committed_prefix(length, text):
+        return max(0, min(int(length or 0), len(text)))
+
+    def _render_translation(self):
+        if not self._translated_text:
+            self.translated_label.setText("…")
+            return
+        boundary = self._committed_prefix_length
+        stable = html.escape(self._translated_text[:boundary])
+        mutable = html.escape(self._translated_text[boundary:])
+        self.translated_label.setText(
+            f'<span style="color:#ffffff">{stable}</span>'
+            f'<span style="color:#d7dbe5">{mutable}</span>'
+        )
+
+    def update_translated(self, text, committed_prefix_length=0):
+        text = str(text or "")
+        committed_prefix_length = self._clamp_committed_prefix(
+            committed_prefix_length,
+            text,
+        )
+        if (
+            text == self._translated_text
+            and committed_prefix_length == self._committed_prefix_length
+        ):
             return False
         previous_height = self.translated_label.height()
-        self.translated_label.setText(text)
+        self._translated_text = text
+        self._committed_prefix_length = committed_prefix_length
+        self._render_translation()
         available_width = max(1, self.width())
         next_height = max(
             self.translated_label.fontMetrics().height(),
@@ -857,7 +891,23 @@ class OverlayWindow(QWidget):
         if visibility_changed:
             self._schedule_content_reflow()
 
-    def update_text(self, chunk_id, original_text, translated_text, state="partial"):
+    def update_event(self, event):
+        self.update_text(
+            event.segment_id,
+            event.original_text,
+            event.translated_text,
+            event.legacy_state,
+            event.committed_prefix_length,
+        )
+
+    def update_text(
+        self,
+        chunk_id,
+        original_text,
+        translated_text,
+        state="partial",
+        committed_prefix_length=0,
+    ):
         """Append new text or update existing text"""
         finalized = state == "final"
         existing_data = self.transcript_data.get(chunk_id)
@@ -870,6 +920,10 @@ class OverlayWindow(QWidget):
                 'original': original_text,
                 'translated': translated_text,
                 'finalized': finalized,
+                'committed_prefix_length': max(
+                    0,
+                    min(int(committed_prefix_length or 0), len(translated_text or "")),
+                ),
             }
         else:
             self.transcript_data[chunk_id]['finalized'] = (
@@ -879,6 +933,10 @@ class OverlayWindow(QWidget):
                 self.transcript_data[chunk_id]['original'] = original_text
             if translated_text:
                 self.transcript_data[chunk_id]['translated'] = translated_text
+                self.transcript_data[chunk_id]['committed_prefix_length'] = max(
+                    0,
+                    min(int(committed_prefix_length or 0), len(translated_text)),
+                )
         
         # Check if widget exists
         existing_widget = None
@@ -897,7 +955,10 @@ class OverlayWindow(QWidget):
             
             if translated_text:
                 layout_changed = (
-                    existing_widget.update_translated(translated_text) or layout_changed
+                    existing_widget.update_translated(
+                        translated_text,
+                        committed_prefix_length,
+                    ) or layout_changed
                 )
             existing_widget.set_finalized(finalized)
             if layout_changed:
@@ -912,6 +973,9 @@ class OverlayWindow(QWidget):
                 original_text,
                 translated_text,
                 finalized=self.transcript_data[chunk_id]['finalized'],
+                committed_prefix_length=self.transcript_data[chunk_id].get(
+                    'committed_prefix_length', 0
+                ),
             )
             
             # Find insertion point

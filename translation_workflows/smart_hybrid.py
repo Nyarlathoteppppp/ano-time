@@ -10,6 +10,7 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
     final_options = translator_options(config, include_course_topic=True)
     bridge_options = translator_options(config, include_course_topic=True)
     providers = []
+    gemini_warmup = None
     bridge_enabled = config.bridge_provider == "groq"
     bridges = bridge_providers(config, bridge_options) if bridge_enabled else []
     providers.extend(bridges)
@@ -32,14 +33,15 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
             "priority": 1,
         })
     if config.gemini_api_key:
+        gemini_warmup = Translator(
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            api_key=config.gemini_api_key,
+            model="gemini-3.5-flash-lite",
+            **final_options,
+        )
         providers.append({
             "name": "Gemini 3.5 Flash-Lite Paid",
-            "translator": Translator(
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                api_key=config.gemini_api_key,
-                model="gemini-3.5-flash-lite",
-                **final_options,
-            ),
+            "translator": gemini_warmup,
             # Billing is enabled for this endpoint. Do not apply the former
             # free-tier RPM/TPM/RPD caps: it is the primary paid final model
             # after free providers are unavailable or quota-limited.
@@ -73,4 +75,5 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
         final_label="GLM Free → Gemini Paid",
         bridge_label="Groq → Cerebras" if bridge_view else "Off",
         final_status_managed=True,
+        warmup_translator=gemini_warmup,
     )

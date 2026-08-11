@@ -22,6 +22,8 @@ class ProgressivePreviewCoordinatorTests(unittest.TestCase):
 
         try:
             first = coordinator.submit(1, 1, "active request", worker)
+            self.assertGreater(first.submitted_at, 0)
+            self.assertGreater(first.deadline, first.submitted_at)
             self.assertTrue(started.wait(timeout=0.5))
             coordinator.submit(1, 2, "obsolete pending", worker)
             latest = coordinator.submit(1, 3, "latest pending", worker)
@@ -44,4 +46,3 @@ class ProgressivePreviewCoordinatorTests(unittest.TestCase):
         finally:
             release.set()
             coordinator.shutdown()
-

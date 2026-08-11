@@ -9,5 +9,5 @@ class PreviewRequest:
     hypothesis_revision: int
     source_text: str
     generation: int
+    submitted_at: float
     deadline: float
-

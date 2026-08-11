@@ -37,11 +37,21 @@ private struct InputMessage: Decodable {
     let busyStages: [String]?
 }
 
+private struct SubtitleFragment: Codable, Identifiable {
+    let id: Int
+    let original: String
+    let translated: String
+    let finalized: Bool?
+    let committedPrefixLength: Int?
+}
+
 private struct SubtitleLine: Codable, Identifiable {
     let id: Int
     let original: String
     let translated: String
     let finalized: Bool?
+    let committedPrefixLength: Int?
+    let fragments: [SubtitleFragment]?
 }
 
 @MainActor
@@ -51,7 +61,14 @@ private final class SubtitleState: ObservableObject {
     )
 
     @Published var items = [
-        SubtitleLine(id: 0, original: "Waiting for speech…", translated: "", finalized: false)
+        SubtitleLine(
+            id: 0,
+            original: "Waiting for speech…",
+            translated: "",
+            finalized: false,
+            committedPrefixLength: 0,
+            fragments: nil
+        )
     ] {
         didSet { refreshContentWidth() }
     }
@@ -83,6 +100,22 @@ private final class SubtitleState: ObservableObject {
 
     func hasSameItemIdentity(as newItems: [SubtitleLine]) -> Bool {
         items.map(\.id) == newItems.map(\.id)
+    }
+
+    func visibleRows() -> [SubtitleFragment] {
+        let rows = items.flatMap { item -> [SubtitleFragment] in
+            if let fragments = item.fragments, !fragments.isEmpty {
+                return fragments
+            }
+            return [SubtitleFragment(
+                id: item.id * 1000,
+                original: item.original,
+                translated: item.translated,
+                finalized: item.finalized,
+                committedPrefixLength: item.committedPrefixLength
+            )]
+        }
+        return Array(rows.suffix(displayCount))
     }
 
     func replaceBusyStages(_ stages: [String]) {
@@ -125,7 +158,7 @@ private final class SubtitleState: ObservableObject {
     }
 
     private func measuredContentWidth() -> CGFloat {
-        let visibleItems = items.suffix(displayCount)
+        let visibleItems = visibleRows()
         let englishFont = NSFont.systemFont(ofSize: 11.5, weight: .regular)
         let translatedFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
         let measured = visibleItems.reduce(CGFloat(0)) { longest, item in
@@ -202,14 +235,32 @@ private func emitEvent(_ event: String) {
 private struct StableStreamingText: View {
     let text: String
     let availableWidth: CGFloat
+    let committedPrefixLength: Int
 
     @State private var displayedText: String
     @State private var horizontalCompensation: CGFloat = 0
 
-    init(text: String, availableWidth: CGFloat) {
+    init(text: String, availableWidth: CGFloat, committedPrefixLength: Int) {
         self.text = text
         self.availableWidth = availableWidth
+        self.committedPrefixLength = committedPrefixLength
         _displayedText = State(initialValue: text)
+    }
+
+    private var styledText: Text {
+        guard !displayedText.isEmpty else { return Text("…") }
+        let boundaryOffset = max(
+            0,
+            min(committedPrefixLength, displayedText.count)
+        )
+        let boundary = displayedText.index(
+            displayedText.startIndex,
+            offsetBy: boundaryOffset
+        )
+        let stable = String(displayedText[..<boundary])
+        let mutable = String(displayedText[boundary...])
+        return Text(stable).foregroundColor(.white)
+            + Text(mutable).foregroundColor(.white.opacity(0.82))
     }
 
     private func textWidth(_ value: String) -> CGFloat {
@@ -248,9 +299,8 @@ private struct StableStreamingText: View {
     }
 
     var body: some View {
-        Text(displayedText.isEmpty ? "…" : displayedText)
+        styledText
             .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(.white)
             .lineLimit(2)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity, alignment: .center)
@@ -263,13 +313,14 @@ private struct SubtitleContent: View {
     @ObservedObject var state: SubtitleState
 
     var body: some View {
+        let visibleItems = state.visibleRows()
         ZStack(alignment: .top) {
             VStack(alignment: .center, spacing: 5) {
-                ForEach(state.items.suffix(state.displayCount)) { item in
+                ForEach(visibleItems) { item in
                     VStack(alignment: .center, spacing: 2) {
                         let hidesOriginal = state.displayCount == 1 || (
                             state.displayCount == 3
-                                && item.id == state.items.suffix(3).first?.id
+                                && item.id == visibleItems.first?.id
                         )
                         if !hidesOriginal {
                             Text(item.original)
@@ -287,7 +338,8 @@ private struct SubtitleContent: View {
 
                         StableStreamingText(
                             text: item.translated,
-                            availableWidth: max(1, state.contentWidth - 80)
+                            availableWidth: max(1, state.contentWidth - 80),
+                            committedPrefixLength: item.committedPrefixLength ?? 0
                         )
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -527,7 +579,9 @@ private struct RealtimeNotchHelper {
                                 id: 0,
                                 original: original,
                                 translated: message.translated ?? "",
-                                finalized: true
+                                finalized: true,
+                                committedPrefixLength: 0,
+                                fragments: nil
                             )])
                         }
                     }

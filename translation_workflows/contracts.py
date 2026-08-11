@@ -9,6 +9,7 @@ class TranslationWorkflow:
     final_label: str
     bridge_label: str = "Off"
     final_status_managed: bool = False
+    warmup_translator: object | None = None
 
 
 class HybridTranslatorView:

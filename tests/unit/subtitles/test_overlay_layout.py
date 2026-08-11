@@ -62,6 +62,17 @@ class OverlayLayoutTests(unittest.TestCase):
         OverlayWindow._scroll_to_bottom(view)
         self.assertEqual(scrollbar.value(), 100)
 
+    def test_translation_renders_stable_prefix_and_mutable_tail_in_place(self):
+        item = LogItem(3, "00:00:00", "source", "稳定前缀变化尾部")
+
+        item.update_translated("稳定前缀变化尾部", 4)
+
+        rendered = item.translated_label.text()
+        self.assertIn('color:#ffffff', rendered)
+        self.assertIn('color:#d7dbe5', rendered)
+        self.assertIn("稳定前缀", rendered)
+        self.assertEqual(item._committed_prefix_length, 4)
+
 
 if __name__ == "__main__":
     unittest.main()

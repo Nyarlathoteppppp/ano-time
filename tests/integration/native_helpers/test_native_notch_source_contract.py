@@ -37,6 +37,17 @@ class NativeNotchSourceContractTests(unittest.TestCase):
             self.source.index("private struct SubtitleContent")
         ])
 
+    def test_streaming_translation_visually_separates_stable_prefix(self):
+        self.assertIn("let committedPrefixLength: Int?", self.source)
+        self.assertIn("private var styledText: Text", self.source)
+        self.assertIn("Text(stable).foregroundColor(.white)", self.source)
+        self.assertIn("Text(mutable).foregroundColor(.white.opacity(0.82))", self.source)
+
+    def test_display_fragments_keep_a_stable_semantic_parent(self):
+        self.assertIn("let fragments: [SubtitleFragment]?", self.source)
+        self.assertIn("func visibleRows() -> [SubtitleFragment]", self.source)
+        self.assertIn("items.map(\\.id) == newItems.map(\\.id)", self.source)
+
     def test_mode_switch_shrinks_smoothly_but_grows_immediately(self):
         self.assertIn("isChangingDisplayCount = true", self.source)
         self.assertIn("if nextDisplayCount < displayCount", self.source)

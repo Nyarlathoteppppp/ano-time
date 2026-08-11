@@ -293,6 +293,7 @@ class Pipeline(QObject):
         expected_hypothesis=None,
         translation_rank=None,
         translation_source_text=None,
+        committed_prefix_length=None,
     ):
         """Publish one typed event; retain the legacy signal through the adapter."""
         if stage is None:
@@ -312,6 +313,7 @@ class Pipeline(QObject):
             expected_hypothesis=expected_hypothesis,
             translation_rank=translation_rank,
             translation_source_text=translation_source_text,
+            committed_prefix_length=committed_prefix_length,
         )
         return self._publish_subtitle_event(event)
 
@@ -323,6 +325,7 @@ class Pipeline(QObject):
 
     def start(self):
         """Start the processing pipeline in a dedicated thread"""
+        self._start_remote_warmup()
         # self.audio.start() # DISABLE: Generator manages its own stream. calling this causes double-stream error on macOS
         self.thread = threading.Thread(target=self.processing_loop)
         self.thread.daemon = True
@@ -333,6 +336,44 @@ class Pipeline(QObject):
         if apple_status:
             self.signals.runtime_status.emit("Draft", *apple_status)
         self.thread.start()
+
+    def _start_remote_warmup(self):
+        """Warm paid Gemini in the background; never delay Pipeline startup."""
+        workflow = self.__dict__.get("translation_workflow")
+        translator = getattr(workflow, "warmup_translator", None)
+        if translator is None or not hasattr(translator, "warmup"):
+            return None
+        existing = self.__dict__.get("_remote_warmup_thread")
+        if existing is not None and existing.is_alive():
+            return existing
+
+        def run():
+            started = time.perf_counter()
+            try:
+                warmed = translator.warmup()
+                log_stage(
+                    "gemini_warmup",
+                    status="ok" if warmed else "skipped",
+                    elapsed_ms=(time.perf_counter() - started) * 1000,
+                )
+            except Exception as exc:
+                # Warmup is optional and must never cool down, switch models,
+                # update subtitles, or fail session startup.
+                log_stage(
+                    "gemini_warmup",
+                    status="error",
+                    elapsed_ms=(time.perf_counter() - started) * 1000,
+                    detail=str(exc),
+                )
+
+        thread = threading.Thread(
+            target=run,
+            name="gemini-background-warmup",
+            daemon=True,
+        )
+        self._remote_warmup_thread = thread
+        thread.start()
+        return thread
 
     def stop(self):
         print("\n[Pipeline] Stopping...")
@@ -1466,7 +1507,10 @@ def start_overlay_session():
     _pipeline = Pipeline()
     
     # Connect signals
-    _pipeline.signals.update_text.connect(window.update_text)
+    if hasattr(window, "update_event"):
+        _pipeline.signals.subtitle_event.connect(window.update_event)
+    else:
+        _pipeline.signals.update_text.connect(window.update_text)
     
     # Start pipeline
     _pipeline.start()

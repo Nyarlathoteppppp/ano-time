@@ -40,6 +40,14 @@ class SubtitleRecordStoreTests(unittest.TestCase):
             [5, 6, 7],
         )
 
+    def test_committed_prefix_metadata_is_clamped_and_preserved(self):
+        store = SubtitleRecordStore()
+        store.update(9, "source", "稳定前缀变化尾部", "partial", 4)
+
+        self.assertEqual(store.get(9)["committed_prefix_length"], 4)
+        store.update(9, "source", "最终", "final", 100)
+        self.assertEqual(store.get(9)["committed_prefix_length"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()
