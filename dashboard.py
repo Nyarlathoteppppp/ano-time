@@ -2101,6 +2101,10 @@ class Dashboard(QWidget):
             profile_warning = f" Provider profiles not saved: {exc}"
             print(f"[Dashboard] Provider profile save failed: {exc}")
         config.reload()
+        if self.sample_rate.value() != config.sample_rate:
+            self.sample_rate.blockSignals(True)
+            self.sample_rate.setValue(config.sample_rate)
+            self.sample_rate.blockSignals(False)
         self._settings_saved()
         if show_status:
             suffix = " Applies on next launch." if getattr(self, "pipeline", None) else ""

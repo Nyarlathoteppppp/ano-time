@@ -2,6 +2,7 @@ import configparser
 import os
 import tempfile
 import unittest
+from dataclasses import replace
 
 from dashboard_support.settings_repository import DashboardSettingsRepository
 from dashboard_support.settings_snapshot import (
@@ -143,6 +144,22 @@ class DashboardSettingsRepositoryTests(unittest.TestCase):
             )
             self.assertEqual(saved.get("display", "mode"), "notch")
             self.assertTrue(saved.getboolean("records", "auto_save_transcripts"))
+
+    def test_apple_sample_rate_is_normalized_before_persistence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.ini")
+            snapshot = make_snapshot()
+            snapshot = replace(
+                snapshot,
+                audio=AudioSettings("auto", 15904, 0.005, 0.5, 0.5),
+            )
+
+            DashboardSettingsRepository(path, keychain=FakeKeychain()).save(
+                snapshot
+            )
+            saved = configparser.ConfigParser()
+            saved.read(path)
+            self.assertEqual(saved.getint("audio", "sample_rate"), 16000)
 
 
 if __name__ == "__main__":

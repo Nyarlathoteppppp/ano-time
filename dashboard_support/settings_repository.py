@@ -1,6 +1,8 @@
 import configparser
 import os
 
+from audio_formats import normalize_sample_rate
+
 from keychain_store import SECRET_FIELDS, store as default_keychain
 
 
@@ -62,7 +64,13 @@ class DashboardSettingsRepository:
             "device_index",
             str(audio.device_index) if audio.device_index is not None else "auto",
         )
-        parser.set("audio", "sample_rate", str(audio.sample_rate))
+        parser.set(
+            "audio",
+            "sample_rate",
+            str(normalize_sample_rate(
+                audio.sample_rate, snapshot.transcription.backend
+            )),
+        )
         parser.set("audio", "silence_threshold", str(audio.silence_threshold))
         parser.set("audio", "silence_duration", str(audio.silence_duration))
         parser.set("audio", "update_interval", str(audio.update_interval))

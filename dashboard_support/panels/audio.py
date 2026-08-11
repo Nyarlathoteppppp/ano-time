@@ -70,6 +70,10 @@ class AudioPanel(QWidget):
         self.sample_rate = QSpinBox()
         self.sample_rate.setRange(8000, 48000)
         self.sample_rate.setValue(self.settings.sample_rate)
+        self.sample_rate.setToolTip(
+            "Apple 语音识别支持 8000 或 16000 Hz；其他数值保存时会自动调整。\n"
+            "Whisper、MLX 和 FunASR 可继续使用其他采样率。"
+        )
         layout.addWidget(self.sample_rate, 1, 1)
 
         layout.addWidget(QLabel("Silence Threshold（静音判定阈值）:"), 2, 0)

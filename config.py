@@ -1,6 +1,8 @@
 import configparser
 import os
 
+from audio_formats import normalize_sample_rate
+
 from keychain_store import SECRET_FIELDS, migrate_plaintext_secrets, store as keychain
 
 class Config:
@@ -106,7 +108,14 @@ class Config:
         self.transcription_workers = self._getint("transcription", "transcription_workers", 4)
         
         # Audio settings
-        self.sample_rate = self._getint("audio", "sample_rate", 16000)
+        requested_sample_rate = self._getint("audio", "sample_rate", 16000)
+        self.sample_rate = normalize_sample_rate(
+            requested_sample_rate, self.asr_backend
+        )
+        self.sample_rate_adjusted_from = (
+            requested_sample_rate
+            if requested_sample_rate != self.sample_rate else None
+        )
         self.silence_threshold = self._getfloat("audio", "silence_threshold", 0.005)
         self.silence_duration = self._getfloat("audio", "silence_duration", 0.5)
         self.chunk_duration = self._getfloat("audio", "chunk_duration", 0.1)
