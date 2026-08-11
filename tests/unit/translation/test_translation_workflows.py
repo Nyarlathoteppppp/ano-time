@@ -52,7 +52,7 @@ class TranslationWorkflowTests(unittest.TestCase):
             os.path.join(directory.name, "usage.json"),
         )
 
-    def test_smart_hybrid_uses_free_glm_before_paid_gemini(self):
+    def test_smart_hybrid_uses_paid_gemini_before_glm_fallback(self):
         workflow = self._build(workflow_config())
         router = workflow.final_translator.router
         providers = {item["name"]: item for item in router.providers}
@@ -60,13 +60,15 @@ class TranslationWorkflowTests(unittest.TestCase):
         self.assertEqual(workflow.name, "smart_hybrid")
         self.assertIs(workflow.final_translator.router, workflow.bridge_translator.router)
         gemini = providers["Gemini 3.5 Flash-Lite Paid"]
-        self.assertEqual(providers["Cloudflare GLM-4.7-Flash"]["priority"], 1)
-        self.assertEqual(gemini["priority"], 50)
-        self.assertTrue(gemini["terminal_fallback"])
+        glm = providers["Cloudflare GLM-4.7-Flash"]
+        self.assertEqual(gemini["priority"], 1)
+        self.assertEqual(glm["priority"], 50)
+        self.assertFalse(gemini["terminal_fallback"])
+        self.assertTrue(glm["terminal_fallback"])
         self.assertIs(workflow.warmup_translator.translator, gemini["translator"])
         self.assertEqual(gemini["input_price_per_million"], 0.30)
         self.assertEqual(gemini["output_price_per_million"], 2.50)
-        self.assertEqual(gemini["fallback_reserve_seconds"], 1.8)
+        self.assertEqual(glm["fallback_reserve_seconds"], 1.0)
         self.assertIsNone(gemini["rpm_limit"])
         self.assertIsNone(gemini["tpm_limit"])
         self.assertIsNone(gemini["daily_limit"])
@@ -85,6 +87,7 @@ class TranslationWorkflowTests(unittest.TestCase):
             providers["Cloudflare GLM-4.7-Flash"]["translator"].domain_prompt,
         )
         self.assertNotIn("Qwen-MT Flash fallback", providers)
+        self.assertEqual(workflow.final_label, "Gemini Paid → GLM fallback")
         bridge_names = {"Groq GPT-OSS 20B", "Cerebras GPT-OSS 120B"}
         self.assertEqual(workflow.final_translator.excluding, bridge_names)
         self.assertEqual(workflow.bridge_translator.only, bridge_names)

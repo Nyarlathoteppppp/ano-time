@@ -7,7 +7,7 @@ from .providers import bridge_providers, translator_options
 
 
 def build_smart_hybrid(config, usage_path, status_callback=None):
-    """Build the developer hybrid workflow with free-first final routing."""
+    """Build the developer workflow with correctness-first final routing."""
     final_options = translator_options(config, include_course_topic=True)
     bridge_options = translator_options(config, include_course_topic=True)
     providers = []
@@ -31,7 +31,12 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
             "neuron_input_per_million": 5500,
             "neuron_output_per_million": 36400,
             "daily_timezone": "UTC",
-            "priority": 1,
+            # GLM is a fast final fallback.  Reserving the last second avoids
+            # an unavailable Gemini leaving only an Apple draft on screen.
+            "priority": 50,
+            "terminal_fallback": True,
+            "fallback_reserve_seconds": 1.0,
+            "failure_cooldown_seconds": 3.0,
             "pricing_known": True,
         })
     if config.gemini_api_key:
@@ -44,12 +49,9 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
         providers.append({
             "name": "Gemini 3.5 Flash-Lite Paid",
             "translator": gemini_warmup,
-            # Billing is enabled for this endpoint. Do not apply the former
-            # free-tier RPM/TPM/RPD caps: it is the primary paid final model
-            # after free providers are unavailable or quota-limited.
-            "priority": 50,
-            "terminal_fallback": True,
-            "fallback_reserve_seconds": 1.8,
+            # Correctness-first primary final model. Billing is enabled, so do
+            # not apply the former free-tier RPM/TPM/RPD caps.
+            "priority": 1,
             "failure_cooldown_seconds": 3.0,
             "input_price_per_million": 0.30,
             "output_price_per_million": 2.50,
@@ -77,7 +79,7 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
         name="smart_hybrid",
         final_translator=final,
         bridge_translator=bridge_view,
-        final_label="GLM Free → Gemini Paid",
+        final_label="Gemini Paid → GLM fallback",
         bridge_label="Groq → Cerebras" if bridge_view else "Off",
         final_status_managed=True,
         warmup_translator=(

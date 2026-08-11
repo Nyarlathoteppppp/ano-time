@@ -73,6 +73,22 @@ class HybridTranslatorTests(unittest.TestCase):
             self.assertEqual(events[-1][:2], ("ok", "gemini"))
             self.assertIsNotNone(events[-1][2])
 
+    def test_collects_lightweight_daily_provider_performance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            router = self._router(
+                [{"name": "gemini", "translator": _FakeTranslator("translated")}],
+                directory,
+            )
+
+            self.assertEqual(router.translate("sentence"), "translated")
+
+            performance = router._usage["gemini"]["performance"]
+            self.assertEqual(performance["success"], 1)
+            self.assertEqual(performance["timeout"], 0)
+            self.assertEqual(performance["error"], 0)
+            self.assertEqual(len(performance["recent_success_ms"]), 1)
+            self.assertGreaterEqual(performance["total_success_ms"], 0)
+
     def test_rate_limit_immediately_fails_over(self):
         with tempfile.TemporaryDirectory() as directory:
             groq = _FakeTranslator("groq", _StatusError(429))

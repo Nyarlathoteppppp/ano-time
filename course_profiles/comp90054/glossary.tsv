@@ -1,0 +1,13 @@
+# Optional terminology for COMP90054 Planning for Autonomy.
+breadth-first search	广度优先搜索
+depth-first search	深度优先搜索
+uniform-cost search	一致代价搜索
+priority queue	优先队列
+goal state	目标状态
+goal depth	目标深度
+branching factor	分支因子
+completeness	完备性
+optimality	最优性
+iterative deepening	迭代加深
+Dijkstra's algorithm	Dijkstra 算法
+Artificial Intelligence: A Modern Approach	《人工智能：一种现代方法》

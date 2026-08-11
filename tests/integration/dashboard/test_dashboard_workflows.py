@@ -100,7 +100,8 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.translation_workflow.currentData(), "smart_hybrid"
         )
         self.assertEqual(self.dashboard.bridge_provider.currentData(), "off")
-        self.assertIn("GLM/Gemini", self.dashboard.workflow_preview.text())
+        self.assertIn("Gemini 主翻译", self.dashboard.workflow_preview.text())
+        self.assertIn("GLM 失败兜底", self.dashboard.workflow_preview.text())
         self.assertGreaterEqual(self.dashboard.workflow_preview.minimumHeight(), 48)
         self.assertTrue(self.dashboard.workflow_preview.wordWrap())
         self.assertTrue(self.dashboard.provider.isHidden())
@@ -268,7 +269,7 @@ class DashboardWorkflowTests(unittest.TestCase):
         self._choose_workflow("smart_hybrid")
         self.assertIn("目前不通用", self.dashboard.workflow_preview.text())
         self.assertIn("Bridge：关闭（默认）", self.dashboard.workflow_preview.text())
-        self.assertIn("边讲边翻", self.dashboard.workflow_preview.text())
+        self.assertIn("Quality First", self.dashboard.workflow_preview.text())
         self._choose_workflow("single_model")
         preview = self.dashboard.workflow_preview.text()
         self.assertIn("通用流程", preview)

@@ -147,6 +147,59 @@ class NativeNotchOverlayTest(unittest.TestCase):
         ))
         self.assertEqual(overlay.transcript_data[8]["translated"], translation)
 
+    def test_expired_short_segment_hides_only_projection_and_backfills_previous(self):
+        overlay = RecordingNotchOverlay()
+        overlay.update_text(
+            1, "A complete earlier sentence", "前一条完整句子", "final"
+        )
+        overlay.update_text(2, "And", "和", "final")
+        version = overlay._short_segment_versions[2]
+        overlay._expire_short_segment(2, version, "And")
+
+        rendered = overlay._latest_items()
+        self.assertEqual([item["id"] for item in rendered], [1])
+        self.assertIn(2, overlay.transcript_data)
+
+        overlay.update_text(
+            3, "The next complete sentence arrives", "下一条完整句子", "partial"
+        )
+        self.assertEqual(
+            [item["id"] for item in overlay._latest_items()], [1, 3]
+        )
+
+    def test_short_partial_that_grows_is_not_expired(self):
+        overlay = RecordingNotchOverlay()
+        overlay.update_text(4, "This is", "这是", "partial")
+        old_version = overlay._short_segment_versions[4]
+        overlay.update_text(
+            4,
+            "This is a complete growing sentence",
+            "这是一个不断增长的完整句子",
+            "partial",
+        )
+        overlay._expire_short_segment(4, old_version, "This is")
+        self.assertNotIn(4, overlay._hidden_short_segments)
+        self.assertEqual(overlay._latest_items()[-1]["id"], 4)
+
+    def test_expiring_short_segment_keeps_next_sentence_already_on_screen(self):
+        overlay = RecordingNotchOverlay()
+        overlay.update_text(10, "A complete earlier sentence", "前一条长句", "final")
+        overlay.update_text(11, "And", "和", "final")
+        overlay.update_text(
+            12,
+            "The next complete sentence is already here",
+            "下一条长句已经显示",
+            "partial",
+        )
+
+        version = overlay._short_segment_versions[11]
+        overlay._expire_short_segment(11, version, "And")
+
+        self.assertEqual(
+            [item["id"] for item in overlay._latest_items()], [10, 12]
+        )
+        self.assertIn(11, overlay.transcript_data)
+
     def test_mixed_width_translation_uses_rendered_capacity(self):
         text = "半正定矩阵 covariance matrix 与 posterior distribution " * 5
         parts = NativeNotchOverlay._split_display_text(text, 58)

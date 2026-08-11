@@ -28,6 +28,9 @@ class NativeNotchOverlay(QObject):
         self._last_native_items = None
         self._paused = False
         self._busy_stages = set()
+        self._hidden_short_segments = set()
+        self._short_segment_versions = {}
+        self._short_source_signatures = {}
         self._write_lock = threading.Lock()
         self._write_queue = queue.Queue(maxsize=1)
         self._writer_stop = threading.Event()
@@ -216,6 +219,7 @@ class NativeNotchOverlay(QObject):
         )
         if record is None:
             return
+        self._track_short_segment(chunk_id, record)
 
         if self.delegate:
             self.delegate.update_text(
@@ -243,6 +247,7 @@ class NativeNotchOverlay(QObject):
         )
         if record is None:
             return
+        self._track_short_segment(event.segment_id, record)
         if self.delegate:
             self.delegate.update_event(event)
             return
@@ -276,7 +281,12 @@ class NativeNotchOverlay(QObject):
         rendered_rows = []
         # Display fragments are an ephemeral projection. They never enter the
         # complete semantic record store or classroom export data.
-        for chunk_id, item in self.record_store.latest_items(3):
+        visible_records = [
+            (chunk_id, item)
+            for chunk_id, item in self.record_store.sorted_items()
+            if chunk_id not in self._hidden_short_segments
+        ][-3:]
+        for chunk_id, item in visible_records:
             translated_parts = self._split_display_text(item["translated"], 58)
             original_parts = (
                 self._split_finalized_source(item["original"], 34)
@@ -339,6 +349,58 @@ class NativeNotchOverlay(QObject):
                 key: value for key, value in row.items() if key != "segmentID"
             })
         return grouped
+
+    @staticmethod
+    def _is_ephemeral_short_segment(record):
+        """Return true for isolated 1–3 word fragments, not wrapped rows."""
+        original = " ".join(str(record.get("original") or "").split())
+        if not original:
+            return False
+        words = re.findall(r"[A-Za-z0-9*+.#'-]+", original)
+        return 0 < len(words) <= 3
+
+    def _track_short_segment(self, segment_id, record):
+        """Hide an unchanged short semantic segment after 1.5 seconds."""
+        segment_id = int(segment_id)
+        signature = " ".join(str(record.get("original") or "").split())
+        previous_signature = self._short_source_signatures.get(segment_id)
+        if not self._is_ephemeral_short_segment(record):
+            self._short_source_signatures[segment_id] = signature
+            self._short_segment_versions[segment_id] = (
+                self._short_segment_versions.get(segment_id, 0) + 1
+            )
+            self._hidden_short_segments.discard(segment_id)
+            return
+        # Translation refinements for the same source do not extend its screen
+        # lifetime or resurrect a fragment that already expired.
+        if signature == previous_signature:
+            return
+        self._short_source_signatures[segment_id] = signature
+        self._hidden_short_segments.discard(segment_id)
+        version = self._short_segment_versions.get(segment_id, 0) + 1
+        self._short_segment_versions[segment_id] = version
+        QTimer.singleShot(
+            1500,
+            lambda sid=segment_id, expected=version, source=signature:
+                self._expire_short_segment(sid, expected, source),
+        )
+
+    def _expire_short_segment(self, segment_id, expected_version, source_signature):
+        if self._short_segment_versions.get(segment_id) != expected_version:
+            return
+        record = self.record_store.get(segment_id)
+        if (
+            record is None
+            or " ".join(str(record.get("original") or "").split())
+                != source_signature
+            or not self._is_ephemeral_short_segment(record)
+        ):
+            return
+        self._hidden_short_segments.add(segment_id)
+        latest_items = self._latest_items()
+        if latest_items != self._last_native_items:
+            self._last_native_items = latest_items
+            self._send({"items": latest_items})
 
     @staticmethod
     def _split_finalized_source(text, max_words):

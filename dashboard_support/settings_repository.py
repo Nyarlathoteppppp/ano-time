@@ -16,6 +16,7 @@ class DashboardSettingsRepository:
         "display",
         "shortcut",
         "diagnostics",
+        "usage",
         "records",
     )
 
@@ -136,6 +137,11 @@ class DashboardSettingsRepository:
         parser.set("shortcut", "enabled", str(snapshot.shortcut_enabled).lower())
         parser.set("shortcut", "double_tap_interval", str(snapshot.shortcut_interval))
         parser.set("diagnostics", "enabled", str(snapshot.diagnostics_enabled).lower())
+        parser.set(
+            "usage",
+            "tracking_enabled",
+            str(snapshot.usage_tracking_enabled).lower(),
+        )
         parser.set(
             "records",
             "auto_save_transcripts",

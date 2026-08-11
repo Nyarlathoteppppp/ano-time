@@ -1,4 +1,5 @@
 from translator import Translator
+from course_profiles import glossary_paths
 
 
 GROQ_NAME = "Groq GPT-OSS 20B"
@@ -14,7 +15,7 @@ def translator_options(config, include_course_topic=False):
         "target_lang": config.target_lang,
         "domain_prompt": domain_prompt,
         "deadline_seconds": config.ai_deadline_seconds,
-        "glossary_path": config.glossary_path,
+        "glossary_path": glossary_paths(config.glossary_path, course_topic),
     }
 
 

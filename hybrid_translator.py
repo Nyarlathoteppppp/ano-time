@@ -217,6 +217,31 @@ class HybridTranslator:
                 provider["last_daily_neurons"] = record["neurons"]
             self._save_usage_locked()
 
+    def _record_performance(self, provider, status, elapsed_ms):
+        """Collect lightweight daily routing stats without blocking on disk."""
+        with self._lock:
+            record = self._usage.setdefault(
+                provider["name"],
+                {"date": self._today(provider), "attempts": 0},
+            )
+            performance = record.setdefault("performance", {
+                "success": 0,
+                "timeout": 0,
+                "error": 0,
+                "total_success_ms": 0.0,
+                "recent_success_ms": [],
+            })
+            status = status if status in ("success", "timeout") else "error"
+            performance[status] = int(performance.get(status, 0)) + 1
+            if status == "success":
+                performance["total_success_ms"] = (
+                    float(performance.get("total_success_ms", 0.0))
+                    + max(0.0, float(elapsed_ms))
+                )
+                recent = list(performance.get("recent_success_ms", []))
+                recent.append(round(max(0.0, float(elapsed_ms)), 1))
+                performance["recent_success_ms"] = recent[-100:]
+
     def _select_provider(
         self,
         excluded,
@@ -440,12 +465,17 @@ class HybridTranslator:
             self._report_status("active", provider["name"])
             try:
                 result = provider["translator"].translate(*args, **attempt_kwargs)
+                elapsed_ms = (time.perf_counter() - started) * 1000
+                self._record_performance(provider, "success", elapsed_ms)
                 self._report_status(
                     "ok", provider["name"],
-                    (time.perf_counter() - started) * 1000,
+                    elapsed_ms,
                 )
                 return result
             except TimeoutError as exc:
+                self._record_performance(
+                    provider, "timeout", (time.perf_counter() - started) * 1000
+                )
                 self._report_status("warning", provider["name"], detail="timeout")
                 last_error = exc
                 self._record_actual_usage(provider, reservation_id, 0)
@@ -455,6 +485,9 @@ class HybridTranslator:
                 if deadline is not None and time.monotonic() >= deadline:
                     break
             except Exception as exc:
+                self._record_performance(
+                    provider, "error", (time.perf_counter() - started) * 1000
+                )
                 self._report_status(
                     "error", provider["name"], detail=type(exc).__name__
                 )

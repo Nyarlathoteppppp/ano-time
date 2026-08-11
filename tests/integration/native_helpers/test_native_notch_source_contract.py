@@ -121,6 +121,8 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn(
             "Runtime status frames arrive during initialization", self.source
         )
+        self.assertIn("if let items = message.items", self.source)
+        self.assertIn("!items.isEmpty", self.source)
 
     def test_pause_compacts_immediately_without_idle_delay(self):
         pause_helper = self.source.index("func compactForPause")

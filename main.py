@@ -21,6 +21,7 @@ from stable_prefix import StablePrefixTracker
 from groq_bridge import GroqBridgeGate
 from live_segmenter import IncrementalSegmenter
 from glossary import ASRCorrections
+from course_profiles import correction_paths
 from finalized_text import clean_finalized_text, is_meaningful_final, should_request_remote
 from subtitle_event import SubtitleStage
 from runtime_performance import RuntimePerformanceSampler
@@ -95,8 +96,11 @@ class Pipeline(QObject):
             max_per_minute=15,
             duplicate_window=30.0,
         )
-        self._asr_corrections = ASRCorrections.from_file(
-            config.asr_corrections_path
+        self._asr_corrections = ASRCorrections.from_files(
+            correction_paths(
+                config.asr_corrections_path,
+                config.current_course_topic,
+            )
         )
         
         # Print config for debugging

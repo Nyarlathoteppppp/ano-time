@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 
 from glossary import ASRCorrections, CourseGlossary
+from course_profiles import correction_paths, glossary_paths, resolve_course_profile
 from translator import Translator
 
 
@@ -23,6 +24,24 @@ class _RecordingClient:
 
 
 class CourseGlossaryTests(unittest.TestCase):
+    def test_comp90054_profile_requires_explicit_matching_topic(self):
+        self.assertIsNone(resolve_course_profile(""))
+        self.assertIsNone(resolve_course_profile("Statistical Machine Learning"))
+        profile = resolve_course_profile("COMP90054 Blind Search Algorithms")
+        self.assertEqual(profile.name, "COMP90054 Planning for Autonomy")
+        self.assertEqual(len(glossary_paths("base.tsv", "blind search")), 2)
+        self.assertEqual(len(correction_paths("base.tsv", "blind search")), 2)
+
+    def test_comp90054_profile_corrects_observed_planning_asr_errors(self):
+        corrections = ASRCorrections.from_files(
+            correction_paths(None, "Planning for Autonomy: blind search")
+        )
+        self.assertEqual(
+            corrections.apply(
+                "Breath research uses a PriorityQ and checks the gold state."
+            ),
+            "breadth-first search uses a priority queue and checks the goal state.",
+        )
     def test_finalized_asr_corrections_are_boundary_safe(self):
         corrections = ASRCorrections([
             ("Ajail", "Agile"),

@@ -33,21 +33,31 @@ class CourseGlossary:
 
     @classmethod
     def from_file(cls, path):
-        if not path or not os.path.exists(path):
-            return cls()
+        return cls.from_files((path,))
+
+    @classmethod
+    def from_files(cls, paths):
+        if isinstance(paths, (str, os.PathLike)):
+            paths = (paths,)
         entries = []
-        with open(path, "r", encoding="utf-8") as handle:
-            for line_number, raw_line in enumerate(handle, 1):
-                line = raw_line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                parts = line.split("\t", 1)
-                if len(parts) != 2 or not all(part.strip() for part in parts):
-                    print(f"[Glossary] Ignoring malformed line {line_number}: {path}")
-                    continue
-                entries.append(parts)
+        loaded = []
+        for path in paths or ():
+            if not path or not os.path.exists(path):
+                continue
+            with open(path, "r", encoding="utf-8") as handle:
+                for line_number, raw_line in enumerate(handle, 1):
+                    line = raw_line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    parts = line.split("\t", 1)
+                    if len(parts) != 2 or not all(part.strip() for part in parts):
+                        print(f"[Glossary] Ignoring malformed line {line_number}: {path}")
+                        continue
+                    entries.append(parts)
+            loaded.append(path)
         glossary = cls(entries)
-        print(f"[Glossary] Loaded {len(glossary)} terms from {path}")
+        if loaded:
+            print(f"[Glossary] Loaded {len(glossary)} terms from {', '.join(loaded)}")
         return glossary
 
     def match(self, text, limit=12):
@@ -87,17 +97,24 @@ class ASRCorrections:
 
     @classmethod
     def from_file(cls, path):
-        if not path or not os.path.exists(path):
-            return cls()
+        return cls.from_files((path,))
+
+    @classmethod
+    def from_files(cls, paths):
+        if isinstance(paths, (str, os.PathLike)):
+            paths = (paths,)
         entries = []
-        with open(path, "r", encoding="utf-8") as handle:
-            for raw_line in handle:
-                line = raw_line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                parts = line.split("\t", 1)
-                if len(parts) == 2:
-                    entries.append(parts)
+        for path in paths or ():
+            if not path or not os.path.exists(path):
+                continue
+            with open(path, "r", encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    parts = line.split("\t", 1)
+                    if len(parts) == 2:
+                        entries.append(parts)
         return cls(entries)
 
     def apply(self, text):

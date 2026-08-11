@@ -45,6 +45,10 @@ double_tap_interval = 0.45
 # Enable temporarily only while troubleshooting; restart after changing it.
 enabled = false
 
+[usage]
+# Optional session Token/cost meter. Provider quota routing is always active.
+tracking_enabled = true
+
 [records]
 # Save one timestamped bilingual transcript per translation session.
 # Files are stored in ~/Documents/Anotime Records and removed after 3 days.

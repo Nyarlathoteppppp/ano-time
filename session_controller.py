@@ -39,6 +39,8 @@ class SessionController:
             return
         # A Launch defines one billing session. Reset before Pipeline creation
         # so its optional warm-up request is included in the same totals.
+        from config import config
+        session_usage_meter.set_enabled(config.usage_tracking_enabled)
         session_usage_meter.reset()
         view.status_label.setText("Initializing Pipeline... (This may take a moment)")
         view.status_label.setStyleSheet("font-size: 18px; color: #fab387;")

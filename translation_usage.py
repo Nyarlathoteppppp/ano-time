@@ -7,6 +7,7 @@ import time
 class TranslationUsageMeter:
     def __init__(self):
         self._lock = threading.Lock()
+        self._enabled = True
         self._started_at = time.monotonic()
         self._first_usage_at = None
         self._active_started_at = None
@@ -25,10 +26,21 @@ class TranslationUsageMeter:
             self._projection_cost_baseline = 0.0
             self._providers.clear()
 
+    def set_enabled(self, enabled):
+        """Enable optional session accounting without changing provider quotas."""
+        with self._lock:
+            self._enabled = bool(enabled)
+            if not self._enabled and self._active_started_at is not None:
+                now = time.monotonic()
+                self._active_elapsed += max(0.0, now - self._active_started_at)
+                self._active_started_at = None
+
     def set_active(self, active):
         """Start/freeze the hourly projection clock without touching totals."""
         now = time.monotonic()
         with self._lock:
+            if active and not self._enabled:
+                return
             if active and self._active_started_at is None:
                 if not self._projection_started:
                     self._projection_started = True
@@ -59,6 +71,8 @@ class TranslationUsageMeter:
             + completion * max(0.0, float(output_price or 0.0))
         ) / 1_000_000 if priced else 0.0
         with self._lock:
+            if not self._enabled:
+                return
             now = time.monotonic()
             if self._first_usage_at is None:
                 self._first_usage_at = now
@@ -85,6 +99,7 @@ class TranslationUsageMeter:
             if self._active_started_at is not None:
                 elapsed += max(0.0, now - self._active_started_at)
             providers = {name: dict(values) for name, values in self._providers.items()}
+            enabled = self._enabled
         totals = {
             key: sum(item[key] for item in providers.values())
             for key in (
@@ -100,6 +115,7 @@ class TranslationUsageMeter:
             projected_cost * 3600 / elapsed if elapsed >= 10 else None
         )
         totals["providers"] = providers
+        totals["enabled"] = enabled
         return totals
 
 

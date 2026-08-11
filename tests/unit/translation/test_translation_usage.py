@@ -90,6 +90,18 @@ class TranslationUsageTests(unittest.TestCase):
         self.assertEqual(snapshot["elapsed_seconds"], 60.0)
         self.assertEqual(snapshot["hourly_cost_usd"], 60.0)
 
+    def test_disabled_meter_ignores_usage_without_affecting_callers(self):
+        meter = TranslationUsageMeter()
+        meter.set_enabled(False)
+        meter.record("Gemini", {
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "total_tokens": 120,
+        }, 0.3, 2.5, True)
+        snapshot = meter.snapshot()
+        self.assertFalse(snapshot["enabled"])
+        self.assertEqual(snapshot["requests"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

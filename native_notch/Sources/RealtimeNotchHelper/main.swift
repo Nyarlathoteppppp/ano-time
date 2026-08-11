@@ -163,7 +163,7 @@ private final class SubtitleState: ObservableObject {
     var hasActiveWork: Bool { !busyStages.isEmpty }
 
     var hasSubtitleContent: Bool {
-        !(items.count == 1
+        !items.isEmpty && !(items.count == 1
             && items[0].id == 0
             && items[0].original == "Waiting for speech…")
     }
@@ -695,7 +695,7 @@ private struct RealtimeNotchHelper {
                     if let busyStages = message.busyStages {
                         state.replaceBusyStages(busyStages)
                     }
-                    if let items = message.items, !items.isEmpty {
+                    if let items = message.items {
                         let visibleItems = Array(items.suffix(3))
                         if state.hasSameItemIdentity(as: visibleItems) {
                             // Streaming refinements keep the same subtitle views alive.

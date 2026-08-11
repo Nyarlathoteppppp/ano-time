@@ -264,6 +264,7 @@ class Dashboard(QWidget):
             os.path.join(os.path.dirname(__file__), "provider_profiles.json")
         )
         self.provider_profiles = self.provider_profile_repository.load()
+        session_usage_meter.set_enabled(config.usage_tracking_enabled)
         session_usage_meter.reset()
         self.setWindowTitle("Anotime - Control Center")
         self.setMinimumSize(900, 600)
@@ -561,6 +562,15 @@ class Dashboard(QWidget):
             "写入在独立后台线程完成，不阻塞实时字幕；超过 3 天自动删除。"
         )
 
+        self.usage_tracking_checkbox = QCheckBox(
+            "Token & Cost Tracking（Token 与费用统计）"
+        )
+        self.usage_tracking_checkbox.setChecked(config.usage_tracking_enabled)
+        self.usage_tracking_checkbox.setToolTip(
+            "关闭后不统计或显示本次会话的 Token 与费用；模型额度管理仍正常工作。\n"
+            "保存后重新 Launch 生效，不进入字幕实时路径。"
+        )
+
         self.shortcut_btn = QPushButton("⌃S Shortcut Settings")
         self.shortcut_btn.setFixedSize(240, 38)
         self.shortcut_btn.clicked.connect(self.open_shortcut_settings)
@@ -572,6 +582,7 @@ class Dashboard(QWidget):
         layout.addWidget(self.log_btn)
         layout.addWidget(self.diagnostics_checkbox)
         layout.addWidget(self.transcript_recording_checkbox)
+        layout.addWidget(self.usage_tracking_checkbox)
         layout.addWidget(self.shortcut_btn)
         
         info = QLabel("The translator will open as an overlay window.\nYou can minimize this dashboard.")
@@ -638,6 +649,10 @@ class Dashboard(QWidget):
     def _refresh_usage_status(self):
         if "Usage" not in getattr(self, "runtime_labels", {}):
             return
+        checkbox = getattr(self, "usage_tracking_checkbox", None)
+        if checkbox is not None and not checkbox.isChecked():
+            self.update_runtime_status("Usage", "warning", "Off")
+            return
         usage = session_usage_meter.snapshot()
         if not usage["requests"]:
             self.update_runtime_status("Usage", "warning", "Waiting for API usage")
@@ -683,9 +698,9 @@ class Dashboard(QWidget):
                 model = "Apple on-device only"
             elif workflow == "smart_hybrid":
                 model = (
-                    "Apple 草稿 → Groq/Cerebras 快速预览 → GLM/Gemini 边讲边翻 → 最终稿"
+                    "Apple 草稿 → Groq/Cerebras 快速预览 → Gemini 主翻译 → GLM 兜底"
                     if bridge == "groq"
-                    else "Apple 草稿 → GLM/Gemini 边讲边翻 → 最终稿"
+                    else "Apple 草稿 → Gemini 主翻译 → GLM 兜底"
                 )
             else:
                 middle = "Groq/Cerebras 快速预览 → " if bridge == "groq" else ""
@@ -747,6 +762,7 @@ class Dashboard(QWidget):
         self.transcript_recording_checkbox.toggled.connect(
             self._mark_settings_dirty
         )
+        self.usage_tracking_checkbox.toggled.connect(self._mark_settings_dirty)
 
     def _mark_settings_dirty(self, *_):
         if not self._settings_ready:
@@ -1860,8 +1876,9 @@ class Dashboard(QWidget):
         elif smart:
             middle = "Groq/Cerebras 快速预览 → " if bridge == "groq" else ""
             preview = (
-                f"Apple 草稿 → {middle}GLM/Gemini 边讲边翻 → 最终稿\n"
+                f"Apple 草稿 → {middle}Gemini 主翻译 → GLM 失败兜底\n"
                 f"Bridge：{'已开启' if bridge == 'groq' else '关闭（默认）'} · 不会阻塞最终翻译\n"
+                "Quality First：优先保证 Gemini 最终稿正确；GLM 仅在失败或超时时补位\n"
                 "⚠ 开发者专用：依赖本项目固定的多 API 与额度规则，目前不通用"
             )
         else:
@@ -2040,6 +2057,7 @@ class Dashboard(QWidget):
             shortcut_interval=self.shortcut_interval,
             diagnostics_enabled=self.diagnostics_checkbox.isChecked(),
             auto_save_transcripts=self.transcript_recording_checkbox.isChecked(),
+            usage_tracking_enabled=self.usage_tracking_checkbox.isChecked(),
         )
 
     def _show_save_feedback(self, message, *, success):

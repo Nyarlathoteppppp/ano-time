@@ -31,7 +31,12 @@ class Translator:
         self.asr_correction_prompt = (
             "The source comes from ASR and may contain recognition errors."
         )
-        self.glossary = CourseGlossary.from_file(glossary_path)
+        paths = (
+            glossary_path
+            if isinstance(glossary_path, (list, tuple))
+            else (glossary_path,)
+        )
+        self.glossary = CourseGlossary.from_files(paths)
         
         # If no key provided, check env. If still none, we might be in local mode (no auth) or fail.
         # Some local servers don't need a valid key, but the client requires a string.

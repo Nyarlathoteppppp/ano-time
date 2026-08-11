@@ -157,6 +157,12 @@ class Config:
         # queues, disk writers, or process resource samplers.
         self.diagnostics_enabled = self._getbool("diagnostics", "enabled", False)
 
+        # Optional session accounting. Provider quota enforcement remains
+        # active even when this user-facing token/cost meter is disabled.
+        self.usage_tracking_enabled = self._getbool(
+            "usage", "tracking_enabled", True
+        )
+
         # Compatibility switch for the isolated ASR/Apple fast lane. Disable
         # only to compare against the pre-SegmentStore executor behavior.
         self.split_fast_path = self._getbool("pipeline", "split_fast_path", True)
