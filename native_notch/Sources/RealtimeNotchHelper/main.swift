@@ -1,5 +1,6 @@
 import AppKit
 import DynamicNotchKit
+import SubtitlePresentation
 import SwiftUI
 
 @MainActor
@@ -110,7 +111,9 @@ private final class SubtitleState: ObservableObject {
         items = newItems
         if authoritativeFinalRevision {
             finalLayoutTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(0.40))
+                try? await Task.sleep(
+                    for: .seconds(SubtitlePresentationPlanner.finalLayoutHoldSeconds)
+                )
                 guard let self, !Task.isCancelled else { return }
                 self.holdsFinalLayout = false
                 self.refreshContentWidth(animated: true)
@@ -208,21 +211,18 @@ private final class SubtitleState: ObservableObject {
             ).width
             return max(longest, max(englishWidth, translatedWidth))
         }
-        let minimumWidth: CGFloat = 360
-        let maximumWidth: CGFloat = 560
-        let widthStep: CGFloat = 20
         // Reserve equal space for the two edge mascots so subtitles remain
         // centered and never run underneath either image.
-        let desired = max(minimumWidth, measured + 80)
-        let stepped = ceil(desired / widthStep) * widthStep
-        return min(maximumWidth, stepped)
+        return SubtitlePresentationPlanner.quantizedWidth(for: measured)
     }
 
     private func setContentWidth(_ width: CGFloat, animated: Bool) {
         guard width != contentWidth else { return }
         let isShrinking = width < contentWidth
         if animated && isShrinking {
-            withAnimation(.easeInOut(duration: 0.45)) {
+            withAnimation(.easeInOut(
+                duration: SubtitlePresentationPlanner.shrinkAnimationSeconds
+            )) {
                 contentWidth = width
             }
         } else {
@@ -234,24 +234,42 @@ private final class SubtitleState: ObservableObject {
         allowImmediateShrink: Bool = false,
         animated: Bool = true
     ) {
-        if holdsFinalLayout && !allowImmediateShrink {
-            return
-        }
         if isChangingDisplayCount && !allowImmediateShrink {
             return
         }
         let targetWidth = measuredContentWidth()
+        // A final correction may grow beyond the current frame. Let growth
+        // through immediately to avoid clipping, while holding only shrinkage
+        // until the short final-layout stabilization window expires.
+        if holdsFinalLayout
+            && targetWidth <= contentWidth
+            && !allowImmediateShrink {
+            return
+        }
         widthShrinkTask?.cancel()
 
-        if targetWidth >= contentWidth || allowImmediateShrink {
-            setContentWidth(targetWidth, animated: animated)
+        let resizeIntent = SubtitlePresentationPlanner.resizeIntent(
+            currentWidth: contentWidth,
+            targetWidth: targetWidth,
+            force: allowImmediateShrink
+        )
+        if resizeIntent == .unchanged {
+            return
+        }
+        if resizeIntent == .growImmediately || resizeIntent == .replaceImmediately {
+            setContentWidth(
+                targetWidth,
+                animated: animated && resizeIntent == .replaceImmediately
+            )
             return
         }
 
         // Growing text must never be clipped. Shrinking is intentionally
         // delayed so partial-ASR corrections do not make the notch breathe.
         widthShrinkTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(1.2))
+            try? await Task.sleep(
+                for: .seconds(SubtitlePresentationPlanner.shrinkDelaySeconds)
+            )
             guard let self, !Task.isCancelled else { return }
             let latestTarget = self.measuredContentWidth()
             if latestTarget < self.contentWidth {
@@ -270,89 +288,31 @@ private func emitEvent(_ event: String) {
     FileHandle.standardOutput.write(Data(line.utf8))
 }
 
-private struct RevisionRun {
-    let text: String
-    let changed: Bool
-}
-
-private func revisionRuns(from oldText: String, to newText: String) -> [RevisionRun] {
-    guard oldText != newText else {
-        return newText.isEmpty ? [] : [RevisionRun(text: newText, changed: false)]
-    }
-    guard !oldText.isEmpty else {
-        // The first frame is not a revision and should not flash pink.
-        return newText.isEmpty ? [] : [RevisionRun(text: newText, changed: false)]
-    }
-    let old = Array(oldText)
-    let new = Array(newText)
-    let columns = new.count + 1
-    var lcs = Array(repeating: 0, count: (old.count + 1) * columns)
-    if !old.isEmpty && !new.isEmpty {
-        for left in stride(from: old.count - 1, through: 0, by: -1) {
-            for right in stride(from: new.count - 1, through: 0, by: -1) {
-                let index = left * columns + right
-                if old[left] == new[right] {
-                    lcs[index] = 1 + lcs[(left + 1) * columns + right + 1]
-                } else {
-                    lcs[index] = max(
-                        lcs[(left + 1) * columns + right],
-                        lcs[left * columns + right + 1]
-                    )
-                }
-            }
-        }
-    }
-
-    var runs: [RevisionRun] = []
-    func append(_ character: Character, changed: Bool) {
-        if let last = runs.last, last.changed == changed {
-            runs[runs.count - 1] = RevisionRun(
-                text: last.text + String(character),
-                changed: changed
-            )
-        } else {
-            runs.append(RevisionRun(text: String(character), changed: changed))
-        }
-    }
-
-    var left = 0
-    var right = 0
-    while left < old.count && right < new.count {
-        if old[left] == new[right] {
-            append(new[right], changed: false)
-            left += 1
-            right += 1
-        } else if lcs[(left + 1) * columns + right]
-                    >= lcs[left * columns + right + 1] {
-            left += 1
-        } else {
-            append(new[right], changed: true)
-            right += 1
-        }
-    }
-    while right < new.count {
-        append(new[right], changed: true)
-        right += 1
-    }
-    return runs
-}
-
 private struct StableStreamingText: View {
     let text: String
     let availableWidth: CGFloat
     let committedPrefixLength: Int
 
     @State private var displayedText: String
-    @State private var horizontalCompensation: CGFloat = 0
     @State private var displayedRuns: [RevisionRun]
     @State private var clearHighlightTask: Task<Void, Never>?
+    @State private var reservedLineCount: Int
+    @State private var lineShrinkTask: Task<Void, Never>?
 
     init(text: String, availableWidth: CGFloat, committedPrefixLength: Int) {
         self.text = text
         self.availableWidth = availableWidth
         self.committedPrefixLength = committedPrefixLength
         _displayedText = State(initialValue: text)
-        _displayedRuns = State(initialValue: revisionRuns(from: "", to: text))
+        _displayedRuns = State(initialValue:
+            SubtitlePresentationPlanner.revisionRuns(from: "", to: text)
+        )
+        _reservedLineCount = State(initialValue:
+            SubtitlePresentationPlanner.estimatedLineCount(
+                measuredTextWidth: Self.measuredWidth(text),
+                availableWidth: availableWidth
+            )
+        )
     }
 
     private var styledText: Text {
@@ -383,23 +343,12 @@ private struct StableStreamingText: View {
         return result
     }
 
-    private func textWidth(_ value: String) -> CGFloat {
-        (value as NSString).size(withAttributes: [
-            .font: NSFont.systemFont(ofSize: 16, weight: .semibold)
-        ]).width
-    }
-
     private func replaceText(with newText: String) {
         guard newText != displayedText else { return }
         let oldText = displayedText
-        let nextRuns = revisionRuns(from: oldText, to: newText)
-        let oldWidth = textWidth(oldText)
-        let newWidth = textWidth(newText)
-        let isSingleLineGrowth = (
-            !oldText.isEmpty
-                && newText.hasPrefix(oldText)
-                && oldWidth <= availableWidth
-                && newWidth <= availableWidth
+        let nextRuns = SubtitlePresentationPlanner.revisionRuns(
+            from: oldText,
+            to: newText
         )
 
         var immediate = Transaction()
@@ -407,17 +356,8 @@ private struct StableStreamingText: View {
         withTransaction(immediate) {
             displayedText = newText
             displayedRuns = nextRuns
-            // A centered string normally jumps left by half of its added
-            // width. Compensate that jump, then gently settle to center.
-            horizontalCompensation = isSingleLineGrowth
-                ? max(0, (newWidth - oldWidth) / 2)
-                : 0
         }
-        if isSingleLineGrowth {
-            withAnimation(.easeOut(duration: 0.11)) {
-                horizontalCompensation = 0
-            }
-        }
+        updateLineReservation(for: newText, width: availableWidth)
         clearHighlightTask?.cancel()
         clearHighlightTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 180_000_000)
@@ -432,15 +372,70 @@ private struct StableStreamingText: View {
         }
     }
 
+    private static func measuredWidth(_ value: String) -> CGFloat {
+        (value as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: 16, weight: .semibold)
+        ]).width
+    }
+
+    private func updateLineReservation(for value: String, width: CGFloat) {
+        let required = SubtitlePresentationPlanner.estimatedLineCount(
+            measuredTextWidth: Self.measuredWidth(value),
+            availableWidth: width
+        )
+        lineShrinkTask?.cancel()
+        if required >= reservedLineCount {
+            var immediate = Transaction()
+            immediate.disablesAnimations = true
+            withTransaction(immediate) {
+                reservedLineCount = required
+            }
+            return
+        }
+        lineShrinkTask = Task { @MainActor in
+            try? await Task.sleep(
+                for: .seconds(SubtitlePresentationPlanner.lineShrinkDelaySeconds)
+            )
+            guard !Task.isCancelled else { return }
+            let latestRequired = SubtitlePresentationPlanner.estimatedLineCount(
+                measuredTextWidth: Self.measuredWidth(displayedText),
+                availableWidth: availableWidth
+            )
+            guard latestRequired < reservedLineCount else { return }
+            withAnimation(.easeInOut(
+                duration: SubtitlePresentationPlanner.shrinkAnimationSeconds
+            )) {
+                reservedLineCount = latestRequired
+            }
+        }
+    }
+
     var body: some View {
-        styledText
-            .font(.system(size: 16, weight: .semibold))
-            .lineLimit(2)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .offset(x: horizontalCompensation)
+        ZStack {
+            styledText
+                .font(.system(size: 16, weight: .semibold))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .contentTransition(.identity)
+                .transaction { transaction in
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                }
+        }
+        .frame(
+            minHeight: CGFloat(reservedLineCount)
+                * SubtitlePresentationPlanner.translatedLineHeight,
+            alignment: .center
+        )
             .onChange(of: text, perform: replaceText)
-            .onDisappear { clearHighlightTask?.cancel() }
+            .onChange(of: availableWidth) { newWidth in
+                updateLineReservation(for: displayedText, width: newWidth)
+            }
+            .onDisappear {
+                clearHighlightTask?.cancel()
+                lineShrinkTask?.cancel()
+            }
     }
 }
 
@@ -473,7 +468,11 @@ private struct SubtitleContent: View {
 
                         StableStreamingText(
                             text: item.translated,
-                            availableWidth: max(1, state.contentWidth - 80),
+                            availableWidth: max(
+                                1,
+                                state.contentWidth
+                                    - SubtitlePresentationPlanner.reservedEdgeWidth
+                            ),
                             committedPrefixLength: item.committedPrefixLength ?? 0
                         )
                     }
@@ -697,18 +696,17 @@ private struct RealtimeNotchHelper {
                     }
                     if let items = message.items {
                         let visibleItems = Array(items.suffix(3))
-                        if state.hasSameItemIdentity(as: visibleItems) {
-                            // Streaming refinements keep the same subtitle views alive.
-                            // SwiftUI then updates only the changed text instead of
-                            // animating the entire stack on every token.
+                        var contentTransaction = Transaction()
+                        contentTransaction.disablesAnimations = true
+                        withTransaction(contentTransaction) {
+                            // Stable segment and fragment IDs keep existing rows
+                            // alive. Text never inherits the notch frame animation.
                             state.replaceItems(visibleItems)
-                        } else {
-                            withAnimation(.easeOut(duration: 0.14)) {
-                                state.replaceItems(visibleItems)
-                            }
                         }
                     } else if let original = message.original {
-                        withAnimation(.easeOut(duration: 0.14)) {
+                        var contentTransaction = Transaction()
+                        contentTransaction.disablesAnimations = true
+                        withTransaction(contentTransaction) {
                             state.replaceItems([SubtitleLine(
                                 id: 0,
                                 original: original,

@@ -8,9 +8,10 @@ let package = Package(
         .package(url: "https://github.com/MrKai77/DynamicNotchKit.git", exact: "1.1.0")
     ],
     targets: [
+        .target(name: "SubtitlePresentation"),
         .executableTarget(
             name: "RealtimeNotchHelper",
-            dependencies: ["DynamicNotchKit"],
+            dependencies: ["DynamicNotchKit", "SubtitlePresentation"],
             exclude: ["Resources"]
         )
     ],

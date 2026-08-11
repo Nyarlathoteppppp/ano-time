@@ -9,6 +9,12 @@ SOURCE_PATH = project_path(
     "RealtimeNotchHelper",
     "main.swift",
 )
+PLANNER_PATH = project_path(
+    "native_notch",
+    "Sources",
+    "SubtitlePresentation",
+    "SubtitlePresentationPlanner.swift",
+)
 
 
 class NativeNotchSourceContractTests(unittest.TestCase):
@@ -16,6 +22,8 @@ class NativeNotchSourceContractTests(unittest.TestCase):
     def setUpClass(cls):
         with SOURCE_PATH.open(encoding="utf-8") as handle:
             cls.source = handle.read()
+        with PLANNER_PATH.open(encoding="utf-8") as handle:
+            cls.planner_source = handle.read()
 
     def test_all_display_counts_share_one_dynamic_notch_instance(self):
         self.assertIn("let notch = makeNotch", self.source)
@@ -33,14 +41,16 @@ class NativeNotchSourceContractTests(unittest.TestCase):
     def test_authoritative_final_temporarily_holds_notch_width(self):
         self.assertIn("let authoritativeFinalRevision", self.source)
         self.assertIn("holdsFinalLayout = true", self.source)
-        self.assertIn("Task.sleep(for: .seconds(0.40))", self.source)
+        self.assertIn(
+            "SubtitlePresentationPlanner.finalLayoutHoldSeconds", self.source
+        )
 
-    def test_streaming_text_anchors_single_line_growth_without_delaying_updates(self):
+    def test_streaming_text_updates_immediately_without_text_motion_animation(self):
         self.assertIn("private struct StableStreamingText", self.source)
-        self.assertIn("newText.hasPrefix(oldText)", self.source)
-        self.assertIn("(newWidth - oldWidth) / 2", self.source)
-        self.assertIn(".easeOut(duration: 0.11)", self.source)
         self.assertIn("immediate.disablesAnimations = true", self.source)
+        self.assertIn(".contentTransition(.identity)", self.source)
+        self.assertIn("transaction.animation = nil", self.source)
+        self.assertNotIn("horizontalCompensation", self.source)
         streaming_source = self.source[
             self.source.index("private struct StableStreamingText"):
             self.source.index("private struct SubtitleContent")
@@ -61,10 +71,34 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn(".white.opacity(0.82)", self.source)
 
     def test_streaming_translation_uses_local_character_revisions(self):
-        self.assertIn("private func revisionRuns", self.source)
-        self.assertIn("let nextRuns = revisionRuns", self.source)
+        self.assertIn("enum SubtitlePresentationPlanner", self.planner_source)
+        self.assertIn("static func revisionRuns", self.planner_source)
+        self.assertIn(
+            "let nextRuns = SubtitlePresentationPlanner.revisionRuns",
+            self.source,
+        )
         self.assertIn("displayedRuns = nextRuns", self.source)
-        self.assertIn("let changed: Bool", self.source)
+        self.assertIn("let changed: Bool", self.planner_source)
+
+    def test_geometry_uses_bucketed_growth_and_delayed_shrink(self):
+        self.assertIn("static let widthStep: CGFloat = 32", self.planner_source)
+        self.assertIn("case growImmediately", self.planner_source)
+        self.assertIn("case shrinkAfterDelay", self.planner_source)
+        self.assertIn(
+            "SubtitlePresentationPlanner.shrinkDelaySeconds", self.source
+        )
+        self.assertIn(
+            "SubtitlePresentationPlanner.shrinkAnimationSeconds", self.source
+        )
+
+    def test_two_line_height_shrinks_only_after_a_stable_cooldown(self):
+        self.assertIn("lineShrinkDelaySeconds = 0.80", self.planner_source)
+        self.assertIn("@State private var reservedLineCount", self.source)
+        self.assertIn("lineShrinkTask?.cancel()", self.source)
+        self.assertIn("updateLineReservation(for: newText", self.source)
+        self.assertIn(
+            "SubtitlePresentationPlanner.lineShrinkDelaySeconds", self.source
+        )
 
     def test_display_fragments_keep_a_stable_semantic_parent(self):
         self.assertIn("let fragments: [SubtitleFragment]?", self.source)

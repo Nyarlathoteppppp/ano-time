@@ -76,6 +76,13 @@ class NativeNotchOverlayTest(unittest.TestCase):
         payload = json.loads(overlay._write_queue.get_nowait().decode("utf-8"))
         self.assertEqual(payload["items"][0]["id"], 2)
 
+    def test_native_rebuild_watches_every_swift_source_file(self):
+        source = project_path("native_notch_overlay.py")
+        with source.open(encoding="utf-8") as handle:
+            bridge_source = handle.read()
+        self.assertIn("os.walk(source_root)", bridge_source)
+        self.assertIn('filename.endswith(".swift")', bridge_source)
+
     def test_glass_transition_detaches_terminating_native_process(self):
         overlay = NativeNotchOverlay()
         process = MagicMock()

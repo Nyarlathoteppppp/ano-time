@@ -51,10 +51,14 @@ class NativeNotchOverlay(QObject):
         return self.record_store.snapshot()
 
     def _ensure_built(self):
-        source_files = [
-            os.path.join(self.package_dir, "Package.swift"),
-            os.path.join(self.package_dir, "Sources", "RealtimeNotchHelper", "main.swift"),
-        ]
+        source_root = os.path.join(self.package_dir, "Sources")
+        source_files = [os.path.join(self.package_dir, "Package.swift")]
+        for directory, _subdirs, filenames in os.walk(source_root):
+            source_files.extend(
+                os.path.join(directory, filename)
+                for filename in filenames
+                if filename.endswith(".swift")
+            )
         needs_build = not os.path.exists(self.binary_path)
         if not needs_build:
             binary_mtime = os.path.getmtime(self.binary_path)
