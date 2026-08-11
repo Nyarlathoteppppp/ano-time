@@ -76,16 +76,12 @@ class OverlayLayoutTests(unittest.TestCase):
         self.assertEqual(GLASS_PANEL_BACKGROUND, "rgba(0, 0, 0, 179)")
 
         class Container:
-            def set_notch_geometry(self, enabled):
-                self.notch_enabled = enabled
-
             def setStyleSheet(self, stylesheet):
                 self.stylesheet = stylesheet
 
         view = SimpleNamespace(container=Container())
         OverlayWindow._set_glass_style(view)
 
-        self.assertFalse(view.container.notch_enabled)
         self.assertIn(GLASS_PANEL_BACKGROUND, view.container.stylesheet)
         self.assertIn("border-radius: 20px", view.container.stylesheet)
 
@@ -100,7 +96,7 @@ class OverlayLayoutTests(unittest.TestCase):
         try:
             window.container.mode_switch_requested.emit()
             self.assertEqual(window.display_mode, "glass")
-            self.assertFalse(window.container.notch_mode)
+            self.assertFalse(hasattr(window.container, "notch_mode"))
         finally:
             window.close()
 
