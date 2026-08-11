@@ -350,6 +350,11 @@ class DashboardWorkflowTests(unittest.TestCase):
     def test_current_lecture_topic_starts_blank_for_each_app_session(self):
         self.assertEqual(self.dashboard.current_course_topic.text(), "")
         self.assertIn("session only", self.dashboard.current_course_topic.toolTip())
+        self.assertTrue(
+            self.dashboard.home_content.isAncestorOf(
+                self.dashboard.current_course_topic
+            )
+        )
 
     def test_apple_only_hides_remote_credentials_and_forces_local_draft(self):
         self._choose_workflow("apple_only")

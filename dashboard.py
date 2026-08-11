@@ -379,6 +379,7 @@ class Dashboard(QWidget):
 
     def init_home_tab(self):
         tab = QWidget()
+        self.home_content = tab
         layout = QVBoxLayout()
         layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -395,6 +396,24 @@ class Dashboard(QWidget):
         )
         self.pending_settings_label.hide()
         layout.addWidget(self.pending_settings_label)
+
+        topic_row = QHBoxLayout()
+        topic_label = QLabel("Current Lecture Topic（本节课程主题）:")
+        topic_label.setMinimumWidth(270)
+        topic_row.addWidget(topic_label)
+        # The lecture topic is deliberately session-scoped. Keep the field on
+        # Home because it is normally filled once immediately before Launch.
+        self.current_course_topic = QLineEdit("")
+        self.current_course_topic.setMinimumWidth(420)
+        self.current_course_topic.setPlaceholderText(
+            "Regularisation & Bias-variance Trade-off — Statistical Machine Learning"
+        )
+        self.current_course_topic.setToolTip(
+            "Optional topic for this session only. It is sent to the bridge and "
+            "final remote models after Save + relaunch, and starts blank next time."
+        )
+        topic_row.addWidget(self.current_course_topic, 1)
+        layout.addLayout(topic_row)
 
         self.apply_hint = QLabel(
             "生效规则：启动/暂停/停止立即生效；普通设置保存后重新 Launch 生效；"
@@ -1632,21 +1651,6 @@ class Dashboard(QWidget):
             "Domain context sent to the translation model to preserve technical terminology"
         )
         layout.addRow("Course Domain（课程专业背景）:", self.translation_domain)
-
-        # A lecture topic is deliberately session-scoped. Never restore the
-        # previous class's topic when the control center opens again.
-        self.current_course_topic = QLineEdit("")
-        self.current_course_topic.setPlaceholderText(
-            "Regularisation & Bias-variance Trade-off — Statistical Machine Learning"
-        )
-        self.current_course_topic.setToolTip(
-            "Optional topic for this session only. It is sent to the bridge and "
-            "final remote models after Save + relaunch, and starts blank next time."
-        )
-        layout.addRow(
-            "Current Lecture Topic（本节课程主题）:",
-            self.current_course_topic,
-        )
 
         self.fast_translation_backend = ReadableComboBox()
         self.fast_translation_backend.addItems(["apple", "off"])
