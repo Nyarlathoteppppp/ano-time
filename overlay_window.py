@@ -8,6 +8,8 @@ from ctypes import CDLL, c_int32, c_void_p
 import html
 import time
 
+from subtitle_revision import SubtitleRevisionPlanner
+
 _CORE_GRAPHICS = CDLL(
     "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
 )
@@ -79,6 +81,13 @@ class LogItem(QFrame):
             committed_prefix_length,
             self._translated_text,
         )
+        self._revision = SubtitleRevisionPlanner.plan("", self._translated_text)
+        self._revision_highlight_timer = QTimer(self)
+        self._revision_highlight_timer.setSingleShot(True)
+        self._revision_highlight_timer.setInterval(180)
+        self._revision_highlight_timer.timeout.connect(
+            self._clear_revision_highlight
+        )
         self.translated_label = QLabel()
         self.translated_label.setTextFormat(Qt.TextFormat.RichText)
         self.translated_label.setWordWrap(True)
@@ -100,13 +109,40 @@ class LogItem(QFrame):
         if not self._translated_text:
             self.translated_label.setText("…")
             return
-        boundary = self._committed_prefix_length
-        stable = html.escape(self._translated_text[:boundary])
-        mutable = html.escape(self._translated_text[boundary:])
-        self.translated_label.setText(
-            f'<span style="color:#ffffff">{stable}</span>'
-            f'<span style="color:#d7dbe5">{mutable}</span>'
+        offset = 0
+        rendered = []
+        for span in self._revision.spans:
+            span_end = offset + len(span.text)
+            stable_length = max(
+                0,
+                min(span_end, self._committed_prefix_length) - offset,
+            )
+            if stable_length:
+                rendered.append(
+                    '<span style="color:#ffffff">'
+                    f'{html.escape(span.text[:stable_length])}</span>'
+                )
+            remainder = span.text[stable_length:]
+            if remainder:
+                if span.changed:
+                    rendered.append(
+                        '<span style="color:#ffffff;font-weight:700">'
+                        f'{html.escape(remainder)}</span>'
+                    )
+                else:
+                    rendered.append(
+                        '<span style="color:#d7dbe5">'
+                        f'{html.escape(remainder)}</span>'
+                    )
+            offset = span_end
+        self.translated_label.setText("".join(rendered))
+
+    def _clear_revision_highlight(self):
+        self._revision = SubtitleRevisionPlanner.plan(
+            self._translated_text,
+            self._translated_text,
         )
+        self._render_translation()
 
     def update_translated(self, text, committed_prefix_length=0):
         text = str(text or "")
@@ -120,9 +156,15 @@ class LogItem(QFrame):
         ):
             return False
         previous_height = self.translated_label.height()
+        self._revision = SubtitleRevisionPlanner.plan(
+            self._translated_text,
+            text,
+        )
         self._translated_text = text
         self._committed_prefix_length = committed_prefix_length
         self._render_translation()
+        if any(span.changed for span in self._revision.spans):
+            self._revision_highlight_timer.start()
         available_width = max(1, self.width())
         next_height = max(
             self.translated_label.fontMetrics().height(),

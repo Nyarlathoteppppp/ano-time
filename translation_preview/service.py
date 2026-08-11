@@ -185,6 +185,9 @@ class ProgressiveTranslationPreview:
         translator = self._final_client()
         if translator is None:
             return
+        previous_preview = self._agreement.displayed_candidate(
+            request.segment_id
+        )
 
         started = time.perf_counter()
         first_display_logged = False
@@ -239,6 +242,7 @@ class ProgressiveTranslationPreview:
                 request.source_text,
                 use_context=False,
                 remember_context=False,
+                previous_preview=previous_preview or None,
                 context_text=self._context_snapshot(),
                 deadline=request.deadline,
                 failure_scope="preview",

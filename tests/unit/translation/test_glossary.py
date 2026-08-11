@@ -146,6 +146,27 @@ class CourseGlossaryTests(unittest.TestCase):
         self.assertIn("Never output analysis, reasoning", system_prompt)
         self.assertIn("notes, labels, alternatives", system_prompt)
 
+    def test_previous_preview_prompt_preserves_valid_words_without_locking_errors(self):
+        translator = Translator(
+            api_key="test-key",
+            base_url="https://example.invalid/v1",
+            model="generic-fast-model",
+        )
+        translator.client = _RecordingClient()
+        translator.translate(
+            "The small dog likes eating strawberries.",
+            previous_preview="这个人很喜欢吃西瓜。",
+            context_text="The lecture discusses classification.",
+            remember_context=False,
+        )
+
+        messages = translator.client.chat.completions.options["messages"]
+        self.assertIn("Preserve accurate wording when possible", messages[0]["content"])
+        self.assertIn("Correctness overrides continuity", messages[0]["content"])
+        self.assertIn("conflicts with CURRENT", messages[0]["content"])
+        self.assertIn("PREVIOUS:\n这个人很喜欢吃西瓜。", messages[1]["content"])
+        self.assertIn("CURRENT:\nThe small dog", messages[1]["content"])
+
     def test_fast_pool_uses_provider_compatible_latency_options(self):
         groq = Translator(
             api_key="test-key",

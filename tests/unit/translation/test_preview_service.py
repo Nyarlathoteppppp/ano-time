@@ -81,6 +81,28 @@ class ProgressiveTranslationPreviewTests(unittest.TestCase):
         finally:
             service.shutdown()
 
+    def test_later_preview_receives_the_last_displayed_translation(self):
+        final = _Translator("第一版中文")
+        service, store, _emitted, completed = self._service(final=final)
+        first = "one two three four five"
+        second = "one two three four five six seven eight nine ten eleven"
+        try:
+            service._final_policy.minimum_interval = 0
+            store.publish(11, SubtitleStage.ASR_PARTIAL, first)
+            service.observe(11, store.hypothesis_revision(11), first)
+            self.assertTrue(completed.wait(0.5))
+            completed.clear()
+            final.result = "第一版中文继续扩展"
+            store.publish(11, SubtitleStage.ASR_PARTIAL, second)
+            service.observe(11, store.hypothesis_revision(11), second)
+            self.assertTrue(completed.wait(0.5))
+            self.assertEqual(
+                final.calls[-1][1]["previous_preview"],
+                "第一版中文",
+            )
+        finally:
+            service.shutdown()
+
     def test_optional_bridge_uses_stable_source_without_final_client(self):
         bridge = _Translator("桥接译文")
         service, store, _emitted, completed = self._service(bridge=bridge)

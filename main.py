@@ -1508,7 +1508,14 @@ def start_overlay_session():
     
     # Connect signals
     if hasattr(window, "update_event"):
-        _pipeline.signals.subtitle_event.connect(window.update_event)
+        from subtitle_display_scheduler import SubtitleDisplayScheduler
+        window._subtitle_display_scheduler = SubtitleDisplayScheduler(
+            window.update_event,
+            parent=window,
+        )
+        _pipeline.signals.subtitle_event.connect(
+            window._subtitle_display_scheduler.submit
+        )
     else:
         _pipeline.signals.update_text.connect(window.update_text)
     

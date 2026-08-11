@@ -91,6 +91,12 @@ class TargetLocalAgreement:
             state.displayed_candidate = candidate
             return AgreementProjection(candidate, state.committed_prefix, True)
 
+    def displayed_candidate(self, segment_id):
+        """Return the last visible preview without exposing mutable state."""
+        with self._lock:
+            state = self._states.get(int(segment_id))
+            return state.displayed_candidate if state is not None else ""
+
     def reset(self, segment_id=None):
         with self._lock:
             if segment_id is None:

@@ -3,6 +3,7 @@
 import time
 
 from runtime_log import log_stage
+from subtitle_display_scheduler import SubtitleDisplayScheduler
 
 
 class SessionController:
@@ -92,10 +93,15 @@ class SessionController:
         view.overlay_window.show()
 
         if hasattr(view.overlay_window, "update_event"):
+            view.subtitle_display_scheduler = SubtitleDisplayScheduler(
+                view.overlay_window.update_event,
+                parent=view.overlay_window,
+            )
             view.pipeline.signals.subtitle_event.connect(
-                view.overlay_window.update_event
+                view.subtitle_display_scheduler.submit
             )
         else:
+            view.subtitle_display_scheduler = None
             view.pipeline.signals.update_text.connect(
                 view.overlay_window.update_text
             )

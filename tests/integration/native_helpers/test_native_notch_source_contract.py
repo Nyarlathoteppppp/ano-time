@@ -32,16 +32,30 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn("(newWidth - oldWidth) / 2", self.source)
         self.assertIn(".easeOut(duration: 0.11)", self.source)
         self.assertIn("immediate.disablesAnimations = true", self.source)
-        self.assertNotIn("Task.sleep", self.source[
+        streaming_source = self.source[
             self.source.index("private struct StableStreamingText"):
             self.source.index("private struct SubtitleContent")
-        ])
+        ]
+        # Content is replaced synchronously.  The only delayed task clears the
+        # short-lived changed-character tint and never gates subtitle text.
+        self.assertLess(
+            streaming_source.index("displayedText = newText"),
+            streaming_source.index("Task.sleep"),
+        )
 
     def test_streaming_translation_visually_separates_stable_prefix(self):
         self.assertIn("let committedPrefixLength: Int?", self.source)
         self.assertIn("private var styledText: Text", self.source)
-        self.assertIn("Text(stable).foregroundColor(.white)", self.source)
-        self.assertIn("Text(mutable).foregroundColor(.white.opacity(0.82))", self.source)
+        self.assertIn("String(run.text.prefix(stableCount))", self.source)
+        self.assertIn("run.changed", self.source)
+        self.assertIn(".bold()", self.source)
+        self.assertIn(".white.opacity(0.82)", self.source)
+
+    def test_streaming_translation_uses_local_character_revisions(self):
+        self.assertIn("private func revisionRuns", self.source)
+        self.assertIn("let nextRuns = revisionRuns", self.source)
+        self.assertIn("displayedRuns = nextRuns", self.source)
+        self.assertIn("let changed: Bool", self.source)
 
     def test_display_fragments_keep_a_stable_semantic_parent(self):
         self.assertIn("let fragments: [SubtitleFragment]?", self.source)

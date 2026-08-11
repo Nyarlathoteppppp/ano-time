@@ -35,3 +35,11 @@ class TargetLocalAgreementTests(unittest.TestCase):
         self.assertFalse(rejected.accepted)
         self.assertNotEqual(rejected.display_text, "完全不同的开头")
         self.assertNotEqual(first.display_text, "")
+
+    def test_exposes_last_displayed_candidate_as_an_immutable_snapshot(self):
+        agreement = TargetLocalAgreement()
+        self.assertEqual(agreement.displayed_candidate(8), "")
+        agreement.project_stream(8, "上一版预览")
+        self.assertEqual(agreement.displayed_candidate(8), "上一版预览")
+        agreement.reset(8)
+        self.assertEqual(agreement.displayed_candidate(8), "")

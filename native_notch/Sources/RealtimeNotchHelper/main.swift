@@ -232,6 +232,73 @@ private func emitEvent(_ event: String) {
     FileHandle.standardOutput.write(Data(line.utf8))
 }
 
+private struct RevisionRun {
+    let text: String
+    let changed: Bool
+}
+
+private func revisionRuns(from oldText: String, to newText: String) -> [RevisionRun] {
+    guard oldText != newText else {
+        return newText.isEmpty ? [] : [RevisionRun(text: newText, changed: false)]
+    }
+    guard !oldText.isEmpty else {
+        // The first frame is not a revision and should not flash pink.
+        return newText.isEmpty ? [] : [RevisionRun(text: newText, changed: false)]
+    }
+    let old = Array(oldText)
+    let new = Array(newText)
+    let columns = new.count + 1
+    var lcs = Array(repeating: 0, count: (old.count + 1) * columns)
+    if !old.isEmpty && !new.isEmpty {
+        for left in stride(from: old.count - 1, through: 0, by: -1) {
+            for right in stride(from: new.count - 1, through: 0, by: -1) {
+                let index = left * columns + right
+                if old[left] == new[right] {
+                    lcs[index] = 1 + lcs[(left + 1) * columns + right + 1]
+                } else {
+                    lcs[index] = max(
+                        lcs[(left + 1) * columns + right],
+                        lcs[left * columns + right + 1]
+                    )
+                }
+            }
+        }
+    }
+
+    var runs: [RevisionRun] = []
+    func append(_ character: Character, changed: Bool) {
+        if let last = runs.last, last.changed == changed {
+            runs[runs.count - 1] = RevisionRun(
+                text: last.text + String(character),
+                changed: changed
+            )
+        } else {
+            runs.append(RevisionRun(text: String(character), changed: changed))
+        }
+    }
+
+    var left = 0
+    var right = 0
+    while left < old.count && right < new.count {
+        if old[left] == new[right] {
+            append(new[right], changed: false)
+            left += 1
+            right += 1
+        } else if lcs[(left + 1) * columns + right]
+                    >= lcs[left * columns + right + 1] {
+            left += 1
+        } else {
+            append(new[right], changed: true)
+            right += 1
+        }
+    }
+    while right < new.count {
+        append(new[right], changed: true)
+        right += 1
+    }
+    return runs
+}
+
 private struct StableStreamingText: View {
     let text: String
     let availableWidth: CGFloat
@@ -239,28 +306,43 @@ private struct StableStreamingText: View {
 
     @State private var displayedText: String
     @State private var horizontalCompensation: CGFloat = 0
+    @State private var displayedRuns: [RevisionRun]
+    @State private var clearHighlightTask: Task<Void, Never>?
 
     init(text: String, availableWidth: CGFloat, committedPrefixLength: Int) {
         self.text = text
         self.availableWidth = availableWidth
         self.committedPrefixLength = committedPrefixLength
         _displayedText = State(initialValue: text)
+        _displayedRuns = State(initialValue: revisionRuns(from: "", to: text))
     }
 
     private var styledText: Text {
         guard !displayedText.isEmpty else { return Text("…") }
-        let boundaryOffset = max(
-            0,
-            min(committedPrefixLength, displayedText.count)
-        )
-        let boundary = displayedText.index(
-            displayedText.startIndex,
-            offsetBy: boundaryOffset
-        )
-        let stable = String(displayedText[..<boundary])
-        let mutable = String(displayedText[boundary...])
-        return Text(stable).foregroundColor(.white)
-            + Text(mutable).foregroundColor(.white.opacity(0.82))
+        let stableBoundary = max(0, min(committedPrefixLength, displayedText.count))
+        var offset = 0
+        var result = Text("")
+        for run in displayedRuns {
+            let runCount = run.text.count
+            let stableCount = max(0, min(runCount, stableBoundary - offset))
+            if stableCount > 0 {
+                result = result + Text(String(run.text.prefix(stableCount)))
+                    .foregroundColor(.white)
+            }
+            let mutable = String(run.text.dropFirst(stableCount))
+            if !mutable.isEmpty {
+                if run.changed {
+                    result = result + Text(mutable)
+                        .foregroundColor(.white)
+                        .bold()
+                } else {
+                    result = result + Text(mutable)
+                        .foregroundColor(.white.opacity(0.82))
+                }
+            }
+            offset += runCount
+        }
+        return result
     }
 
     private func textWidth(_ value: String) -> CGFloat {
@@ -272,6 +354,7 @@ private struct StableStreamingText: View {
     private func replaceText(with newText: String) {
         guard newText != displayedText else { return }
         let oldText = displayedText
+        let nextRuns = revisionRuns(from: oldText, to: newText)
         let oldWidth = textWidth(oldText)
         let newWidth = textWidth(newText)
         let isSingleLineGrowth = (
@@ -285,6 +368,7 @@ private struct StableStreamingText: View {
         immediate.disablesAnimations = true
         withTransaction(immediate) {
             displayedText = newText
+            displayedRuns = nextRuns
             // A centered string normally jumps left by half of its added
             // width. Compensate that jump, then gently settle to center.
             horizontalCompensation = isSingleLineGrowth
@@ -294,6 +378,18 @@ private struct StableStreamingText: View {
         if isSingleLineGrowth {
             withAnimation(.easeOut(duration: 0.11)) {
                 horizontalCompensation = 0
+            }
+        }
+        clearHighlightTask?.cancel()
+        clearHighlightTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled, displayedText == newText else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                displayedRuns = newText.isEmpty
+                    ? []
+                    : [RevisionRun(text: newText, changed: false)]
             }
         }
     }
@@ -306,6 +402,7 @@ private struct StableStreamingText: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .offset(x: horizontalCompensation)
             .onChange(of: text, perform: replaceText)
+            .onDisappear { clearHighlightTask?.cancel() }
     }
 }
 

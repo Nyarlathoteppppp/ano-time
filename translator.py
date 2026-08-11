@@ -145,7 +145,8 @@ class Translator:
                 print(f"[Translator] Usage callback failed: {exc}", flush=True)
 
     def translate(self, text, use_context=True, on_update=None, remember_context=True,
-                  draft_translation=None, context_text=None, deadline=None,
+                  draft_translation=None, previous_preview=None,
+                  context_text=None, deadline=None,
                   usage_callback=None, failure_scope="final"):
         """
         Translates the given text. Returns the translated string.
@@ -192,6 +193,26 @@ class Translator:
             user_message = (
                 f"Original:\n{text}\n\n"
                 f"Draft translation:\n{draft_translation}"
+            )
+        elif previous_preview:
+            system_prompt = (
+                f"Translate CURRENT into {self.prompt_target_lang}. "
+                f"Domain: {self.domain_prompt} "
+                f"{self.asr_correction_prompt} "
+                f"PREVIOUS is an earlier translation of a shorter source prefix. "
+                f"Preserve accurate wording when possible. "
+                f"Correctness overrides continuity; rewrite PREVIOUS wherever it "
+                f"conflicts with CURRENT. "
+                f"Use CONTEXT only for references and terminology. "
+                f"Return only the complete translation of CURRENT.{output_constraint}"
+                f"{terminology_prompt}"
+            )
+            context_block = (
+                f"\n\nCONTEXT:\n{context_text}" if context_text else ""
+            )
+            user_message = (
+                f"PREVIOUS:\n{previous_preview}"
+                f"{context_block}\n\nCURRENT:\n{text}"
             )
         elif context_text:
             system_prompt = (
