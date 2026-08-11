@@ -174,6 +174,33 @@ class HybridTranslatorTests(unittest.TestCase):
             self.assertGreater(remaining, 2.8)
             self.assertLessEqual(remaining, 3.0)
 
+    def test_preview_timeout_does_not_cool_down_the_final_route(self):
+        with tempfile.TemporaryDirectory() as directory:
+            gemini = _FakeTranslator(
+                "gemini", TimeoutError("preview request timed out")
+            )
+            router = self._router(
+                [{
+                    "name": "gemini",
+                    "translator": gemini,
+                    "failure_cooldown_seconds": 3,
+                }],
+                directory,
+            )
+            with self.assertRaises(TimeoutError):
+                router.translate(
+                    "partial sentence",
+                    deadline=time.monotonic() + 1,
+                    failure_scope="preview",
+                )
+            self.assertEqual(router.providers[0]["cooldown_until"], 0.0)
+
+            gemini.error = None
+            self.assertEqual(
+                router.translate("final sentence", deadline=time.monotonic() + 3),
+                "gemini",
+            )
+
     def test_persisted_daily_limit_skips_exhausted_provider(self):
         with tempfile.TemporaryDirectory() as directory:
             groq = _FakeTranslator("groq")

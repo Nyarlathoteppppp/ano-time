@@ -23,6 +23,7 @@ class ProgressiveTranslationPreview:
         bridge_gate,
         context_snapshot,
         is_active,
+        status_callback=None,
     ):
         self._emit_subtitle = emit_subtitle
         self._segment_store = segment_store
@@ -31,6 +32,7 @@ class ProgressiveTranslationPreview:
         self._bridge_gate = bridge_gate
         self._context_snapshot = context_snapshot
         self._is_active = is_active
+        self._status_callback = status_callback or (lambda *_args: None)
         self._agreement = TargetLocalAgreement()
         self._bridge_policy = PreviewTriggerPolicy(
             first_words=4,
@@ -98,6 +100,7 @@ class ProgressiveTranslationPreview:
                 words=len(source_text.split()),
                 hypothesis_revision=hypothesis_revision,
             )
+            self._status_callback("active", "ON · translating")
 
     def _compatible(self, request):
         return (
@@ -176,7 +179,11 @@ class ProgressiveTranslationPreview:
         if translator is None:
             return
 
+        started = time.perf_counter()
+        first_display_logged = False
+
         def publish(candidate, commit_candidate=False):
+            nonlocal first_display_logged
             if (
                 not candidate
                 or not self._final_coordinator.is_valid(request)
@@ -190,7 +197,7 @@ class ProgressiveTranslationPreview:
             )
             if not projection.accepted or not projection.display_text:
                 return False
-            return bool(self._emit_subtitle(
+            emitted = bool(self._emit_subtitle(
                 request.segment_id,
                 request.source_text,
                 projection.display_text,
@@ -200,15 +207,28 @@ class ProgressiveTranslationPreview:
                 translation_rank=3,
                 translation_source_text=request.source_text,
             ))
+            if emitted and not first_display_logged:
+                first_display_logged = True
+                log_stage(
+                    "ai_preview_first",
+                    chunk_id=request.segment_id,
+                    elapsed_ms=(time.perf_counter() - started) * 1000,
+                    words=len(request.source_text.split()),
+                )
+                self._status_callback(
+                    "ok",
+                    f"ON · {(time.perf_counter() - started):.1f}s",
+                )
+            return emitted
 
         try:
-            started = time.perf_counter()
             translated = translator.translate(
                 request.source_text,
                 use_context=False,
                 remember_context=False,
                 context_text=self._context_snapshot(),
                 deadline=request.deadline,
+                failure_scope="preview",
                 on_update=lambda candidate: publish(candidate, False),
             )
             shown = publish(translated, True)
@@ -221,6 +241,7 @@ class ProgressiveTranslationPreview:
                 detail=translated or "",
             )
         except TimeoutError as exc:
+            self._status_callback("warning", "ON · preview timeout")
             log_stage(
                 "ai_preview",
                 chunk_id=request.segment_id,
@@ -228,6 +249,7 @@ class ProgressiveTranslationPreview:
                 detail=str(exc),
             )
         except Exception as exc:
+            self._status_callback("error", "ON · preview failed")
             log_stage(
                 "ai_preview",
                 chunk_id=request.segment_id,

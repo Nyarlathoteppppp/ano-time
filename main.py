@@ -577,8 +577,16 @@ class Pipeline(QObject):
             bridge_gate=self._groq_bridge_gate,
             context_snapshot=self._current_finalized_context,
             is_active=lambda: self.running and not self._paused.is_set(),
+            status_callback=lambda status, detail: self.signals.runtime_status.emit(
+                "Preview", status, detail
+            ),
         )
         self._preview_service = preview_service
+        self.signals.runtime_status.emit(
+            "Preview",
+            "ok" if self._final_translation_client() is not None else "warning",
+            "ON · waiting" if self._final_translation_client() is not None else "OFF",
+        )
         state_lock = threading.Lock()
         state = {
             "chunk_id": 1,
@@ -1019,14 +1027,15 @@ class Pipeline(QObject):
                         current = current and chunk_id not in self._finalized_chunks
                         current = current and not self._paused.is_set()
                 if current:
-                    self._emit_subtitle(
+                    return bool(self._emit_subtitle(
                         chunk_id,
                         text,
                         partial,
                         "partial",
                         SubtitleStage.APPLE_PARTIAL,
                         expected_hypothesis=(version if fast_path else None),
-                    )
+                    ))
+                return False
 
             draft = None
             if self._fast_translation_ready():
@@ -1037,10 +1046,12 @@ class Pipeline(QObject):
                     started = time.perf_counter()
                     draft = self.fast_translator.translate(text)
                     elapsed_ms = (time.perf_counter() - started) * 1000
+                    shown = emit_if_current(draft)
                     log_stage(
                         "apple_partial",
                         chunk_id=chunk_id,
                         elapsed_ms=elapsed_ms,
+                        status="shown" if shown else "dropped_stale",
                         e2e_ms=(
                             (time.monotonic() - segment_started_at) * 1000
                             if segment_started_at else None
@@ -1054,7 +1065,6 @@ class Pipeline(QObject):
                     self.signals.runtime_status.emit(
                         "Draft", "ok", f"Apple · {elapsed_ms / 1000:.1f}s"
                     )
-                    emit_if_current(draft)
                 except Exception as exc:
                     self.signals.runtime_status.emit(
                         "Draft", "error", f"Apple · {exc}"

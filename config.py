@@ -59,7 +59,7 @@ class Config:
         self.translation_workflow = configured_workflow
         configured_bridge = self._get("translation", "bridge_provider", "").strip().lower()
         if configured_bridge not in ("off", "groq"):
-            configured_bridge = "groq" if configured_workflow == "smart_hybrid" else "off"
+            configured_bridge = "off"
         self.bridge_provider = configured_bridge
         self.single_provider = self._get(
             "translation", "single_provider", ""

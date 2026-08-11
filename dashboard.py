@@ -446,7 +446,7 @@ class Dashboard(QWidget):
 
         runtime = QFrame()
         runtime.setObjectName("RuntimeStatus")
-        runtime.setMinimumHeight(164)
+        runtime.setMinimumHeight(194)
         runtime.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
         )
@@ -464,6 +464,7 @@ class Dashboard(QWidget):
         for row, (key, title) in enumerate((
             ("ASR", "ASR"),
             ("Draft", "Apple Draft（快速草稿）"),
+            ("Preview", "AI Preview（边讲边翻）"),
             ("Remote", "Remote Model（远程模型）"),
             ("Network", "Network（网络）"),
         )):
@@ -657,13 +658,15 @@ class Dashboard(QWidget):
                 model = "Apple on-device only"
             elif workflow == "smart_hybrid":
                 model = (
-                    "Apple → Groq/Cerebras → GLM Free → Gemini Paid"
+                    "Apple 草稿 → Groq/Cerebras 快速预览 → GLM/Gemini 边讲边翻 → 最终稿"
                     if bridge == "groq"
-                    else "Apple → GLM Free → Gemini Paid"
+                    else "Apple 草稿 → GLM/Gemini 边讲边翻 → 最终稿"
                 )
             else:
-                prefix = "Apple → Groq → " if bridge == "groq" else "Apple → "
-                model = prefix + self.model.currentText()
+                middle = "Groq/Cerebras 快速预览 → " if bridge == "groq" else ""
+                model = (
+                    f"Apple 草稿 → {middle}{self.model.currentText()} 边讲边翻 → 最终稿"
+                )
         else:
             model = config.model
         self.translation_summary.setText(model)
@@ -1263,6 +1266,20 @@ class Dashboard(QWidget):
         workflow_card_layout.addWidget(self.workflow_preview)
         layout.addRow(workflow_card)
 
+        self.progressive_preview_hint = QLabel(
+            "边讲边翻：老师还没说完整句子时，也会持续补出中文。\n"
+            "已适配 Smart Hybrid、Gemini、Groq、Cerebras 和 GLM；"
+            "OpenAI、OpenRouter、DeepSeek、SiliconFlow、Qwen-MT 也使用同一流程。\n"
+            "自定义模型需要支持边生成边返回；如果不支持，Apple 草稿和整句最终翻译仍可正常使用。"
+        )
+        self.progressive_preview_hint.setWordWrap(True)
+        self.progressive_preview_hint.setStyleSheet(
+            "color: #cdd6f4; background: rgba(245,169,199,18); "
+            "border: 1px solid rgba(245,169,199,45); border-radius: 9px; "
+            "padding: 10px 12px;"
+        )
+        layout.addRow("Live Preview（边讲边翻）:", self.progressive_preview_hint)
+
         self.bridge_card = QFrame()
         self.bridge_card.setObjectName("BridgeCard")
         self.bridge_card.setStyleSheet(
@@ -1317,6 +1334,32 @@ class Dashboard(QWidget):
         )
         bridge_card_layout.addLayout(self.bridge_layout)
         layout.addRow(self.bridge_card)
+
+        self.main_model_card = QFrame()
+        self.main_model_card.setObjectName("MainModelCard")
+        self.main_model_card.setStyleSheet(
+            "QFrame#MainModelCard { background: rgba(137,180,250,16); "
+            "border: 1px solid rgba(137,180,250,55); border-radius: 9px; }"
+            "QFrame#MainModelCard QLabel { background: transparent; border: none; }"
+        )
+        main_card_layout = QVBoxLayout(self.main_model_card)
+        main_card_layout.setContentsMargins(12, 10, 12, 10)
+        main_card_layout.setSpacing(7)
+        main_title = QLabel("Main Translation（主模型 · 最终翻译）")
+        main_title.setStyleSheet("font-weight: 700; color: #89b4fa;")
+        main_explanation = QLabel(
+            "负责边讲边翻和最终译文。Bridge 关闭时主模型仍会独立工作；"
+            "远程请求失败时继续保留 Apple 草稿。"
+        )
+        main_explanation.setWordWrap(True)
+        main_explanation.setStyleSheet("font-size: 12px; color: #bac2de;")
+        main_card_layout.addWidget(main_title)
+        main_card_layout.addWidget(main_explanation)
+        self.main_model_layout = QFormLayout()
+        self.main_model_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_model_layout.setVerticalSpacing(8)
+        main_card_layout.addLayout(self.main_model_layout)
+        layout.addRow(self.main_model_card)
 
         self.provider = ReadableComboBox()
         self.provider.addItems([
@@ -1386,20 +1429,20 @@ class Dashboard(QWidget):
             for name, profile in self.provider_profiles.items()
         }
         self.provider.currentTextChanged.connect(self._on_translation_provider_changed)
-        layout.addRow("Final Provider（最终翻译服务）:", self.provider)
+        self.main_model_layout.addRow("Final Provider（最终翻译服务）:", self.provider)
         
         self.api_key = QLineEdit(
             self.provider_keys.get(self.provider.currentText(), config.api_key)
         )
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key.setPlaceholderText("sk-...")
-        layout.addRow("API Key（主翻译服务密钥）:", self.api_key)
+        self.main_model_layout.addRow("API Key（主翻译服务密钥）:", self.api_key)
 
         self.base_url = QLineEdit(
             self.provider_urls.get(self.provider.currentText(), config.api_base_url or "")
         )
         self.base_url.setPlaceholderText("https://api.openai.com/v1")
-        layout.addRow("Base URL（API 接口地址）:", self.base_url)
+        self.main_model_layout.addRow("Base URL（API 接口地址）:", self.base_url)
         
         # Model selection with refresh button
         model_layout = QHBoxLayout()
@@ -1426,46 +1469,46 @@ class Dashboard(QWidget):
         model_layout.addWidget(self.refresh_models_btn)
         self.model_container = QWidget()
         self.model_container.setLayout(model_layout)
-        layout.addRow("Model（翻译模型）:", self.model_container)
+        self.main_model_layout.addRow("Model（翻译模型）:", self.model_container)
 
         self.gemini_api_key = QLineEdit(config.gemini_api_key)
         self.gemini_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.gemini_api_key.setPlaceholderText("Google AI Studio key")
-        layout.addRow("Gemini Key（付费主翻译密钥）:", self.gemini_api_key)
+        self.main_model_layout.addRow("Gemini Key（付费主翻译密钥）:", self.gemini_api_key)
 
         self.cloudflare_account_id = QLineEdit(config.cloudflare_account_id)
         self.cloudflare_account_id.setPlaceholderText("Cloudflare account ID")
-        layout.addRow("Cloudflare Account（免费池账户 ID）:", self.cloudflare_account_id)
+        self.main_model_layout.addRow("Cloudflare Account（免费池账户 ID）:", self.cloudflare_account_id)
 
         self.cloudflare_api_token = QLineEdit(config.cloudflare_api_token)
         self.cloudflare_api_token.setEchoMode(QLineEdit.EchoMode.Password)
         self.cloudflare_api_token.setPlaceholderText("Cloudflare API token")
-        layout.addRow("Cloudflare Token（免费池访问令牌）:", self.cloudflare_api_token)
+        self.main_model_layout.addRow("Cloudflare Token（免费池访问令牌）:", self.cloudflare_api_token)
 
         self.qwen_fallback_key = QLineEdit(config.qwen_mt_api_key)
         self.qwen_fallback_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.qwen_fallback_key.setPlaceholderText("Alibaba Cloud Qwen-MT key")
-        layout.addRow("Qwen-MT Key（付费兜底密钥）:", self.qwen_fallback_key)
+        self.main_model_layout.addRow("Qwen-MT Key（付费兜底密钥）:", self.qwen_fallback_key)
 
         self.qwen_fallback_url = QLineEdit(config.qwen_mt_base_url)
         self.qwen_fallback_url.setPlaceholderText(
             "https://{WorkspaceId}.maas.aliyuncs.com/compatible-mode/v1"
         )
-        layout.addRow("Qwen-MT URL（付费兜底接口）:", self.qwen_fallback_url)
+        self.main_model_layout.addRow("Qwen-MT URL（付费兜底接口）:", self.qwen_fallback_url)
 
         self.api_test_provider = ReadableComboBox()
         self.api_test_provider.setToolTip(
             "Single Model 默认测试当前表单中的 Provider、API Key、Base URL 和 Model；"
             "支持任意 OpenAI-compatible 服务。"
         )
-        layout.addRow("Test Target（测速对象）:", self.api_test_provider)
+        self.main_model_layout.addRow("Test Target（测速对象）:", self.api_test_provider)
 
         self.api_test_btn = QPushButton("Test API · 5 Requests（测试五条）")
         self.api_test_btn.setToolTip(
             "Send five fixed Computer Science/AI translation requests and measure "
             "first-token and total latency. This consumes five API requests."
         )
-        layout.addRow("API Speed Test（接口测速）:", self.api_test_btn)
+        self.main_model_layout.addRow("API Speed Test（接口测速）:", self.api_test_btn)
 
         self.api_test_results = QTextEdit()
         self.api_test_results.setReadOnly(True)
@@ -1473,7 +1516,7 @@ class Dashboard(QWidget):
         self.api_test_results.setPlaceholderText(
             "逐条显示首字延迟、总耗时和翻译结果；测试不会进入课堂字幕。"
         )
-        layout.addRow("Test Results（测速结果）:", self.api_test_results)
+        self.main_model_layout.addRow("Test Results（测速结果）:", self.api_test_results)
         self.api_test_controller = ApiTestController(self)
         self.api_test_btn.clicked.connect(self.api_test_controller.start)
         
@@ -1694,6 +1737,11 @@ class Dashboard(QWidget):
         smart = workflow == "smart_hybrid"
 
         self.bridge_card.setVisible(not apple_only)
+        self.main_model_card.setVisible(not apple_only)
+        self._set_translation_row_visible(
+            self.progressive_preview_hint,
+            not apple_only,
+        )
         self.bridge_provider.setEnabled(not apple_only)
         self._sync_bridge_toggle(not apple_only)
         for widget in (self.provider, self.api_key, self.base_url, self.model_container):
@@ -1724,15 +1772,17 @@ class Dashboard(QWidget):
             self.fast_translation_backend.setCurrentText("apple")
             preview = "Apple ASR → Apple Translation（完全本地 · 通用）"
         elif smart:
-            middle = "Groq/Cerebras → " if bridge == "groq" else ""
+            middle = "Groq/Cerebras 快速预览 → " if bridge == "groq" else ""
             preview = (
-                f"Apple → {middle}GLM Free → Gemini Paid\n"
+                f"Apple 草稿 → {middle}GLM/Gemini 边讲边翻 → 最终稿\n"
+                f"Bridge：{'已开启' if bridge == 'groq' else '关闭（默认）'} · 不会阻塞最终翻译\n"
                 "⚠ 开发者专用：依赖本项目固定的多 API 与额度规则，目前不通用"
             )
         else:
-            middle = "Groq/Cerebras → " if bridge == "groq" else ""
+            middle = "Groq/Cerebras 快速预览 → " if bridge == "groq" else ""
             preview = (
-                f"Apple 草稿 → {middle}{self.provider.currentText()} 最终稿\n"
+                f"Apple 草稿 → {middle}{self.provider.currentText()} 边讲边翻 → 最终稿\n"
+                f"Bridge：{'已开启' if bridge == 'groq' else '关闭（默认）'} · 不会阻塞最终翻译\n"
                 "✓ 通用流程：超时或 API 失败时继续保留 Apple 草稿"
             )
         missing = []
@@ -1768,6 +1818,8 @@ class Dashboard(QWidget):
     def _set_translation_row_visible(self, widget, visible):
         widget.setVisible(bool(visible))
         label = self.translation_layout.labelForField(widget)
+        if label is None and hasattr(self, "main_model_layout"):
+            label = self.main_model_layout.labelForField(widget)
         if label:
             label.setVisible(bool(visible))
 

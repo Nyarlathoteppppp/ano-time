@@ -34,6 +34,15 @@ class CourseGlossaryTests(unittest.TestCase):
         )
         self.assertEqual(corrections.apply("Ajailable"), "Ajailable")
 
+    def test_sml_asr_corrections_fix_observed_high_confidence_errors(self):
+        corrections = ASRCorrections.from_file("asr_corrections.tsv")
+        self.assertEqual(
+            corrections.apply(
+                "Discriminalysis uses a coverance matrix for load dimensional plots."
+            ),
+            "discriminant analysis uses a covariance matrix for low-dimensional plots.",
+        )
+
     def test_matches_longest_terms_without_substring_collisions(self):
         glossary = CourseGlossary(
             [

@@ -115,7 +115,7 @@ class Translator:
 
     def translate(self, text, use_context=True, on_update=None, remember_context=True,
                   draft_translation=None, context_text=None, deadline=None,
-                  usage_callback=None):
+                  usage_callback=None, failure_scope="final"):
         """
         Translates the given text. Returns the translated string.
         Uses previous transcription as context for better continuity.

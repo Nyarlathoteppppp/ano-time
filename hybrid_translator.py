@@ -326,6 +326,9 @@ class HybridTranslator:
         )
 
     def _translate(self, args, kwargs, allowed_names=None):
+        kwargs = dict(kwargs)
+        failure_scope = kwargs.pop("failure_scope", "final")
+        suppress_failure_cooldown = failure_scope == "preview"
         excluded = set()
         last_error = None
         estimated_tokens = self._estimate_tokens(args, kwargs)
@@ -433,7 +436,8 @@ class HybridTranslator:
                 self._report_status("warning", provider["name"], detail="timeout")
                 last_error = exc
                 self._record_actual_usage(provider, reservation_id, 0)
-                self._cool_down(provider, exc)
+                if not suppress_failure_cooldown:
+                    self._cool_down(provider, exc)
                 deadline = kwargs.get("deadline")
                 if deadline is not None and time.monotonic() >= deadline:
                     break
@@ -443,7 +447,8 @@ class HybridTranslator:
                 )
                 last_error = exc
                 self._record_actual_usage(provider, reservation_id, 0)
-                self._cool_down(provider, exc)
+                if not suppress_failure_cooldown:
+                    self._cool_down(provider, exc)
         if last_error:
             raise last_error
         raise RuntimeError("All hybrid translation providers are cooling down or quota-limited")

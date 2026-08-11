@@ -26,6 +26,9 @@ class DashboardWorkflowTests(unittest.TestCase):
         patcher = patch.object(ShortcutController, "start", lambda _self: None)
         patcher.start()
         self.addCleanup(patcher.stop)
+        bridge_default = patch.object(dashboard_module.config, "bridge_provider", "off")
+        bridge_default.start()
+        self.addCleanup(bridge_default.stop)
         self.dashboard = Dashboard()
         self.addCleanup(self.dashboard.close)
 
@@ -96,9 +99,8 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertEqual(
             self.dashboard.translation_workflow.currentData(), "smart_hybrid"
         )
-        self.assertEqual(self.dashboard.bridge_provider.currentData(), "groq")
-        self.assertIn("GLM Free", self.dashboard.workflow_preview.text())
-        self.assertIn("Gemini Paid", self.dashboard.workflow_preview.text())
+        self.assertEqual(self.dashboard.bridge_provider.currentData(), "off")
+        self.assertIn("GLM/Gemini", self.dashboard.workflow_preview.text())
         self.assertGreaterEqual(self.dashboard.workflow_preview.minimumHeight(), 48)
         self.assertTrue(self.dashboard.workflow_preview.wordWrap())
         self.assertTrue(self.dashboard.provider.isHidden())
@@ -108,7 +110,7 @@ class DashboardWorkflowTests(unittest.TestCase):
                 self.dashboard.api_test_provider.itemData(index)
                 for index in range(self.dashboard.api_test_provider.count())
             ],
-            ["groq", "cerebras", "gemini", "glm"],
+            ["gemini", "glm"],
         )
 
     def test_single_model_exposes_provider_and_optional_bridge(self):
@@ -124,6 +126,20 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertIn(
             "当前最终模型", self.dashboard.api_test_provider.itemText(0)
         )
+        self.assertNotIn(
+            "cerebras",
+            [
+                self.dashboard.api_test_provider.itemData(index)
+                for index in range(self.dashboard.api_test_provider.count())
+            ],
+        )
+        with patch.object(
+            dashboard_module.DashboardSettingsRepository,
+            "save_bridge_provider",
+        ):
+            self.dashboard.bridge_provider.setCurrentIndex(
+                self.dashboard.bridge_provider.findData("groq")
+            )
         self.assertIn(
             "cerebras",
             [
@@ -141,18 +157,33 @@ class DashboardWorkflowTests(unittest.TestCase):
 
     def test_single_model_credentials_are_grouped_in_visual_order(self):
         layout = self.dashboard.translation_layout
-        row = lambda widget: layout.getWidgetPosition(widget)[0]
+        main_layout = self.dashboard.main_model_layout
+        row = lambda widget: main_layout.getWidgetPosition(widget)[0]
         bridge_row = lambda widget: self.dashboard.bridge_layout.getWidgetPosition(widget)[0]
         self.assertLess(bridge_row(self.dashboard.bridge_provider), bridge_row(self.dashboard.groq_api_key))
         self.assertLess(
             bridge_row(self.dashboard.groq_api_key),
             bridge_row(self.dashboard.cerebras_api_key),
         )
-        self.assertLess(row(self.dashboard.bridge_card), row(self.dashboard.provider))
+        outer_row = lambda widget: layout.getWidgetPosition(widget)[0]
+        self.assertLess(
+            outer_row(self.dashboard.bridge_card),
+            outer_row(self.dashboard.main_model_card),
+        )
         self.assertLess(row(self.dashboard.provider), row(self.dashboard.api_key))
         self.assertLess(row(self.dashboard.api_key), row(self.dashboard.base_url))
         self.assertLess(row(self.dashboard.base_url), row(self.dashboard.model_container))
         self.assertLess(row(self.dashboard.model_container), row(self.dashboard.gemini_api_key))
+
+    def test_main_translation_fields_are_grouped_in_a_dedicated_card(self):
+        labels = " ".join(
+            label.text() for label in self.dashboard.main_model_card.findChildren(QLabel)
+        )
+        self.assertIn("主模型", labels)
+        self.assertIn("最终译文", labels)
+        self.assertIsNotNone(
+            self.dashboard.main_model_layout.labelForField(self.dashboard.gemini_api_key)
+        )
 
     def test_bridge_card_explains_optional_non_blocking_behavior(self):
         labels = " ".join(
@@ -160,9 +191,13 @@ class DashboardWorkflowTests(unittest.TestCase):
         )
         self.assertIn("可选", labels)
         self.assertIn("不会阻塞", labels)
-        self.dashboard.bridge_provider.setCurrentIndex(
-            self.dashboard.bridge_provider.findData("off")
-        )
+        with patch.object(
+            dashboard_module.DashboardSettingsRepository,
+            "save_bridge_provider",
+        ):
+            self.dashboard.bridge_provider.setCurrentIndex(
+                self.dashboard.bridge_provider.findData("off")
+            )
         self.assertTrue(self.dashboard.groq_api_key.isHidden())
         self.assertTrue(self.dashboard.cerebras_api_key.isHidden())
 
@@ -177,16 +212,16 @@ class DashboardWorkflowTests(unittest.TestCase):
             "save_bridge_provider",
         ) as save_bridge:
             self.dashboard.bridge_toggle.click()
-            self.assertEqual(self.dashboard.bridge_provider.currentData(), "off")
-            self.assertEqual(self.dashboard.bridge_toggle.text(), "Bridge OFF")
-            self.assertFalse(self.dashboard.bridge_toggle.isChecked())
-            save_bridge.assert_called_with("off")
-
-            self.dashboard.bridge_toggle.click()
             self.assertEqual(self.dashboard.bridge_provider.currentData(), "groq")
             self.assertEqual(self.dashboard.bridge_toggle.text(), "Bridge ON")
             self.assertTrue(self.dashboard.bridge_toggle.isChecked())
             save_bridge.assert_called_with("groq")
+
+            self.dashboard.bridge_toggle.click()
+            self.assertEqual(self.dashboard.bridge_provider.currentData(), "off")
+            self.assertEqual(self.dashboard.bridge_toggle.text(), "Bridge OFF")
+            self.assertFalse(self.dashboard.bridge_toggle.isChecked())
+            save_bridge.assert_called_with("off")
 
     def test_save_shows_global_success_feedback(self):
         with (
@@ -232,10 +267,30 @@ class DashboardWorkflowTests(unittest.TestCase):
     def test_workflow_preview_explains_portability_and_failure_behavior(self):
         self._choose_workflow("smart_hybrid")
         self.assertIn("目前不通用", self.dashboard.workflow_preview.text())
+        self.assertIn("Bridge：关闭（默认）", self.dashboard.workflow_preview.text())
+        self.assertIn("边讲边翻", self.dashboard.workflow_preview.text())
         self._choose_workflow("single_model")
         preview = self.dashboard.workflow_preview.text()
         self.assertIn("通用流程", preview)
         self.assertIn("保留 Apple 草稿", preview)
+        self.assertIn("最终稿", preview)
+
+    def test_progressive_preview_hint_is_plain_and_lists_supported_services(self):
+        self._choose_workflow("single_model")
+        hint = self.dashboard.progressive_preview_hint.text()
+        self.assertIn("老师还没说完整句子", hint)
+        self.assertIn("Gemini", hint)
+        self.assertIn("自定义模型", hint)
+        self.assertNotIn("stream=true", hint)
+        self.assertFalse(self.dashboard.progressive_preview_hint.isHidden())
+
+        self._choose_workflow("apple_only")
+        self.assertTrue(self.dashboard.progressive_preview_hint.isHidden())
+
+    def test_home_exposes_progressive_preview_runtime_status(self):
+        self.assertIn("Preview", self.dashboard.runtime_labels)
+        self.dashboard.update_runtime_status("Preview", "ok", "ON · 0.8s")
+        self.assertEqual(self.dashboard.runtime_labels["Preview"].text(), "ON · 0.8s")
 
     def test_single_model_offers_popular_and_custom_openai_compatible_providers(self):
         providers = [
