@@ -56,7 +56,7 @@ class LogItem(QFrame):
         # Style
         self.setStyleSheet("background-color: transparent;")
         self.layout = QVBoxLayout()
-        self.layout.setContentsMargins(0, 0, 0, 15) # Bottom margin
+        self.layout.setContentsMargins(0, 0, 0, 15)
         self.layout.setSpacing(2)
         self.setLayout(self.layout)
         
@@ -321,6 +321,8 @@ class OverlayWindow(QWidget):
         self._content_reflow_timer = QTimer(self)
         self._content_reflow_timer.setSingleShot(True)
         self._content_reflow_timer.timeout.connect(self._reflow_content)
+        self._follow_scroll_tail = True
+        self._programmatic_scroll = False
         self._topmost_timer = QTimer(self)
         self._topmost_timer.setInterval(1000)
         self._topmost_timer.timeout.connect(
@@ -559,6 +561,10 @@ class OverlayWindow(QWidget):
         self.container.setLayout(self.container_layout)
         
         self.scroll_area.setWidget(self.container)
+        scrollbar = self.scroll_area.verticalScrollBar()
+        scrollbar.actionTriggered.connect(self._on_scroll_action)
+        scrollbar.sliderMoved.connect(self._on_scroll_position_changed)
+        scrollbar.rangeChanged.connect(self._on_scroll_range_changed)
         self.root_layout.addWidget(self.scroll_area)
         
         # Bottom Control Bar (Resize Grip + Save Button)
@@ -816,6 +822,28 @@ class OverlayWindow(QWidget):
         # The scroll range is finalized one layout pass later on macOS/Qt.
         QTimer.singleShot(0, self._scroll_to_bottom)
 
+    def _on_scroll_position_changed(self, value):
+        if self._programmatic_scroll:
+            return
+        scrollbar = self.scroll_area.verticalScrollBar()
+        self._follow_scroll_tail = value >= max(0, scrollbar.maximum() - 24)
+
+    def _on_scroll_action(self, _action):
+        # actionTriggered arrives before Qt applies the new scrollbar value.
+        QTimer.singleShot(
+            0,
+            lambda: self._on_scroll_position_changed(
+                self.scroll_area.verticalScrollBar().value()
+            ),
+        )
+
+    def _on_scroll_range_changed(self, _minimum, _maximum):
+        # A long draft can become much shorter when the final model replaces it.
+        # Keep tail-following users attached to valid content after that reflow,
+        # but leave manually reviewed history exactly where it is.
+        if self._follow_scroll_tail:
+            QTimer.singleShot(0, self._scroll_to_bottom)
+
     def _apply_item_visibility(self):
         if not self.items:
             return
@@ -908,8 +936,14 @@ class OverlayWindow(QWidget):
         self._apply_item_visibility()
 
     def _scroll_to_bottom(self):
+        if not self._follow_scroll_tail:
+            return
         sb = self.scroll_area.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        self._programmatic_scroll = True
+        try:
+            sb.setValue(sb.maximum())
+        finally:
+            self._programmatic_scroll = False
 
     def contextMenuEvent(self, event):
         menu = QMenu(self)

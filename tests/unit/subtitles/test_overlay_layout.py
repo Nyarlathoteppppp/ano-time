@@ -1,11 +1,12 @@
 import os
 import unittest
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QScrollBar
 
-from overlay_window import LogItem
+from overlay_window import LogItem, OverlayWindow
 
 
 class OverlayLayoutTests(unittest.TestCase):
@@ -26,6 +27,7 @@ class OverlayLayoutTests(unittest.TestCase):
         item.resize(290, 100)
         item.refresh_layout()
         margins = item.layout.contentsMargins()
+        self.assertEqual(margins.bottom(), 15)
         available = item.width() - margins.left() - margins.right()
 
         self.assertEqual(
@@ -39,6 +41,26 @@ class OverlayLayoutTests(unittest.TestCase):
             + max(0, item.layout.spacing())
         )
         self.assertEqual(item.height(), required)
+
+    def test_manual_scroll_disables_tail_follow_until_user_returns_to_bottom(self):
+        scrollbar = QScrollBar()
+        scrollbar.setRange(0, 100)
+        view = SimpleNamespace(
+            _programmatic_scroll=False,
+            _follow_scroll_tail=True,
+            scroll_area=SimpleNamespace(verticalScrollBar=lambda: scrollbar),
+        )
+
+        OverlayWindow._on_scroll_position_changed(view, 30)
+        self.assertFalse(view._follow_scroll_tail)
+        scrollbar.setValue(30)
+        OverlayWindow._scroll_to_bottom(view)
+        self.assertEqual(scrollbar.value(), 30)
+
+        OverlayWindow._on_scroll_position_changed(view, 100)
+        self.assertTrue(view._follow_scroll_tail)
+        OverlayWindow._scroll_to_bottom(view)
+        self.assertEqual(scrollbar.value(), 100)
 
 
 if __name__ == "__main__":
