@@ -8,7 +8,7 @@ QWidget#DashboardRoot {
     background-color: rgba(255, 184, 211, 77);
 }
 QWidget#DashboardRoot[fullscreenFallback="true"] {
-    background-color: rgba(28, 30, 39, 252);
+    background-color: rgba(255, 184, 211, 77);
 }
 QTabWidget::pane {
     border: 1px solid rgba(255, 214, 229, 72);
