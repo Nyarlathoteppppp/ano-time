@@ -13,6 +13,13 @@ class ProviderProfileRepository:
 
     VERSION = 1
 
+    @staticmethod
+    def _nonnegative_float(value):
+        try:
+            return max(0.0, float(value or 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
     def __init__(self, path, keychain=None):
         self.path = path
         self.keychain = keychain or default_keychain
@@ -48,6 +55,12 @@ class ProviderProfileRepository:
                     str(item) for item in models
                     if isinstance(item, str) and item.strip()
                 ],
+                "input_price_per_million": self._nonnegative_float(
+                    raw.get("input_price_per_million")
+                ),
+                "output_price_per_million": self._nonnegative_float(
+                    raw.get("output_price_per_million")
+                ),
             }
         return loaded
 
@@ -79,6 +92,12 @@ class ProviderProfileRepository:
                 "base_url": str(profile.get("base_url", "")),
                 "selected_model": str(profile.get("selected_model", "")),
                 "custom_models": custom_models,
+                "input_price_per_million": self._nonnegative_float(
+                    profile.get("input_price_per_million")
+                ),
+                "output_price_per_million": self._nonnegative_float(
+                    profile.get("output_price_per_million")
+                ),
             }
 
         directory = os.path.dirname(self.path) or "."

@@ -1,5 +1,6 @@
 from hybrid_translator import HybridTranslator
 from translator import Translator
+from translation_usage import MeteredTranslator
 
 from .contracts import HybridTranslatorView, TranslationWorkflow
 from .providers import bridge_providers, translator_options
@@ -37,11 +38,14 @@ def build_single_model(config, usage_path, status_callback=None):
     base_url, api_key, model, label = _single_endpoint(config)
     final = None
     if base_url and api_key and model:
-        final = Translator(
+        final = MeteredTranslator(Translator(
             base_url=base_url,
             api_key=api_key,
             model=model,
             **final_options,
+        ), label or config.single_provider,
+            getattr(config, "input_price_per_million", 0.0),
+            getattr(config, "output_price_per_million", 0.0),
         )
 
     bridge_view = None

@@ -7,6 +7,8 @@ from datetime import date, datetime
 from math import ceil
 from zoneinfo import ZoneInfo
 
+from translation_usage import session_usage_meter
+
 
 class HybridTranslator:
     """Round-robin translators with quota-aware, no-retry failover."""
@@ -28,6 +30,9 @@ class HybridTranslator:
             item.setdefault("terminal_fallback", False)
             item.setdefault("fallback_reserve_seconds", 0.0)
             item.setdefault("failure_cooldown_seconds", None)
+            item.setdefault("input_price_per_million", 0.0)
+            item.setdefault("output_price_per_million", 0.0)
+            item.setdefault("pricing_known", False)
             item["cooldown_until"] = 0.0
             item["daily_block_date"] = None
             item["recent_attempts"] = deque()
@@ -182,6 +187,14 @@ class HybridTranslator:
         else:
             actual_tokens = int(usage or 0)
             actual_neurons = 0.0
+        if isinstance(usage, dict) and actual_tokens:
+            session_usage_meter.record(
+                provider["name"],
+                usage,
+                provider.get("input_price_per_million", 0.0),
+                provider.get("output_price_per_million", 0.0),
+                provider.get("pricing_known", False),
+            )
         with self._lock:
             updated = deque()
             for event_time, tokens, event_id in provider["recent_tokens"]:

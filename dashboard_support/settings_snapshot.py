@@ -32,6 +32,8 @@ class TranslationSettings:
     domain: str
     course_topic: str
     fast_backend: str
+    input_price_per_million: float = 0.0
+    output_price_per_million: float = 0.0
 
 
 @dataclass(frozen=True)

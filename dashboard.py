@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTabWidget, QGridLayout,
                              QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
                              QMessageBox, QTextEdit, QDialog, QLayout, QInputDialog)
-from PyQt6.QtWidgets import QCheckBox
+from PyQt6.QtWidgets import QCheckBox, QDoubleSpinBox
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap
 import sys
@@ -36,6 +36,7 @@ from dashboard_support.settings_snapshot import (
     TranslationSettings,
 )
 from dashboard_support.panels import AsrPanel, AudioPanel, DEFAULT_AUDIO_SETTINGS
+from translation_usage import session_usage_meter
 
 try:
     from ctypes import c_void_p
@@ -263,6 +264,7 @@ class Dashboard(QWidget):
             os.path.join(os.path.dirname(__file__), "provider_profiles.json")
         )
         self.provider_profiles = self.provider_profile_repository.load()
+        session_usage_meter.reset()
         self.setWindowTitle("Anotime - Control Center")
         self.setMinimumSize(900, 600)
         self.setStyleSheet(STYLESHEET)
@@ -446,7 +448,7 @@ class Dashboard(QWidget):
 
         runtime = QFrame()
         runtime.setObjectName("RuntimeStatus")
-        runtime.setMinimumHeight(194)
+        runtime.setMinimumHeight(224)
         runtime.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
         )
@@ -467,6 +469,7 @@ class Dashboard(QWidget):
             ("Preview", "AI Preview（边讲边翻）"),
             ("Remote", "Remote Model（远程模型）"),
             ("Network", "Network（网络）"),
+            ("Usage", "API Usage（本次费用）"),
         )):
             runtime_layout.setRowMinimumHeight(row, 30)
             title_label = QLabel(title)
@@ -478,6 +481,10 @@ class Dashboard(QWidget):
             runtime_layout.addWidget(value, row, 1)
             self.runtime_labels[key] = value
         layout.addWidget(runtime)
+        self.usage_timer = QTimer(self)
+        self.usage_timer.setInterval(1000)
+        self.usage_timer.timeout.connect(self._refresh_usage_status)
+        self.usage_timer.start()
 
         display_row = QHBoxLayout()
         display_row.addWidget(QLabel("Subtitle Mode（字幕显示模式）:"))
@@ -628,6 +635,24 @@ class Dashboard(QWidget):
             f"color: {colors.get(status, '#cdd6f4')}; font-weight: 600;"
         )
 
+    def _refresh_usage_status(self):
+        if "Usage" not in getattr(self, "runtime_labels", {}):
+            return
+        usage = session_usage_meter.snapshot()
+        if not usage["requests"]:
+            self.update_runtime_status("Usage", "warning", "Waiting for API usage")
+            return
+        hourly = usage["hourly_cost_usd"]
+        hourly_text = "estimating" if hourly is None else f"~US${hourly:.3f}/h"
+        detail = (
+            f"US${usage['cost_usd']:.4f} · {hourly_text} · "
+            f"{usage['requests']} req · in {usage['prompt_tokens']:,} / "
+            f"out {usage['completion_tokens']:,}"
+        )
+        if usage["unpriced_requests"]:
+            detail += f" · {usage['unpriced_requests']} unpriced"
+        self.update_runtime_status("Usage", "ok", detail)
+
     def update_home_summary(self, *_):
         if not hasattr(self, "audio_summary"):
             return
@@ -698,6 +723,8 @@ class Dashboard(QWidget):
             self.silence_thresh,
             self.silence_dur,
             self.update_interval,
+            self.input_price,
+            self.output_price,
         ):
             spinbox.valueChanged.connect(self._mark_settings_dirty)
 
@@ -1428,6 +1455,17 @@ class Dashboard(QWidget):
             name: list(profile.get("custom_models", ()))
             for name, profile in self.provider_profiles.items()
         }
+        self.provider_prices = {
+            name: (
+                float(profile.get("input_price_per_million", 0.0) or 0.0),
+                float(profile.get("output_price_per_million", 0.0) or 0.0),
+            )
+            for name, profile in self.provider_profiles.items()
+        }
+        self.provider_prices.setdefault(
+            configured_single_provider,
+            (config.input_price_per_million, config.output_price_per_million),
+        )
         self.provider.currentTextChanged.connect(self._on_translation_provider_changed)
         self.main_model_layout.addRow("Final Provider（最终翻译服务）:", self.provider)
         
@@ -1470,6 +1508,30 @@ class Dashboard(QWidget):
         self.model_container = QWidget()
         self.model_container.setLayout(model_layout)
         self.main_model_layout.addRow("Model（翻译模型）:", self.model_container)
+
+        self.input_price = QDoubleSpinBox()
+        self.input_price.setRange(0.0, 10000.0)
+        self.input_price.setDecimals(4)
+        self.input_price.setSuffix(" USD / 1M tokens")
+        self.input_price.setMinimumWidth(360)
+        self.input_price.setValue(config.input_price_per_million)
+        self.input_price.setToolTip("服务商公布的每百万输入 Token 单价；自定义服务请自行填写。")
+        self.main_model_layout.addRow("Input Price（输入单价）:", self.input_price)
+
+        self.output_price = QDoubleSpinBox()
+        self.output_price.setRange(0.0, 10000.0)
+        self.output_price.setDecimals(4)
+        self.output_price.setSuffix(" USD / 1M tokens")
+        self.output_price.setMinimumWidth(360)
+        self.output_price.setValue(config.output_price_per_million)
+        self.output_price.setToolTip("服务商公布的每百万输出 Token 单价；留空/0 时只统计 Token。")
+        self.main_model_layout.addRow("Output Price（输出单价）:", self.output_price)
+        self.pricing_hint = QLabel(
+            "按服务商账单填写输入/输出单价；0 表示价格未知，只统计 Token，不猜费用。"
+        )
+        self.pricing_hint.setWordWrap(True)
+        self.pricing_hint.setStyleSheet("font-size: 12px; color: #bac2de;")
+        self.main_model_layout.addRow("Cost Setup（费用计算）:", self.pricing_hint)
 
         self.gemini_api_key = QLineEdit(config.gemini_api_key)
         self.gemini_api_key.setEchoMode(QLineEdit.EchoMode.Password)
@@ -1618,6 +1680,10 @@ class Dashboard(QWidget):
             self.provider_selected_models[self._current_provider] = (
                 self.model.currentText().strip()
             )
+            if hasattr(self, "input_price"):
+                self.provider_prices[self._current_provider] = (
+                    self.input_price.value(), self.output_price.value()
+                )
             self.api_key.setText(self.provider_keys.get(provider, ""))
         self._current_provider = provider
         if hasattr(self, "base_url"):
@@ -1625,6 +1691,11 @@ class Dashboard(QWidget):
             self.base_url.setEnabled(True)
             self.model.setEnabled(True)
             self.refresh_models_btn.setEnabled(True)
+            input_price, output_price = self.provider_prices.get(
+                provider, (0.0, 0.0)
+            )
+            self.input_price.setValue(input_price)
+            self.output_price.setValue(output_price)
         if provider == "DeepSeek Official":
             self.base_url.setText("https://api.deepseek.com")
         elif provider == "SiliconFlow":
@@ -1686,12 +1757,17 @@ class Dashboard(QWidget):
         self.provider_keys[current] = self.api_key.text()
         self.provider_urls[current] = self.base_url.text()
         self.provider_selected_models[current] = self.model.currentText().strip()
+        self.provider_prices[current] = (
+            self.input_price.value(), self.output_price.value()
+        )
         return {
             current: {
                 "api_key": self.provider_keys.get(current, ""),
                 "base_url": self.provider_urls.get(current, ""),
                 "selected_model": self.provider_selected_models.get(current, ""),
                 "custom_models": self.provider_custom_models.get(current, []),
+                "input_price_per_million": self.provider_prices[current][0],
+                "output_price_per_million": self.provider_prices[current][1],
             }
         }
 
@@ -1744,7 +1820,10 @@ class Dashboard(QWidget):
         )
         self.bridge_provider.setEnabled(not apple_only)
         self._sync_bridge_toggle(not apple_only)
-        for widget in (self.provider, self.api_key, self.base_url, self.model_container):
+        for widget in (
+            self.provider, self.api_key, self.base_url, self.model_container,
+            self.input_price, self.output_price, self.pricing_hint,
+        ):
             self._set_translation_row_visible(widget, single)
         bridge_key_visible = not apple_only and bridge == "groq"
         self.groq_api_key.setVisible(bridge_key_visible)
@@ -1935,6 +2014,8 @@ class Dashboard(QWidget):
                     if workflow == "apple_only"
                     else self.fast_translation_backend.currentText()
                 ),
+                input_price_per_million=self.input_price.value(),
+                output_price_per_million=self.output_price.value(),
             ),
             providers=ProviderSettings(
                 deepseek_api_key=self.provider_keys.get("DeepSeek Official", ""),

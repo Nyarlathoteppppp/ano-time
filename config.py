@@ -30,6 +30,12 @@ class Config:
         
         # Translation settings
         self.model = self._get("translation", "model", "qwen-mt-flash")
+        self.input_price_per_million = self._getfloat(
+            "translation", "input_price_per_million", 0.0
+        )
+        self.output_price_per_million = self._getfloat(
+            "translation", "output_price_per_million", 0.0
+        )
         self.target_lang = self._get("translation", "target_lang", "Chinese")
         self.translation_domain = self._get(
             "translation",

@@ -30,6 +30,8 @@ class ProviderProfileRepositoryTests(unittest.TestCase):
                     "base_url": "https://api.openai.com/v1",
                     "selected_model": "my-model",
                     "custom_models": ["my-model", "my-model", "other-model"],
+                    "input_price_per_million": 0.3,
+                    "output_price_per_million": 2.5,
                 }
             })
 
@@ -37,6 +39,8 @@ class ProviderProfileRepositoryTests(unittest.TestCase):
             self.assertEqual(loaded["api_key"], "secret")
             self.assertEqual(loaded["selected_model"], "my-model")
             self.assertEqual(loaded["custom_models"], ["my-model", "other-model"])
+            self.assertEqual(loaded["input_price_per_million"], 0.3)
+            self.assertEqual(loaded["output_price_per_million"], 2.5)
             self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
 
             with open(path, "r", encoding="utf-8") as handle:

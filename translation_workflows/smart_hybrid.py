@@ -1,5 +1,6 @@
 from hybrid_translator import HybridTranslator
 from translator import Translator
+from translation_usage import MeteredTranslator
 
 from .contracts import HybridTranslatorView, TranslationWorkflow
 from .providers import bridge_providers, translator_options
@@ -31,6 +32,7 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
             "neuron_output_per_million": 36400,
             "daily_timezone": "UTC",
             "priority": 1,
+            "pricing_known": True,
         })
     if config.gemini_api_key:
         gemini_warmup = Translator(
@@ -49,6 +51,9 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
             "terminal_fallback": True,
             "fallback_reserve_seconds": 1.8,
             "failure_cooldown_seconds": 3.0,
+            "input_price_per_million": 0.30,
+            "output_price_per_million": 2.50,
+            "pricing_known": True,
         })
     bridge_names = {provider["name"] for provider in bridges}
     final_names = {provider["name"] for provider in providers} - bridge_names
@@ -75,5 +80,13 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
         final_label="GLM Free → Gemini Paid",
         bridge_label="Groq → Cerebras" if bridge_view else "Off",
         final_status_managed=True,
-        warmup_translator=gemini_warmup,
+        warmup_translator=(
+            MeteredTranslator(
+                gemini_warmup,
+                "Gemini 3.5 Flash-Lite Paid",
+                0.30,
+                2.50,
+            )
+            if gemini_warmup is not None else None
+        ),
     )

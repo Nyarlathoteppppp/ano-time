@@ -88,6 +88,14 @@ class DashboardSettingsRepository:
             )
             parser.set("api", "base_url", translation.base_url)
             parser.set("translation", "model", translation.model)
+            parser.set(
+                "translation", "input_price_per_million",
+                str(translation.input_price_per_million),
+            )
+            parser.set(
+                "translation", "output_price_per_million",
+                str(translation.output_price_per_million),
+            )
         parser.set("translation", "target_lang", translation.target_language)
         parser.set("translation", "domain", translation.domain)
         parser.set("translation", "course_topic", translation.course_topic)
