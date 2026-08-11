@@ -21,6 +21,37 @@ class ConfigContractTests(unittest.TestCase):
         self.assertEqual(loaded.api_key, "")
         self.assertIsNone(loaded.device_index)
         self.assertTrue(loaded.auto_save_transcripts)
+        self.assertEqual(loaded.single_streaming_mode, "auto")
+
+    def test_saved_single_endpoint_overrides_openai_environment_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.ini")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "[api]\n"
+                    "base_url = https://saved.example/v1\n"
+                    "api_key = saved-key\n"
+                )
+            with (
+                patch.dict(os.environ, {
+                    "OPENAI_BASE_URL": "https://environment.example/v1",
+                    "OPENAI_API_KEY": "environment-key",
+                }),
+                patch.object(
+                    config_module.keychain,
+                    "resolve",
+                    side_effect=lambda value, _account: value,
+                ),
+                patch.object(
+                    config_module,
+                    "migrate_plaintext_secrets",
+                    return_value=False,
+                ),
+            ):
+                loaded = config_module.Config(path)
+
+        self.assertEqual(loaded.api_base_url, "https://saved.example/v1")
+        self.assertEqual(loaded.api_key, "saved-key")
 
     def test_auto_audio_uses_macos_default_instead_of_blackhole(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -4,6 +4,7 @@ from translation_usage import MeteredTranslator
 
 from .contracts import HybridTranslatorView, TranslationWorkflow
 from .providers import bridge_providers, translator_options
+from .single_streaming import SingleModelStreamingAdapter
 
 
 def _single_endpoint(config):
@@ -12,8 +13,8 @@ def _single_endpoint(config):
         return (
             config.qwen_mt_base_url,
             config.qwen_mt_api_key,
-            "qwen-mt-flash",
-            "Qwen-MT Flash",
+            config.model or "qwen-mt-flash",
+            config.model or "Qwen-MT Flash",
         )
     if provider == "DeepSeek Official":
         return (
@@ -38,7 +39,7 @@ def build_single_model(config, usage_path, status_callback=None):
     base_url, api_key, model, label = _single_endpoint(config)
     final = None
     if base_url and api_key and model:
-        final = MeteredTranslator(Translator(
+        metered = MeteredTranslator(Translator(
             base_url=base_url,
             api_key=api_key,
             model=model,
@@ -46,6 +47,10 @@ def build_single_model(config, usage_path, status_callback=None):
         ), label or config.single_provider,
             getattr(config, "input_price_per_million", 0.0),
             getattr(config, "output_price_per_million", 0.0),
+        )
+        final = SingleModelStreamingAdapter(
+            metered,
+            getattr(config, "single_streaming_mode", "auto"),
         )
 
     bridge_view = None

@@ -38,6 +38,7 @@ def workflow_config(**overrides):
         "model": "custom-model",
         "deepseek_api_key": "deepseek-key",
         "siliconflow_api_key": "siliconflow-key",
+        "single_streaming_mode": "auto",
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -140,6 +141,7 @@ class TranslationWorkflowTests(unittest.TestCase):
             workflow_config(
                 translation_workflow="single_model",
                 single_provider="Alibaba Cloud Qwen-MT",
+                model="qwen-mt-flash",
             )
         )
         self.assertEqual(workflow.name, "single_model")
@@ -150,6 +152,21 @@ class TranslationWorkflowTests(unittest.TestCase):
             {"Groq GPT-OSS 20B", "Cerebras GPT-OSS 120B"},
         )
         self.assertFalse(workflow.final_status_managed)
+
+    def test_single_qwen_uses_the_model_selected_in_control_center(self):
+        workflow = self._build(
+            workflow_config(
+                translation_workflow="single_model",
+                single_provider="Alibaba Cloud Qwen-MT",
+                model="qwen-mt-plus",
+                bridge_provider="off",
+            )
+        )
+        self.assertEqual(workflow.final_translator.model, "qwen-mt-plus")
+
+    def test_smart_hybrid_does_not_use_single_streaming_adapter(self):
+        workflow = self._build(workflow_config(single_streaming_mode="off"))
+        self.assertFalse(hasattr(workflow.final_translator, "mode"))
 
     def test_apple_only_initializes_no_remote_clients(self):
         workflow = self._build(

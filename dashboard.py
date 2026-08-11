@@ -264,6 +264,8 @@ class Dashboard(QWidget):
             os.path.join(os.path.dirname(__file__), "provider_profiles.json")
         )
         self.provider_profiles = self.provider_profile_repository.load()
+        self._touched_provider_profiles = set()
+        self._switching_provider = False
         session_usage_meter.set_enabled(config.usage_tracking_enabled)
         session_usage_meter.reset()
         self.setWindowTitle("Anotime - Control Center")
@@ -746,6 +748,7 @@ class Dashboard(QWidget):
             self.model,
             self.target_lang,
             self.fast_translation_backend,
+            self.single_streaming_mode,
         )
         for combo in combos:
             combo.currentTextChanged.connect(self._mark_settings_dirty)
@@ -774,6 +777,20 @@ class Dashboard(QWidget):
             self.current_course_topic,
         ):
             field.textChanged.connect(self._mark_settings_dirty)
+
+        for field in (self.api_key, self.base_url):
+            field.textChanged.connect(
+                self._mark_current_provider_profile_touched
+            )
+        self.model.currentTextChanged.connect(
+            self._mark_current_provider_profile_touched
+        )
+        self.input_price.valueChanged.connect(
+            self._mark_current_provider_profile_touched
+        )
+        self.output_price.valueChanged.connect(
+            self._mark_current_provider_profile_touched
+        )
 
         self.diagnostics_checkbox.toggled.connect(self._mark_settings_dirty)
         self.transcript_recording_checkbox.toggled.connect(
@@ -1541,6 +1558,22 @@ class Dashboard(QWidget):
         self.model_container.setLayout(model_layout)
         self.main_model_layout.addRow("Model（翻译模型）:", self.model_container)
 
+        self.single_streaming_mode = ReadableComboBox()
+        self.single_streaming_mode.addItem("Auto（自动兼容，推荐）", "auto")
+        self.single_streaming_mode.addItem("On（强制实时预览）", "on")
+        self.single_streaming_mode.addItem("Off（只请求完整译文）", "off")
+        streaming_index = self.single_streaming_mode.findData(
+            config.single_streaming_mode
+        )
+        self.single_streaming_mode.setCurrentIndex(max(0, streaming_index))
+        self.single_streaming_mode.setToolTip(
+            "Auto 会优先实时返回；若服务明确不支持流式输出，"
+            "本次运行后续请求自动改用完整译文。只影响 Single Model。"
+        )
+        self.main_model_layout.addRow(
+            "Live Output（实时返回）:", self.single_streaming_mode
+        )
+
         self.input_price = QDoubleSpinBox()
         self.input_price.setRange(0.0, 10000.0)
         self.input_price.setDecimals(4)
@@ -1698,41 +1731,50 @@ class Dashboard(QWidget):
         )
 
     def _on_translation_provider_changed(self, provider):
-        if hasattr(self, "api_key"):
-            self.provider_keys[self._current_provider] = self.api_key.text()
-            self.provider_urls[self._current_provider] = self.base_url.text()
-            self.provider_selected_models[self._current_provider] = (
-                self.model.currentText().strip()
-            )
-            if hasattr(self, "input_price"):
-                self.provider_prices[self._current_provider] = (
-                    self.input_price.value(), self.output_price.value()
-                )
-            self.api_key.setText(self.provider_keys.get(provider, ""))
+        self._remember_provider_form(self._current_provider)
         self._current_provider = provider
-        if hasattr(self, "base_url"):
-            self.api_key.setEnabled(True)
-            self.base_url.setEnabled(True)
-            self.model.setEnabled(True)
-            self.refresh_models_btn.setEnabled(True)
-            input_price, output_price = self.provider_prices.get(
-                provider, (0.0, 0.0)
-            )
-            self.input_price.setValue(input_price)
-            self.output_price.setValue(output_price)
-        if provider == "DeepSeek Official":
-            self.base_url.setText("https://api.deepseek.com")
-        elif provider == "SiliconFlow":
-            self.base_url.setText("https://api.siliconflow.cn/v1")
-        elif provider == "Alibaba Cloud Qwen-MT":
-            self.base_url.setText(self.provider_urls.get(provider, ""))
-            self.base_url.setPlaceholderText(
-                "https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
-            )
-        else:
-            self.base_url.setText(self.provider_urls.get(provider, self.base_url.text()))
-        self._populate_provider_models(provider)
+        self._switching_provider = True
+        try:
+            if hasattr(self, "base_url"):
+                self.api_key.setText(self.provider_keys.get(provider, ""))
+                self.api_key.setEnabled(True)
+                self.base_url.setEnabled(True)
+                self.model.setEnabled(True)
+                self.refresh_models_btn.setEnabled(True)
+                input_price, output_price = self.provider_prices.get(
+                    provider, (0.0, 0.0)
+                )
+                self.input_price.setValue(input_price)
+                self.output_price.setValue(output_price)
+            if provider == "DeepSeek Official":
+                self.base_url.setText("https://api.deepseek.com")
+            elif provider == "SiliconFlow":
+                self.base_url.setText("https://api.siliconflow.cn/v1")
+            elif provider == "Alibaba Cloud Qwen-MT":
+                self.base_url.setText(self.provider_urls.get(provider, ""))
+                self.base_url.setPlaceholderText(
+                    "https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+                )
+            else:
+                self.base_url.setText(
+                    self.provider_urls.get(provider, self.base_url.text())
+                )
+            self._populate_provider_models(provider)
+        finally:
+            self._switching_provider = False
         self._on_translation_workflow_changed()
+
+    def _remember_provider_form(self, provider):
+        """Snapshot one visible profile before the selector changes it."""
+        if not provider or not hasattr(self, "api_key"):
+            return
+        self.provider_keys[provider] = self.api_key.text()
+        self.provider_urls[provider] = self.base_url.text()
+        self.provider_selected_models[provider] = self.model.currentText().strip()
+        if hasattr(self, "input_price"):
+            self.provider_prices[provider] = (
+                self.input_price.value(), self.output_price.value()
+            )
 
     def _populate_provider_models(self, provider):
         """Expose useful presets without restricting manually entered model IDs."""
@@ -1772,27 +1814,49 @@ class Dashboard(QWidget):
         if model_id not in custom_models:
             custom_models.append(model_id)
         self.model.setCurrentText(model_id)
+        self._touched_provider_profiles.add(self.provider.currentText())
         self._mark_settings_dirty()
 
+    def _mark_current_provider_profile_touched(self, *_):
+        if (
+            self._settings_ready
+            and not self._switching_provider
+            and hasattr(self, "provider")
+        ):
+            self._touched_provider_profiles.add(self.provider.currentText())
+
     def _provider_profile_snapshot(self):
-        if self.translation_workflow.currentData() != "single_model":
-            return {}
+        providers = set(self._touched_provider_profiles)
         current = self.provider.currentText()
-        self.provider_keys[current] = self.api_key.text()
-        self.provider_urls[current] = self.base_url.text()
-        self.provider_selected_models[current] = self.model.currentText().strip()
-        self.provider_prices[current] = (
-            self.input_price.value(), self.output_price.value()
-        )
+        if (
+            self.translation_workflow.currentData() == "single_model"
+            or current in providers
+        ):
+            self.provider_keys[current] = self.api_key.text()
+            self.provider_urls[current] = self.base_url.text()
+            self.provider_selected_models[current] = self.model.currentText().strip()
+            self.provider_prices[current] = (
+                self.input_price.value(), self.output_price.value()
+            )
+            if self.translation_workflow.currentData() == "single_model":
+                providers.add(current)
+        if not providers:
+            return {}
         return {
-            current: {
-                "api_key": self.provider_keys.get(current, ""),
-                "base_url": self.provider_urls.get(current, ""),
-                "selected_model": self.provider_selected_models.get(current, ""),
-                "custom_models": self.provider_custom_models.get(current, []),
-                "input_price_per_million": self.provider_prices[current][0],
-                "output_price_per_million": self.provider_prices[current][1],
+            provider: {
+                "api_key": self.provider_keys.get(provider, ""),
+                "base_url": self.provider_urls.get(provider, ""),
+                "selected_model": self.provider_selected_models.get(provider, ""),
+                "custom_models": self.provider_custom_models.get(provider, []),
+                "input_price_per_million": self.provider_prices.get(
+                    provider, (0.0, 0.0)
+                )[0],
+                "output_price_per_million": self.provider_prices.get(
+                    provider, (0.0, 0.0)
+                )[1],
             }
+            for provider in providers
+            if provider
         }
 
     def _on_bridge_toggle_clicked(self, enabled):
@@ -1846,6 +1910,7 @@ class Dashboard(QWidget):
         self._sync_bridge_toggle(not apple_only)
         for widget in (
             self.provider, self.api_key, self.base_url, self.model_container,
+            self.single_streaming_mode,
             self.input_price, self.output_price, self.pricing_hint,
         ):
             self._set_translation_row_visible(widget, single)
@@ -1883,15 +1948,26 @@ class Dashboard(QWidget):
             )
         else:
             bridge_text = "Groq → Cerebras" if bridge == "groq" else "关闭"
+            streaming_text = {
+                "auto": "自动",
+                "on": "开启",
+                "off": "关闭",
+            }.get(self.single_streaming_mode.currentData(), "自动")
             preview = (
                 f"草稿：Apple｜主翻译：{self.provider.currentText()}（临时预览 + 最终稿）\n"
-                f"桥接：{bridge_text}｜远程失败时保留 Apple 草稿"
+                f"桥接：{bridge_text}｜实时返回：{streaming_text}｜"
+                "远程失败时保留 Apple 草稿"
             )
         missing = []
-        if not apple_only and bridge == "groq" and not self.groq_api_key.text().strip():
-            missing.append("Groq Key")
-        if not apple_only and bridge == "groq" and not self.cerebras_api_key.text().strip():
-            missing.append("Cerebras Key")
+        if (
+            not apple_only
+            and bridge == "groq"
+            and not (
+                self.groq_api_key.text().strip()
+                or self.cerebras_api_key.text().strip()
+            )
+        ):
+            missing.append("Groq 或 Cerebras Key")
         if smart:
             has_gemini = bool(self.gemini_api_key.text().strip())
             has_glm = bool(
@@ -2039,6 +2115,9 @@ class Dashboard(QWidget):
                 ),
                 input_price_per_million=self.input_price.value(),
                 output_price_per_million=self.output_price.value(),
+                streaming_mode=str(
+                    self.single_streaming_mode.currentData() or "auto"
+                ),
             ),
             providers=ProviderSettings(
                 deepseek_api_key=self.provider_keys.get("DeepSeek Official", ""),
@@ -2096,6 +2175,7 @@ class Dashboard(QWidget):
                 os.path.join(os.path.dirname(config_path), "provider_profiles.json")
             )
             profile_repository.save(self._provider_profile_snapshot())
+            self._touched_provider_profiles.clear()
         except Exception as exc:
             # Profiles are UI convenience only. Never block the active translator.
             profile_warning = f" Provider profiles not saved: {exc}"

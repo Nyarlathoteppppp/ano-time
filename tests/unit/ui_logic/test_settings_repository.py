@@ -144,6 +144,9 @@ class DashboardSettingsRepositoryTests(unittest.TestCase):
             )
             self.assertEqual(saved.get("display", "mode"), "notch")
             self.assertTrue(saved.getboolean("records", "auto_save_transcripts"))
+            self.assertEqual(
+                saved.get("translation", "single_streaming_mode"), "auto"
+            )
 
     def test_apple_sample_rate_is_normalized_before_persistence(self):
         with tempfile.TemporaryDirectory() as directory:

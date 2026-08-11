@@ -24,10 +24,14 @@ class Config:
         else:
             print(f"[Config] Warning: {config_path} not found, using defaults/env vars")
         
-        # API settings (env vars take precedence)
-        self.api_base_url = os.getenv("OPENAI_BASE_URL") or self._get("api", "base_url") or None
-        self.api_key = os.getenv("OPENAI_API_KEY") or self._secret(
-            "api", "api_key", ""
+        # API settings (saved Dashboard values, then environment fallback)
+        # Saved Dashboard values are authoritative. Environment variables are
+        # a fallback for CLI/headless use when no local value was configured.
+        self.api_base_url = (
+            self._get("api", "base_url") or os.getenv("OPENAI_BASE_URL") or None
+        )
+        self.api_key = (
+            self._secret("api", "api_key", "") or os.getenv("OPENAI_API_KEY") or ""
         )
         
         # Translation settings
@@ -75,6 +79,13 @@ class Config:
             self.translation_provider
             if self.translation_provider != "Fast Free Pool → Qwen-MT"
             else "Alibaba Cloud Qwen-MT"
+        )
+        configured_streaming = self._get(
+            "translation", "single_streaming_mode", "auto"
+        ).strip().lower()
+        self.single_streaming_mode = (
+            configured_streaming
+            if configured_streaming in ("auto", "on", "off") else "auto"
         )
         def optional_project_path(setting):
             path = self._get("translation", setting, "").strip()

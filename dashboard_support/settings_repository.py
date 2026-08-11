@@ -113,6 +113,9 @@ class DashboardSettingsRepository:
         parser.set("translation", "bridge_provider", translation.bridge_provider)
         parser.set("translation", "single_provider", translation.single_provider)
         parser.set(
+            "translation", "single_streaming_mode", translation.streaming_mode
+        )
+        parser.set(
             "translation",
             "provider",
             "Fast Free Pool → Qwen-MT"

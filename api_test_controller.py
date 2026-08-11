@@ -3,6 +3,7 @@
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from config import config
+from course_profiles import glossary_paths
 
 
 class ApiSpeedTestWorker(QThread):
@@ -16,11 +17,19 @@ class ApiSpeedTestWorker(QThread):
     def run(self):
         from api_benchmark import run_translation_benchmark
         from translator import Translator
+        from translation_workflows.single_streaming import (
+            SingleModelStreamingAdapter,
+        )
 
         try:
             options = dict(self.spec)
             options.pop("label", None)
+            streaming_mode = options.pop("streaming_mode", None)
             translator = Translator(**options)
+            if streaming_mode is not None:
+                translator = SingleModelStreamingAdapter(
+                    translator, streaming_mode
+                )
 
             def publish(sample):
                 self.sample_ready.emit(
@@ -102,19 +111,20 @@ class ApiTestController:
     def _spec(self):
         view = self.view
         target = view.api_test_provider.currentData()
-        domain_prompt = view.translation_domain.text()
         course_topic = view.current_course_topic.text().strip()
-        if course_topic:
-            domain_prompt = (
-                f"{domain_prompt} Current lecture topic: {course_topic}."
-            )
+        domain_prompt = (
+            f"Current lecture topic: {course_topic}."
+            if course_topic else view.translation_domain.text()
+        )
         common = {
             "target_lang": str(
                 view.target_lang.currentData() or view.target_lang.currentText()
             ),
             "domain_prompt": domain_prompt,
             "deadline_seconds": 3.0,
-            "glossary_path": config.glossary_path,
+            "glossary_path": glossary_paths(
+                config.glossary_path, course_topic
+            ),
         }
         specs = {
             "groq": {
@@ -146,6 +156,9 @@ class ApiTestController:
                 "base_url": view.base_url.text().strip(),
                 "api_key": view.api_key.text().strip(),
                 "model": view.model.currentText().strip(),
+                "streaming_mode": str(
+                    view.single_streaming_mode.currentData() or "auto"
+                ),
             },
         }
         if target == "glm":

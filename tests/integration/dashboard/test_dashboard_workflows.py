@@ -124,6 +124,7 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertEqual(
             self.dashboard.api_test_provider.itemData(0), "single"
         )
+        self.assertFalse(self.dashboard.single_streaming_mode.isHidden())
         self.assertIn(
             "当前最终模型", self.dashboard.api_test_provider.itemText(0)
         )
@@ -148,6 +149,55 @@ class DashboardWorkflowTests(unittest.TestCase):
                 for index in range(self.dashboard.api_test_provider.count())
             ],
         )
+
+    def test_bridge_configuration_accepts_either_provider_key(self):
+        self._choose_workflow("single_model")
+        self.dashboard.bridge_provider.setCurrentIndex(
+            self.dashboard.bridge_provider.findData("groq")
+        )
+        self.dashboard.groq_api_key.setText("groq-only")
+        self.dashboard.cerebras_api_key.clear()
+        self.dashboard._on_translation_workflow_changed()
+        self.assertNotIn("缺少", self.dashboard.workflow_preview.text())
+
+        self.dashboard.groq_api_key.clear()
+        self.dashboard.cerebras_api_key.setText("cerebras-only")
+        self.dashboard._on_translation_workflow_changed()
+        self.assertNotIn("缺少", self.dashboard.workflow_preview.text())
+
+    def test_switching_providers_keeps_all_edited_profiles_for_save(self):
+        self._choose_workflow("single_model")
+        self.dashboard.provider.setCurrentText("OpenAI")
+        self.dashboard.api_key.setText("openai-edited")
+        self.dashboard.model.setCurrentText("openai-edited-model")
+        self.dashboard.provider.setCurrentText("Google Gemini")
+        self.dashboard.api_key.setText("gemini-edited")
+
+        profiles = self.dashboard._provider_profile_snapshot()
+
+        self.assertEqual(profiles["OpenAI"]["api_key"], "openai-edited")
+        self.assertEqual(
+            profiles["OpenAI"]["selected_model"], "openai-edited-model"
+        )
+        self.assertEqual(
+            profiles["Google Gemini"]["api_key"], "gemini-edited"
+        )
+
+    def test_speed_test_uses_the_same_explicit_course_profile_as_runtime(self):
+        self._choose_workflow("single_model")
+        self.dashboard.current_course_topic.setText(
+            "COMP90054 Blind Search"
+        )
+        spec = self.dashboard.api_test_controller._spec()
+
+        self.assertEqual(
+            spec["domain_prompt"],
+            "Current lecture topic: COMP90054 Blind Search.",
+        )
+        self.assertTrue(any(
+            str(path).endswith("course_profiles/comp90054/glossary.tsv")
+            for path in spec["glossary_path"]
+        ))
 
     def test_switching_from_hybrid_resets_speed_test_to_single_final_model(self):
         self._choose_workflow("smart_hybrid")
@@ -342,6 +392,18 @@ class DashboardWorkflowTests(unittest.TestCase):
     def test_smart_hybrid_save_does_not_touch_single_model_profiles(self):
         self._choose_workflow("smart_hybrid")
         self.assertEqual(self.dashboard._provider_profile_snapshot(), {})
+
+    def test_profiles_edited_before_switching_to_hybrid_are_not_lost(self):
+        self._choose_workflow("single_model")
+        self.dashboard.provider.setCurrentText("OpenAI")
+        self.dashboard.api_key.setText("edited-before-hybrid")
+        self._choose_workflow("smart_hybrid")
+
+        profiles = self.dashboard._provider_profile_snapshot()
+
+        self.assertEqual(
+            profiles["OpenAI"]["api_key"], "edited-before-hybrid"
+        )
 
     def test_pages_explain_when_settings_take_effect(self):
         self.assertIn("重新 Launch", self.dashboard.apply_hint.text())
