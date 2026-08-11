@@ -714,18 +714,16 @@ class Dashboard(QWidget):
                 if hasattr(self, "bridge_provider") else "off"
             )
             if workflow == "apple_only":
-                model = "Apple on-device only"
+                model = "Apple 本机识别与翻译"
             elif workflow == "smart_hybrid":
                 model = (
-                    "Apple 草稿 → Groq/Cerebras 快速预览 → Gemini 主翻译 → GLM 兜底"
+                    "Apple 草稿｜Groq/Cerebras 桥接｜Gemini 主翻译｜GLM 兜底"
                     if bridge == "groq"
-                    else "Apple 草稿 → Gemini 主翻译 → GLM 兜底"
+                    else "Apple 草稿｜Gemini 主翻译｜GLM 兜底"
                 )
             else:
-                middle = "Groq/Cerebras 快速预览 → " if bridge == "groq" else ""
-                model = (
-                    f"Apple 草稿 → {middle}{self.model.currentText()} 边讲边翻 → 最终稿"
-                )
+                bridge_text = "｜Groq/Cerebras 桥接" if bridge == "groq" else ""
+                model = f"Apple 草稿{bridge_text}｜{self.model.currentText()} 主翻译"
         else:
             model = config.model
         self.translation_summary.setText(model)
@@ -1273,7 +1271,7 @@ class Dashboard(QWidget):
         self.translation_layout = layout
 
         translation_apply_hint = QLabel(
-            "生效时间：流程、模型、密钥和目标语言保存后，重新 Launch 生效。"
+            "这些设置保存后，下次启动翻译时生效。"
         )
         translation_apply_hint.setWordWrap(True)
         translation_apply_hint.setStyleSheet(
@@ -1296,7 +1294,7 @@ class Dashboard(QWidget):
             config.translation_workflow
         )
         self.translation_workflow.setCurrentIndex(max(0, workflow_index))
-        layout.addRow("Workflow（翻译流程）:", self.translation_workflow)
+        layout.addRow("翻译模式:", self.translation_workflow)
 
         workflow_card = QFrame()
         workflow_card.setObjectName("WorkflowPreviewCard")
@@ -1310,7 +1308,7 @@ class Dashboard(QWidget):
         workflow_card_layout = QVBoxLayout(workflow_card)
         workflow_card_layout.setContentsMargins(12, 10, 12, 10)
         workflow_card_layout.setSpacing(5)
-        workflow_title = QLabel("Active Chain（当前链路）")
+        workflow_title = QLabel("当前翻译流程")
         workflow_title.setStyleSheet("font-weight: 600; color: #cdd6f4;")
         self.workflow_preview = QLabel()
         self.workflow_preview.setWordWrap(True)
@@ -1329,10 +1327,9 @@ class Dashboard(QWidget):
         layout.addRow(workflow_card)
 
         self.progressive_preview_hint = QLabel(
-            "边讲边翻：老师还没说完整句子时，也会持续补出中文。\n"
-            "已适配 Smart Hybrid、Gemini、Groq、Cerebras 和 GLM；"
-            "OpenAI、OpenRouter、DeepSeek、SiliconFlow、Qwen-MT 也使用同一流程。\n"
-            "自定义模型需要支持边生成边返回；如果不支持，Apple 草稿和整句最终翻译仍可正常使用。"
+            "老师没说完时，主模型先给临时译文；句子结束后再更新最终译文。\n"
+            "如果自定义模型不能实时返回内容，只会少掉临时预览；"
+            "Apple 草稿和最终译文仍可正常使用。"
         )
         self.progressive_preview_hint.setWordWrap(True)
         self.progressive_preview_hint.setStyleSheet(
@@ -1340,7 +1337,7 @@ class Dashboard(QWidget):
             "border: 1px solid rgba(245,169,199,45); border-radius: 9px; "
             "padding: 10px 12px;"
         )
-        layout.addRow("Live Preview（边讲边翻）:", self.progressive_preview_hint)
+        layout.addRow("实时预览说明:", self.progressive_preview_hint)
 
         self.bridge_card = QFrame()
         self.bridge_card.setObjectName("BridgeCard")
@@ -1363,8 +1360,8 @@ class Dashboard(QWidget):
         bridge_header.addStretch()
         bridge_header.addWidget(self.bridge_toggle)
         bridge_explanation = QLabel(
-            "在最终模型返回前抢先显示较自然的过渡译文。关闭不会影响 Apple 草稿或最终翻译；"
-            "桥接请求不会阻塞、覆盖最终模型。"
+            "主模型返回前，先补一版更自然的临时译文。可以关闭，"
+            "桥接请求独立运行，不会阻塞或覆盖最终译文。"
         )
         bridge_explanation.setWordWrap(True)
         bridge_explanation.setStyleSheet("font-size: 12px; color: #bac2de;")
@@ -1410,8 +1407,8 @@ class Dashboard(QWidget):
         main_title = QLabel("Main Translation（主模型 · 最终翻译）")
         main_title.setStyleSheet("font-weight: 700; color: #89b4fa;")
         main_explanation = QLabel(
-            "负责边讲边翻和最终译文。Bridge 关闭时主模型仍会独立工作；"
-            "远程请求失败时继续保留 Apple 草稿。"
+            "老师说话时先给临时译文，句子结束后再给最终译文。"
+            "远程请求失败时保留 Apple 草稿。"
         )
         main_explanation.setWordWrap(True)
         main_explanation.setStyleSheet("font-size: 12px; color: #bac2de;")
@@ -1876,21 +1873,19 @@ class Dashboard(QWidget):
         self.fast_translation_backend.setEnabled(not apple_only)
         if apple_only:
             self.fast_translation_backend.setCurrentText("apple")
-            preview = "Apple ASR → Apple Translation（完全本地 · 通用）"
+            preview = "语音识别：Apple｜翻译：Apple（完全本地）"
         elif smart:
-            middle = "Groq/Cerebras 快速预览 → " if bridge == "groq" else ""
+            bridge_text = "Groq → Cerebras" if bridge == "groq" else "关闭"
             preview = (
-                f"Apple 草稿 → {middle}Gemini 主翻译 → GLM 失败兜底\n"
-                f"Bridge：{'已开启' if bridge == 'groq' else '关闭（默认）'} · 不会阻塞最终翻译\n"
-                "Quality First：优先保证 Gemini 最终稿正确；GLM 仅在失败或超时时补位\n"
-                "⚠ 开发者专用：依赖本项目固定的多 API 与额度规则，目前不通用"
+                "草稿：Apple｜主翻译：Gemini（临时预览 + 最终稿）\n"
+                f"桥接：{bridge_text}｜Gemini 失败时由 GLM 接管\n"
+                "开发者配置，暂不通用"
             )
         else:
-            middle = "Groq/Cerebras 快速预览 → " if bridge == "groq" else ""
+            bridge_text = "Groq → Cerebras" if bridge == "groq" else "关闭"
             preview = (
-                f"Apple 草稿 → {middle}{self.provider.currentText()} 边讲边翻 → 最终稿\n"
-                f"Bridge：{'已开启' if bridge == 'groq' else '关闭（默认）'} · 不会阻塞最终翻译\n"
-                "✓ 通用流程：超时或 API 失败时继续保留 Apple 草稿"
+                f"草稿：Apple｜主翻译：{self.provider.currentText()}（临时预览 + 最终稿）\n"
+                f"桥接：{bridge_text}｜远程失败时保留 Apple 草稿"
             )
         missing = []
         if not apple_only and bridge == "groq" and not self.groq_api_key.text().strip():
@@ -1910,10 +1905,10 @@ class Dashboard(QWidget):
         ):
             missing.append("最终模型 API")
         if missing:
-            preview += "\n⚠ Missing: " + "、".join(missing)
+            preview += "\n⚠ 缺少：" + "、".join(missing)
             color = "#f9e2af"
         else:
-            preview += "\n✓ Configuration ready"
+            preview += "\n✓ 配置完整"
             color = "#a6e3a1"
         self.workflow_preview.setStyleSheet(
             f"color: {color}; font-weight: 600;"
