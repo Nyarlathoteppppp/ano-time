@@ -19,6 +19,12 @@ public enum SubtitleResizeIntent: Equatable {
     case replaceImmediately
 }
 
+public enum LineReservationIntent: Equatable {
+    case replaceImmediately
+    case keepPendingShrink
+    case scheduleShrink
+}
+
 /// Pure display policy for incremental subtitle revisions. It deliberately has
 /// no SwiftUI, networking, ASR, or model dependencies, so presentation tuning
 /// cannot delay the realtime translation path.
@@ -123,5 +129,20 @@ public enum SubtitlePresentationPlanner {
         guard measuredTextWidth > 0 else { return 1 }
         let safeWidth = max(1, availableWidth)
         return min(maximumLines, max(1, Int(ceil(measuredTextWidth / safeWidth))))
+    }
+
+    public static func lineReservationIntent(
+        required: Int,
+        reserved: Int,
+        pendingShrinkTarget: Int?,
+        force: Bool = false
+    ) -> LineReservationIntent {
+        if required >= reserved || force {
+            return .replaceImmediately
+        }
+        if pendingShrinkTarget == required {
+            return .keepPendingShrink
+        }
+        return .scheduleShrink
     }
 }

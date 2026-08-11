@@ -63,5 +63,29 @@ check(
     ) == 2,
     "two-line estimate"
 )
+check(
+    SubtitlePresentationPlanner.lineReservationIntent(
+        required: 2,
+        reserved: 3,
+        pendingShrinkTarget: nil
+    ) == .scheduleShrink,
+    "first 3-to-2 revision schedules a shrink"
+)
+check(
+    SubtitlePresentationPlanner.lineReservationIntent(
+        required: 2,
+        reserved: 3,
+        pendingShrinkTarget: 2
+    ) == .keepPendingShrink,
+    "same 3-to-2 target keeps the existing cooldown"
+)
+check(
+    SubtitlePresentationPlanner.lineReservationIntent(
+        required: 3,
+        reserved: 3,
+        pendingShrinkTarget: 2
+    ) == .replaceImmediately,
+    "line growth cancels a pending shrink"
+)
 
 print("SubtitlePresentationPlanner tests passed")

@@ -86,6 +86,7 @@ private final class SubtitleState: ObservableObject {
     private var busyStages = Set<String>()
     private var widthShrinkTask: Task<Void, Never>?
     private var translationLineShrinkTask: Task<Void, Never>?
+    private var pendingTranslationLineTarget: Int?
     private var finalLayoutTask: Task<Void, Never>?
     private var holdsFinalLayout = false
     private var modeTransitionTask: Task<Void, Never>?
@@ -264,8 +265,16 @@ private final class SubtitleState: ObservableObject {
         allowImmediateShrink: Bool = false
     ) {
         let required = measuredTranslationLineCount()
-        translationLineShrinkTask?.cancel()
-        if required >= reservedTranslationLineCount || allowImmediateShrink {
+        let intent = SubtitlePresentationPlanner.lineReservationIntent(
+            required: required,
+            reserved: reservedTranslationLineCount,
+            pendingShrinkTarget: pendingTranslationLineTarget,
+            force: allowImmediateShrink
+        )
+        if intent == .replaceImmediately {
+            translationLineShrinkTask?.cancel()
+            translationLineShrinkTask = nil
+            pendingTranslationLineTarget = nil
             var immediate = Transaction()
             immediate.disablesAnimations = true
             withTransaction(immediate) {
@@ -273,18 +282,31 @@ private final class SubtitleState: ObservableObject {
             }
             return
         }
+        if intent == .keepPendingShrink {
+            // Repeated partial/preview revisions with the same two-line target
+            // must not restart the cooldown forever.
+            return
+        }
+        translationLineShrinkTask?.cancel()
+        pendingTranslationLineTarget = required
         translationLineShrinkTask = Task { @MainActor [weak self] in
             try? await Task.sleep(
                 for: .seconds(SubtitlePresentationPlanner.lineShrinkDelaySeconds)
             )
             guard let self, !Task.isCancelled else { return }
             let latestRequired = self.measuredTranslationLineCount()
-            guard latestRequired < self.reservedTranslationLineCount else { return }
+            guard latestRequired < self.reservedTranslationLineCount else {
+                self.pendingTranslationLineTarget = nil
+                self.translationLineShrinkTask = nil
+                return
+            }
             withAnimation(.easeInOut(
                 duration: SubtitlePresentationPlanner.shrinkAnimationSeconds
             )) {
                 self.reservedTranslationLineCount = latestRequired
             }
+            self.pendingTranslationLineTarget = nil
+            self.translationLineShrinkTask = nil
         }
     }
 
