@@ -15,6 +15,8 @@ _CORE_GRAPHICS = CDLL(
 _CORE_GRAPHICS.CGShieldingWindowLevel.restype = c_int32
 FULLSCREEN_OVERLAY_LEVEL = int(_CORE_GRAPHICS.CGShieldingWindowLevel()) + 1
 MAX_VISIBLE_TRANSCRIPT_ITEMS = 40
+# Keep the subtitle panel readable over video without turning it into an opaque
+# black block. 179/255 is roughly 70% opaque (30% transparent).
 GLASS_PANEL_BACKGROUND = "rgba(0, 0, 0, 179)"
 
 

@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QMessageBox, QTextEdit, QDialog, QLayout, QInputDialog)
 from PyQt6.QtWidgets import QCheckBox, QDoubleSpinBox
 from PyQt6.QtCore import QEvent, Qt, QSize, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont, QIcon, QColor, QPainter, QPixmap
+from PyQt6.QtGui import QFont, QIcon, QPixmap
 import sys
 import os
 import sounddevice as sd
@@ -19,8 +19,7 @@ from dashboard_support.app_runtime import (
     notify_existing_instance,
     start_instance_server,
 )
-from dashboard_support.native_transparency import apply_native_transparency
-from dashboard_support.style import DASHBOARD_BACKGROUND_RGBA, STYLESHEET
+from dashboard_support.style import STYLESHEET
 from dashboard_support.widgets import ReadableComboBox
 from dashboard_support.workers import (
     ModelListWorker,
@@ -42,14 +41,6 @@ from translation_usage import session_usage_meter
 class Dashboard(QWidget):
     start_requested = pyqtSignal()
     stop_requested = pyqtSignal()
-
-    def paintEvent(self, event):
-        # Qt does not reliably paint an alpha QSS background on a clear
-        # top-level QNSWindow. Draw the requested opacity explicitly.
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(*DASHBOARD_BACKGROUND_RGBA))
-        painter.end()
-        super().paintEvent(event)
 
     def _should_quit_for_close_event(self, event):
         return bool(getattr(self, "_force_quit", False) or event.spontaneous())
@@ -91,10 +82,6 @@ class Dashboard(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        apply_native_transparency(self)
-        # QNSWindow can finish attaching just after Qt's show event.
-        QTimer.singleShot(0, lambda: apply_native_transparency(self))
-        QTimer.singleShot(200, lambda: apply_native_transparency(self))
         self._set_ui_timers_active(not self.isMinimized())
 
     def changeEvent(self, event):
@@ -102,15 +89,6 @@ class Dashboard(QWidget):
         if event.type() == QEvent.Type.WindowStateChange:
             minimized = self.isMinimized()
             self._set_ui_timers_active(not minimized and self.isVisible())
-        fullscreen = self.isFullScreen()
-        if fullscreen != getattr(self, "_fullscreen_fallback", False):
-            self._fullscreen_fallback = fullscreen
-            self.setProperty("fullscreenFallback", fullscreen)
-            self.style().unpolish(self)
-            self.style().polish(self)
-            self.update()
-            QTimer.singleShot(0, lambda: apply_native_transparency(self))
-            QTimer.singleShot(200, lambda: apply_native_transparency(self))
 
     def hideEvent(self, event):
         self._set_ui_timers_active(False)
@@ -130,11 +108,7 @@ class Dashboard(QWidget):
 
     def __init__(self):
         super().__init__()
-        self._fullscreen_fallback = False
         self.setObjectName("DashboardRoot")
-        self.setProperty("fullscreenFallback", False)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setAutoFillBackground(False)
         self._session_generation = 0
         self._session_state = "idle"
         self._startup_workers = {}

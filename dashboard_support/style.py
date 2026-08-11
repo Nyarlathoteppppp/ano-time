@@ -1,6 +1,3 @@
-DASHBOARD_BACKGROUND_RGBA = (28, 30, 39, 217)
-
-
 STYLESHEET = """
 QWidget {
     background: transparent;
@@ -8,10 +5,7 @@ QWidget {
     font-family: 'Helvetica Neue', Arial, sans-serif;
 }
 QWidget#DashboardRoot {
-    background: transparent;
-}
-QWidget#DashboardRoot[fullscreenFallback="true"] {
-    background: transparent;
+    background-color: rgb(28, 30, 39);
 }
 QTabWidget::pane {
     border: 1px solid rgba(255, 214, 229, 72);
