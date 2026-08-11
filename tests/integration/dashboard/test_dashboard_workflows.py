@@ -252,6 +252,9 @@ class DashboardWorkflowTests(unittest.TestCase):
             label.text() for label in self.dashboard.bridge_card.findChildren(QLabel)
         )
         self.assertIn("可选", labels)
+        self.assertIn("400 ms", labels)
+        self.assertIn("非必要不建议开启", labels)
+        self.assertIn("更频繁变化", labels)
         self.assertIn("不会阻塞", labels)
         with patch.object(
             dashboard_module.DashboardSettingsRepository,

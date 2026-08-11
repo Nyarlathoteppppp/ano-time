@@ -2,8 +2,10 @@ import os
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from hybrid_translator import HybridTranslator
+from translation_usage import TranslationUsageMeter
 
 
 class _FakeTranslator:
@@ -39,6 +41,15 @@ class _StatusError(Exception):
 
 
 class HybridTranslatorTests(unittest.TestCase):
+    def setUp(self):
+        self._usage_patch = patch(
+            "hybrid_translator.session_usage_meter", TranslationUsageMeter()
+        )
+        self._usage_patch.start()
+
+    def tearDown(self):
+        self._usage_patch.stop()
+
     def _router(self, providers, directory):
         return HybridTranslator(
             providers,

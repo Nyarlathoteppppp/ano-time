@@ -353,7 +353,7 @@ class Dashboard(QWidget):
             ("Preview", "AI Preview（边讲边翻）"),
             ("Remote", "Remote Model（远程模型）"),
             ("Network", "Network（网络）"),
-            ("Usage", "API Usage（本次费用）"),
+            ("Usage", "API Usage（今日 / 本次）"),
         )):
             runtime_layout.setRowMinimumHeight(row, 30)
             title_label = QLabel(title)
@@ -536,13 +536,24 @@ class Dashboard(QWidget):
             self.update_runtime_status("Usage", "warning", "Off")
             return
         usage = session_usage_meter.snapshot()
+        today = usage["today"]
         if not usage["requests"]:
-            self.update_runtime_status("Usage", "warning", "Waiting for API usage")
+            if today["requests"]:
+                self.update_runtime_status(
+                    "Usage", "ok",
+                    f"Today US${today['cost_usd']:.4f} · "
+                    f"{today['requests']} req · waiting for this session",
+                )
+            else:
+                self.update_runtime_status(
+                    "Usage", "warning", "Today US$0.0000 · waiting for API usage"
+                )
             return
         hourly = usage["hourly_cost_usd"]
         hourly_text = "estimating" if hourly is None else f"~US${hourly:.3f}/h"
         detail = (
-            f"US${usage['cost_usd']:.4f} · {hourly_text} · "
+            f"Today US${today['cost_usd']:.4f} · "
+            f"Session US${usage['cost_usd']:.4f} · {hourly_text} · "
             f"{usage['requests']} req · in {usage['prompt_tokens']:,} / "
             f"out {usage['completion_tokens']:,}"
         )
@@ -1238,8 +1249,10 @@ class Dashboard(QWidget):
         bridge_header.addStretch()
         bridge_header.addWidget(self.bridge_toggle)
         bridge_explanation = QLabel(
-            "主模型返回前，先补一版更自然的临时译文。可以关闭，"
-            "桥接请求独立运行，不会阻塞或覆盖最终译文。"
+            "主模型返回前，先补一版临时译文；只适合短句返回延迟约 400 ms "
+            "以内的超快模型。找不到合适模型可以关闭，非必要不建议开启，"
+            "否则字幕会因临时译文增加而更频繁变化。桥接请求独立运行，"
+            "不会阻塞或覆盖最终译文。"
         )
         bridge_explanation.setWordWrap(True)
         bridge_explanation.setStyleSheet("font-size: 12px; color: #bac2de;")

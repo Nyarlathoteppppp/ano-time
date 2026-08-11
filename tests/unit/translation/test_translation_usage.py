@@ -1,7 +1,9 @@
 import unittest
+import os
+import tempfile
 from unittest.mock import patch
 
-from translation_usage import MeteredTranslator, TranslationUsageMeter
+from translation_usage import DailyUsageLedger, MeteredTranslator, TranslationUsageMeter
 
 
 class _FakeTranslator:
@@ -41,11 +43,11 @@ class TranslationUsageTests(unittest.TestCase):
         self.assertEqual(snapshot["unpriced_requests"], 1)
 
     def test_wrapper_preserves_translation_and_records_usage(self):
-        from translation_usage import session_usage_meter
-        session_usage_meter.reset()
+        meter = TranslationUsageMeter()
         wrapped = MeteredTranslator(_FakeTranslator(), "Provider", 1.0, 2.0)
-        self.assertEqual(wrapped.translate("hello"), "hello")
-        snapshot = session_usage_meter.snapshot()
+        with patch("translation_usage.session_usage_meter", meter):
+            self.assertEqual(wrapped.translate("hello"), "hello")
+        snapshot = meter.snapshot()
         self.assertEqual(snapshot["requests"], 1)
         self.assertEqual(snapshot["prompt_tokens"], 1000)
 
@@ -101,6 +103,35 @@ class TranslationUsageTests(unittest.TestCase):
         snapshot = meter.snapshot()
         self.assertFalse(snapshot["enabled"])
         self.assertEqual(snapshot["requests"], 0)
+
+    def test_daily_cost_survives_session_reset_and_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "daily.json")
+            ledger = DailyUsageLedger(path)
+            meter = TranslationUsageMeter(ledger)
+            meter.record("Gemini", {
+                "prompt_tokens": 1_000_000,
+                "completion_tokens": 100_000,
+                "total_tokens": 1_100_000,
+            }, 0.30, 2.50, True)
+            meter.reset()
+            self.assertEqual(meter.snapshot()["requests"], 0)
+            self.assertAlmostEqual(meter.snapshot()["today"]["cost_usd"], 0.55)
+            ledger.flush()
+
+            restored = DailyUsageLedger(path)
+            self.assertAlmostEqual(restored.snapshot()["cost_usd"], 0.55)
+            self.assertEqual(restored.snapshot()["requests"], 1)
+
+    def test_daily_ledger_rolls_over_on_local_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = DailyUsageLedger(os.path.join(directory, "daily.json"))
+            ledger.record({"requests": 1, "cost_usd": 0.25})
+            with patch.object(ledger, "_today", return_value="2099-01-01"):
+                snapshot = ledger.snapshot()
+            self.assertEqual(snapshot["requests"], 0)
+            self.assertEqual(snapshot["cost_usd"], 0.0)
+            ledger.flush()
 
 
 if __name__ == "__main__":

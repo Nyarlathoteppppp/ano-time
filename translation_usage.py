@@ -1,11 +1,123 @@
-"""In-memory API token and cost accounting outside the subtitle hot path."""
+"""API token and cost accounting outside the subtitle hot path."""
 
+import json
+import os
+import queue
 import threading
 import time
+from datetime import datetime
+
+
+_USAGE_KEYS = (
+    "requests", "prompt_tokens", "completion_tokens", "total_tokens",
+    "cost_usd", "unpriced_requests",
+)
+
+
+class DailyUsageLedger:
+    """Keep today's totals across launches; disk writes run off the hot path."""
+
+    def __init__(self, path):
+        self.path = path
+        self._lock = threading.Lock()
+        self._pending = queue.Queue()
+        self._writer = None
+        self._date = self._today()
+        self._totals = self._empty_totals()
+        self._load()
+
+    @staticmethod
+    def _today():
+        return datetime.now().astimezone().date().isoformat()
+
+    @staticmethod
+    def _empty_totals():
+        return {key: 0.0 if key == "cost_usd" else 0 for key in _USAGE_KEYS}
+
+    def _roll_date_locked(self):
+        today = self._today()
+        if self._date != today:
+            self._date = today
+            self._totals = self._empty_totals()
+
+    def _load(self):
+        try:
+            with open(self.path, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)
+        except (OSError, ValueError, TypeError):
+            return
+        if saved.get("date") != self._date:
+            return
+        totals = saved.get("totals", {})
+        for key in _USAGE_KEYS:
+            value = totals.get(key, 0)
+            try:
+                self._totals[key] = float(value) if key == "cost_usd" else int(value)
+            except (TypeError, ValueError):
+                self._totals[key] = 0.0 if key == "cost_usd" else 0
+
+    def record(self, values):
+        with self._lock:
+            self._roll_date_locked()
+            for key in _USAGE_KEYS:
+                self._totals[key] += values.get(key, 0)
+            payload = {"date": self._date, "totals": dict(self._totals)}
+        self._enqueue_write(payload)
+
+    def snapshot(self):
+        with self._lock:
+            self._roll_date_locked()
+            return dict(self._totals)
+
+    def _enqueue_write(self, payload):
+        if self._writer is None:
+            self._writer = threading.Thread(
+                target=self._write_pending, name="daily-usage-writer", daemon=True
+            )
+            self._writer.start()
+        self._pending.put((payload, None))
+
+    def _write_pending(self):
+        while True:
+            payload, barrier = self._pending.get()
+            if barrier is not None:
+                barrier.set()
+                continue
+            # Coalesce bursts: only the newest cumulative snapshot is useful.
+            while True:
+                try:
+                    candidate, candidate_barrier = self._pending.get_nowait()
+                except queue.Empty:
+                    break
+                if candidate_barrier is not None:
+                    # Write the latest state before acknowledging a flush.
+                    barrier = candidate_barrier
+                    break
+                payload = candidate
+            try:
+                directory = os.path.dirname(self.path)
+                if directory:
+                    os.makedirs(directory, exist_ok=True)
+                temporary = f"{self.path}.tmp"
+                with open(temporary, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle, ensure_ascii=False)
+                os.replace(temporary, self.path)
+            except OSError:
+                # Accounting must never interfere with translation.
+                pass
+            if barrier is not None:
+                barrier.set()
+
+    def flush(self, timeout=1.0):
+        if self._writer is None:
+            return
+        barrier = threading.Event()
+        self._pending.put((None, barrier))
+        barrier.wait(timeout)
 
 
 class TranslationUsageMeter:
-    def __init__(self):
+    def __init__(self, daily_ledger=None):
         self._lock = threading.Lock()
         self._enabled = True
         self._started_at = time.monotonic()
@@ -15,6 +127,7 @@ class TranslationUsageMeter:
         self._projection_started = False
         self._projection_cost_baseline = 0.0
         self._providers = {}
+        self._daily_ledger = daily_ledger
 
     def reset(self):
         with self._lock:
@@ -91,6 +204,16 @@ class TranslationUsageMeter:
             item["cost_usd"] += cost
             if not priced:
                 item["unpriced_requests"] += 1
+            daily_values = {
+                "requests": 1,
+                "prompt_tokens": prompt,
+                "completion_tokens": completion,
+                "total_tokens": total,
+                "cost_usd": cost,
+                "unpriced_requests": 0 if priced else 1,
+            }
+        if self._daily_ledger is not None:
+            self._daily_ledger.record(daily_values)
 
     def snapshot(self):
         with self._lock:
@@ -116,10 +239,20 @@ class TranslationUsageMeter:
         )
         totals["providers"] = providers
         totals["enabled"] = enabled
+        totals["today"] = (
+            self._daily_ledger.snapshot() if self._daily_ledger is not None
+            else self._empty_daily_totals()
+        )
         return totals
 
+    @staticmethod
+    def _empty_daily_totals():
+        return {key: 0.0 if key == "cost_usd" else 0 for key in _USAGE_KEYS}
 
-session_usage_meter = TranslationUsageMeter()
+
+session_usage_meter = TranslationUsageMeter(DailyUsageLedger(os.path.join(
+    os.path.dirname(__file__), "logs", "daily_api_usage.json"
+)))
 
 
 class MeteredTranslator:
