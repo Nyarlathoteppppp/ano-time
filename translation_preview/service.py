@@ -285,6 +285,10 @@ class ProgressiveTranslationPreview:
     def finalize(self, segment_id):
         self._agreement.reset(segment_id)
 
+    def displayed_candidate(self, segment_id):
+        """Snapshot the visible preview before finalization resets agreement."""
+        return self._agreement.displayed_candidate(segment_id)
+
     def reset(self):
         self._bridge_policy.reset()
         self._final_policy.reset()

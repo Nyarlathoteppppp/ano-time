@@ -95,7 +95,7 @@ class PipelineContractTests(unittest.TestCase):
         self.assertFalse(pipeline.is_paused)
         self.assertEqual(list(pipeline._finalized_context), [])
 
-    def test_final_context_contains_only_four_previous_segments(self):
+    def test_final_context_contains_only_three_previous_segments(self):
         pipeline = Pipeline.__new__(Pipeline)
         pipeline._context_lock = threading.Lock()
         pipeline._finalized_context = deque(maxlen=4)
@@ -108,12 +108,20 @@ class PipelineContractTests(unittest.TestCase):
         self.assertEqual(snapshots[0], "")
         self.assertEqual(
             snapshots[4],
-            "sentence 1\nsentence 2\nsentence 3\nsentence 4",
+            "sentence 2\nsentence 3\nsentence 4",
         )
         self.assertEqual(
             snapshots[5],
-            "sentence 2\nsentence 3\nsentence 4\nsentence 5",
+            "sentence 3\nsentence 4\nsentence 5",
         )
+
+    def test_preview_context_reads_only_the_latest_finalized_segment(self):
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline._context_lock = threading.Lock()
+        pipeline._finalized_context = deque(
+            ["old one", "old two", "latest"], maxlen=4
+        )
+        self.assertEqual(pipeline._current_finalized_context(1), "latest")
 
     def test_pause_seals_boundary_and_resets_apple_session_in_background(self):
         boundary_called = threading.Event()
@@ -202,6 +210,38 @@ class PipelineContractTests(unittest.TestCase):
         )
 
         self.assertEqual(updates.events, [])
+
+    def test_final_refinement_reuses_preview_and_does_not_stream_over_it(self):
+        calls = []
+        updates = []
+
+        class Provider:
+            def translate(self, text, **kwargs):
+                calls.append((text, kwargs))
+                kwargs["on_update"]("短流式前缀")
+                return "保留正确措辞后的最终翻译"
+
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.running = True
+        pipeline._paused = threading.Event()
+        pipeline.translator = Provider()
+        pipeline.signals = SimpleNamespace(runtime_status=RecordingSignal())
+        pipeline._emit_ranked_translation = lambda *args, **kwargs: updates.append(
+            (args, kwargs)
+        )
+
+        pipeline._run_refinement(
+            "A finalized sentence",
+            9,
+            "three sentence context",
+            time.monotonic() + 1,
+            previous_preview="当前屏幕预览",
+        )
+
+        self.assertEqual(calls[0][1]["previous_preview"], "当前屏幕预览")
+        self.assertEqual(calls[0][1]["context_text"], "three sentence context")
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0][0][2], "保留正确措辞后的最终翻译")
 
     def test_typed_subtitle_events_increment_revision_and_feed_legacy_signal(self):
         pipeline = Pipeline.__new__(Pipeline)

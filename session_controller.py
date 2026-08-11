@@ -4,6 +4,7 @@ import time
 
 from runtime_log import log_stage
 from subtitle_display_scheduler import SubtitleDisplayScheduler
+from translation_usage import session_usage_meter
 
 
 class SessionController:
@@ -36,6 +37,9 @@ class SessionController:
             view.start_btn.setText("▶ Launch Translator")
             log_stage("session_start", status="error", detail=f"settings: {exc}")
             return
+        # A Launch defines one billing session. Reset before Pipeline creation
+        # so its optional warm-up request is included in the same totals.
+        session_usage_meter.reset()
         view.status_label.setText("Initializing Pipeline... (This may take a moment)")
         view.status_label.setStyleSheet("font-size: 18px; color: #fab387;")
         view.start_btn.setEnabled(False)
@@ -133,6 +137,7 @@ class SessionController:
             )
 
         view.pipeline.start()
+        session_usage_meter.set_active(True)
         view._session_state = "running"
         view.status_label.setText("Running...")
         view.status_label.setStyleSheet("font-size: 18px; color: #a6e3a1;")
@@ -162,6 +167,7 @@ class SessionController:
             return
         started = time.perf_counter()
         view.pipeline.set_paused(paused)
+        session_usage_meter.set_active(not paused)
         if update_overlay and view.overlay_window and hasattr(
             view.overlay_window, "set_paused"
         ):
@@ -186,6 +192,7 @@ class SessionController:
         started = time.perf_counter()
         view._session_generation += 1
         view._session_state = "idle"
+        session_usage_meter.set_active(False)
         if view.overlay_window:
             view.overlay_window.close()
             view.overlay_window = None

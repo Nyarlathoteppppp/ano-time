@@ -80,6 +80,8 @@ private final class SubtitleState: ObservableObject {
     private(set) var activityGeneration = 0
     private var busyStages = Set<String>()
     private var widthShrinkTask: Task<Void, Never>?
+    private var finalLayoutTask: Task<Void, Never>?
+    private var holdsFinalLayout = false
     private var modeTransitionTask: Task<Void, Never>?
     private var isChangingDisplayCount = false
     var onExpand: (() -> Void)?
@@ -95,7 +97,34 @@ private final class SubtitleState: ObservableObject {
 
     func replaceItems(_ newItems: [SubtitleLine]) {
         subtitleGeneration += 1
+        let authoritativeFinalRevision = hasSameItemIdentity(as: newItems)
+            && zip(items, newItems).contains { oldItem, newItem in
+                oldItem.translated != newItem.translated
+                    && newItem.finalized == true
+                    && isFullyCommitted(newItem)
+            }
+        if authoritativeFinalRevision {
+            finalLayoutTask?.cancel()
+            holdsFinalLayout = true
+        }
         items = newItems
+        if authoritativeFinalRevision {
+            finalLayoutTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(0.40))
+                guard let self, !Task.isCancelled else { return }
+                self.holdsFinalLayout = false
+                self.refreshContentWidth(animated: true)
+            }
+        }
+    }
+
+    private func isFullyCommitted(_ item: SubtitleLine) -> Bool {
+        if let fragments = item.fragments, !fragments.isEmpty {
+            return fragments.allSatisfy { fragment in
+                (fragment.committedPrefixLength ?? 0) >= fragment.translated.count
+            }
+        }
+        return (item.committedPrefixLength ?? 0) >= item.translated.count
     }
 
     func hasSameItemIdentity(as newItems: [SubtitleLine]) -> Bool {
@@ -199,6 +228,9 @@ private final class SubtitleState: ObservableObject {
         allowImmediateShrink: Bool = false,
         animated: Bool = true
     ) {
+        if holdsFinalLayout && !allowImmediateShrink {
+            return
+        }
         if isChangingDisplayCount && !allowImmediateShrink {
             return
         }
@@ -440,7 +472,6 @@ private struct SubtitleContent: View {
                         )
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
-                    .transition(.opacity)
                 }
             }
             .padding(.horizontal, 40)

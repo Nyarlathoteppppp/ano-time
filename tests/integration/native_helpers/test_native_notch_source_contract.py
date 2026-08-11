@@ -22,9 +22,18 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertNotIn("smallNotch", self.source)
         self.assertNotIn("regularNotch", self.source)
 
-    def test_subtitle_changes_use_opacity_without_directional_motion(self):
-        self.assertIn(".transition(.opacity)", self.source)
+    def test_subtitle_revisions_do_not_transition_the_entire_row(self):
+        subtitle_content = self.source[
+            self.source.index("private struct SubtitleContent"):
+            self.source.index("private struct CompactLeading")
+        ]
+        self.assertNotIn(".transition(", subtitle_content)
         self.assertNotIn(".move(edge:", self.source)
+
+    def test_authoritative_final_temporarily_holds_notch_width(self):
+        self.assertIn("let authoritativeFinalRevision", self.source)
+        self.assertIn("holdsFinalLayout = true", self.source)
+        self.assertIn("Task.sleep(for: .seconds(0.40))", self.source)
 
     def test_streaming_text_anchors_single_line_growth_without_delaying_updates(self):
         self.assertIn("private struct StableStreamingText", self.source)

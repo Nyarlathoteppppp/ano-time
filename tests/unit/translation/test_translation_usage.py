@@ -17,8 +17,11 @@ class _FakeTranslator:
 class TranslationUsageTests(unittest.TestCase):
     def test_exact_cost_and_hourly_projection_use_provider_split(self):
         meter = TranslationUsageMeter()
-        with patch("translation_usage.time.monotonic", side_effect=[20.0, 80.0]):
+        with patch(
+            "translation_usage.time.monotonic", side_effect=[20.0, 20.0, 80.0]
+        ):
             meter._first_usage_at = None
+            meter.set_active(True)
             meter.record("Gemini", {
                 "prompt_tokens": 1_000_000,
                 "completion_tokens": 100_000,
@@ -45,6 +48,25 @@ class TranslationUsageTests(unittest.TestCase):
         snapshot = session_usage_meter.snapshot()
         self.assertEqual(snapshot["requests"], 1)
         self.assertEqual(snapshot["prompt_tokens"], 1000)
+
+    def test_hourly_projection_clock_freezes_while_paused(self):
+        meter = TranslationUsageMeter()
+        with patch(
+            "translation_usage.time.monotonic",
+            side_effect=[0.0, 0.0, 10.0, 10.0, 70.0],
+        ):
+            meter.set_active(True)
+            meter.record("Gemini", {
+                "prompt_tokens": 1_000_000,
+                "completion_tokens": 0,
+                "total_tokens": 1_000_000,
+            }, 1.0, 1.0, True)
+            meter.set_active(False)
+            paused = meter.snapshot()
+            later = meter.snapshot()
+        self.assertEqual(paused["elapsed_seconds"], 10.0)
+        self.assertEqual(later["elapsed_seconds"], 10.0)
+        self.assertEqual(paused["hourly_cost_usd"], later["hourly_cost_usd"])
 
 
 if __name__ == "__main__":

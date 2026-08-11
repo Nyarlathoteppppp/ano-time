@@ -9,13 +9,27 @@ class TranslationUsageMeter:
         self._lock = threading.Lock()
         self._started_at = time.monotonic()
         self._first_usage_at = None
+        self._active_started_at = None
+        self._active_elapsed = 0.0
         self._providers = {}
 
     def reset(self):
         with self._lock:
             self._started_at = time.monotonic()
             self._first_usage_at = None
+            self._active_started_at = None
+            self._active_elapsed = 0.0
             self._providers.clear()
+
+    def set_active(self, active):
+        """Start/freeze the hourly projection clock without touching totals."""
+        now = time.monotonic()
+        with self._lock:
+            if active and self._active_started_at is None:
+                self._active_started_at = now
+            elif not active and self._active_started_at is not None:
+                self._active_elapsed += max(0.0, now - self._active_started_at)
+                self._active_started_at = None
 
     def record(
         self, provider, usage, input_price=0.0, output_price=0.0,
@@ -36,8 +50,9 @@ class TranslationUsageMeter:
             + completion * max(0.0, float(output_price or 0.0))
         ) / 1_000_000 if priced else 0.0
         with self._lock:
+            now = time.monotonic()
             if self._first_usage_at is None:
-                self._first_usage_at = time.monotonic()
+                self._first_usage_at = now
             item = self._providers.setdefault(str(provider), {
                 "requests": 0,
                 "prompt_tokens": 0,
@@ -56,10 +71,10 @@ class TranslationUsageMeter:
 
     def snapshot(self):
         with self._lock:
-            elapsed = max(
-                0.0,
-                time.monotonic() - (self._first_usage_at or self._started_at),
-            )
+            now = time.monotonic()
+            elapsed = self._active_elapsed
+            if self._active_started_at is not None:
+                elapsed += max(0.0, now - self._active_started_at)
             providers = {name: dict(values) for name, values in self._providers.items()}
         totals = {
             key: sum(item[key] for item in providers.values())

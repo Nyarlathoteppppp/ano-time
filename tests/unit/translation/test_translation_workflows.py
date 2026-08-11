@@ -80,6 +80,10 @@ class TranslationWorkflowTests(unittest.TestCase):
             "Current lecture topic: Regularisation and bias-variance trade-off",
             providers["Groq GPT-OSS 20B"]["translator"].domain_prompt,
         )
+        self.assertNotIn(
+            "Computer Science–AI coursework",
+            providers["Cloudflare GLM-4.7-Flash"]["translator"].domain_prompt,
+        )
         self.assertNotIn("Qwen-MT Flash fallback", providers)
         bridge_names = {"Groq GPT-OSS 20B", "Cerebras GPT-OSS 120B"}
         self.assertEqual(workflow.final_translator.excluding, bridge_names)

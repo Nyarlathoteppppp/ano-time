@@ -616,7 +616,7 @@ class Pipeline(QObject):
             bridge_client=self._bridge_translation_client,
             final_client=self._final_translation_client,
             bridge_gate=self._groq_bridge_gate,
-            context_snapshot=self._current_finalized_context,
+            context_snapshot=lambda: self._current_finalized_context(1),
             is_active=lambda: self.running and not self._paused.is_set(),
             status_callback=lambda status, detail: self.signals.runtime_status.emit(
                 "Preview", status, detail
@@ -718,7 +718,8 @@ class Pipeline(QObject):
                 "ASR", "ok", f"Apple · {elapsed_ms / 1000:.1f}s"
             )
             self.last_final_text = text
-            context_text = self._snapshot_finalized_context(text)
+            context_text = self._snapshot_finalized_context(text, limit=3)
+            previous_preview = preview_service.displayed_candidate(chunk_id)
             self._emit_subtitle(
                 chunk_id, text, "", "final", SubtitleStage.ASR_FINAL
             )
@@ -729,6 +730,7 @@ class Pipeline(QObject):
                 bridge_executor,
                 refine_executor,
                 context_text,
+                previous_preview,
             )
             final_args = (
                 text, chunk_id, segment_started_at, first_partial_at,
@@ -1120,17 +1122,25 @@ class Pipeline(QObject):
             print(f"[Partial Translation {chunk_id}] Failed: {e}")
             log_stage("partial_translation", chunk_id=chunk_id, status="error", detail=str(e))
 
-    def _snapshot_finalized_context(self, text):
-        """Snapshot four prior finalized segments, then append the current one."""
+    def _snapshot_finalized_context(self, text, limit=3):
+        """Snapshot recent finalized segments, then append the current one."""
+        limit = max(0, int(limit))
         with self._context_lock:
-            context = "\n".join(self._finalized_context)
+            context = (
+                "\n".join(list(self._finalized_context)[-limit:])
+                if limit else ""
+            )
             self._finalized_context.append(text)
         return context
 
-    def _current_finalized_context(self):
+    def _current_finalized_context(self, limit=1):
         """Read prior finalized context without appending a provisional prefix."""
+        limit = max(0, int(limit))
         with self._context_lock:
-            return "\n".join(self._finalized_context)
+            return (
+                "\n".join(list(self._finalized_context)[-limit:])
+                if limit else ""
+            )
 
     def _forget_refinement(self, future):
         with self._refine_queue_lock:
@@ -1165,7 +1175,10 @@ class Pipeline(QObject):
             }
         future.add_done_callback(self._forget_bridge)
 
-    def _submit_latest_ai(self, executor, worker, text, chunk_id, context_text):
+    def _submit_latest_ai(
+        self, executor, worker, text, chunk_id, context_text,
+        previous_preview="",
+    ):
         """Keep two active AI jobs and at most one latest pending job."""
         deadline = time.monotonic() + config.ai_deadline_seconds
         with self._refine_queue_lock:
@@ -1190,9 +1203,15 @@ class Pipeline(QObject):
                         detail="replaced by newer finalized segment",
                     )
 
-            future = executor.submit(
-                worker, text, chunk_id, context_text, deadline
-            )
+            if previous_preview:
+                future = executor.submit(
+                    worker, text, chunk_id, context_text, deadline,
+                    previous_preview=previous_preview,
+                )
+            else:
+                future = executor.submit(
+                    worker, text, chunk_id, context_text, deadline
+                )
             self._refine_futures[future] = {
                 "chunk_id": chunk_id,
                 "deadline": deadline,
@@ -1206,6 +1225,7 @@ class Pipeline(QObject):
         bridge_executor,
         refine_executor,
         context_text,
+        previous_preview="",
     ):
         """Submit network finalization without entering the Apple work queue."""
         paused = self.__dict__.get("_paused")
@@ -1227,6 +1247,7 @@ class Pipeline(QObject):
                 text,
                 chunk_id,
                 context_text,
+                previous_preview,
             )
         except RuntimeError as exc:
             log_stage("llm_refine", chunk_id=chunk_id, status="skipped", detail=str(exc))
@@ -1333,15 +1354,27 @@ class Pipeline(QObject):
             except Exception as exc:
                 log_stage("groq_bridge", chunk_id=chunk_id, status="skipped", detail=str(exc))
 
-    def _run_refinement(self, text, chunk_id, context_text, deadline):
+    def _run_refinement(
+        self, text, chunk_id, context_text, deadline, previous_preview=""
+    ):
         try:
-            if not self.running or time.monotonic() >= deadline:
+            paused = self.__dict__.get("_paused")
+            if (
+                not self.running
+                or (paused is not None and paused.is_set())
+                or time.monotonic() >= deadline
+            ):
                 log_stage("llm_refine", chunk_id=chunk_id, status="expired")
                 return
             started = time.perf_counter()
 
             def emit_before_deadline(partial):
-                if self.running and time.monotonic() < deadline:
+                if (
+                    not previous_preview
+                    and self.running
+                    and (paused is None or not paused.is_set())
+                    and time.monotonic() < deadline
+                ):
                     self._emit_ranked_translation(
                         chunk_id,
                         text,
@@ -1362,12 +1395,18 @@ class Pipeline(QObject):
             translated = final_translator.translate(
                 text, use_context=False, remember_context=False,
                 context_text=context_text, deadline=deadline,
+                previous_preview=previous_preview or None,
                 on_update=emit_before_deadline,
             )
             elapsed_ms = (time.perf_counter() - started) * 1000
             if not managed_status:
                 self._on_provider_status("ok", final_label, elapsed_ms)
-            if translated and self.running and time.monotonic() < deadline:
+            if (
+                translated
+                and self.running
+                and (paused is None or not paused.is_set())
+                and time.monotonic() < deadline
+            ):
                 self._emit_ranked_translation(chunk_id, text, translated, "final", 3)
                 log_stage("llm_refine", chunk_id=chunk_id, elapsed_ms=elapsed_ms, detail=translated)
         except TimeoutError as exc:

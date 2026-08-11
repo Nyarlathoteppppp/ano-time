@@ -29,10 +29,7 @@ class Translator:
             "optimization, and software engineering."
         )
         self.asr_correction_prompt = (
-            "The source text comes from speech recognition and may contain "
-            "misrecognized words, homophones, or incorrect sentence boundaries. "
-            "Silently correct only obvious ASR errors using the sentence meaning, "
-            "course domain, and supplied terminology; never invent missing content."
+            "The source comes from ASR and may contain recognition errors."
         )
         self.glossary = CourseGlossary.from_file(glossary_path)
         
@@ -171,9 +168,8 @@ class Translator:
             terminology_prompt = f" Required terminology: {pairs}."
 
         output_constraint = (
-            " Output exactly one plain-text translation of the current source text. "
-            "Start directly with the translation. Never output analysis, reasoning, "
-            "explanations, notes, labels, alternatives, Markdown, or the source text."
+            f"Return only the complete {self.prompt_target_lang} translation "
+            "of CURRENT as plain text."
         )
 
         # Qwen-MT is a purpose-built, single-turn translation API. It rejects
@@ -182,30 +178,20 @@ class Translator:
             messages = [{"role": "user", "content": text}]
         elif draft_translation:
             system_prompt = (
-                f"You are a professional real-time translator and editor. "
-                f"Domain context: {self.domain_prompt} "
-                f"{self.asr_correction_prompt} "
-                f"Improve the draft translation into {self.prompt_target_lang}. "
-                f"Correct mistranslations using the original text, preserve meaning and terminology, "
-                f"and output only the improved translation.{output_constraint}"
-                f"{terminology_prompt}"
+                f"Domain: {self.domain_prompt} {self.asr_correction_prompt} "
+                "Correct DRAFT using CURRENT; preserve meaning and terminology. "
+                f"{output_constraint}{terminology_prompt}"
             )
             user_message = (
-                f"Original:\n{text}\n\n"
-                f"Draft translation:\n{draft_translation}"
+                f"DRAFT:\n{draft_translation}\n\nCURRENT:\n{text}"
             )
         elif previous_preview:
             system_prompt = (
-                f"Translate CURRENT into {self.prompt_target_lang}. "
                 f"Domain: {self.domain_prompt} "
                 f"{self.asr_correction_prompt} "
-                f"PREVIOUS is an earlier translation of a shorter source prefix. "
-                f"Preserve accurate wording when possible. "
-                f"Correctness overrides continuity; rewrite PREVIOUS wherever it "
-                f"conflicts with CURRENT. "
-                f"Use CONTEXT only for references and terminology. "
-                f"Return only the complete translation of CURRENT.{output_constraint}"
-                f"{terminology_prompt}"
+                "Correctness overrides continuity. Preserve wording from PREVIOUS "
+                "only where it remains accurate for CURRENT. Use CONTEXT only for "
+                f"references and terminology. {output_constraint}{terminology_prompt}"
             )
             context_block = (
                 f"\n\nCONTEXT:\n{context_text}" if context_text else ""
@@ -216,43 +202,27 @@ class Translator:
             )
         elif context_text:
             system_prompt = (
-                f"Translate CURRENT into {self.prompt_target_lang}. "
                 f"Domain: {self.domain_prompt} "
                 f"{self.asr_correction_prompt} "
-                f"Use CONTEXT only to resolve references and terminology. "
-                f"Return the translation of CURRENT only.{output_constraint}"
-                f"{terminology_prompt}"
+                "Use CONTEXT only for references and terminology. "
+                f"{output_constraint}{terminology_prompt}"
             )
             user_message = f"CONTEXT:\n{context_text}\n\nCURRENT:\n{text}"
         elif use_context and self.previous_text:
             system_prompt = (
-                f"You are a professional real-time translator. "
-                f"Domain context: {self.domain_prompt} "
-                f"{self.asr_correction_prompt} "
-                f"Translate the following user input into {self.prompt_target_lang}.\\n\\n"
-                f"<context>\\n"
-                f"Previous Sentence: \"{self.previous_text}\"\\n"
-                f"Previous Translation: \"{self.previous_translation}\"\\n"
-                f"</context>\\n\\n"
-                f"Instructions:\\n"
-                f"1. Use the <context> ONLY for continuity (consistency in terminology).\\n"
-                f"2. Translate ONLY the text available in the user message.\\n"
-                f"3. Do NOT repeat or include the Previous Sentence/Translation in your output.\\n"
-                f"4. Output only the translation of the user message."
-                f"{output_constraint}"
-                f"{terminology_prompt}"
+                f"Domain: {self.domain_prompt} {self.asr_correction_prompt} "
+                "Use PREVIOUS only for terminology continuity. "
+                f"{output_constraint}{terminology_prompt}"
             )
-            user_message = text
+            user_message = (
+                f"PREVIOUS:\n{self.previous_text}\n\nCURRENT:\n{text}"
+            )
         else:
             system_prompt = (
-                f"You are a professional real-time translator. "
-                f"Domain context: {self.domain_prompt} "
-                f"{self.asr_correction_prompt} "
-                f"Translate the following user input into {self.prompt_target_lang}. "
-                f"Do not add any explanations.{output_constraint}"
-                f"{terminology_prompt}"
+                f"Domain: {self.domain_prompt} {self.asr_correction_prompt} "
+                f"{output_constraint}{terminology_prompt}"
             )
-            user_message = text
+            user_message = f"CURRENT:\n{text}"
 
         if not is_qwen_mt:
             messages = [

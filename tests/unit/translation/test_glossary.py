@@ -105,7 +105,7 @@ class CourseGlossaryTests(unittest.TestCase):
                 [{"source": "Breadth-first search", "target": "广度优先搜索"}],
             )
             self.assertNotIn("state space", str(translation_options["terms"]).casefold())
-            self.assertIn("speech recognition", translation_options["domains"])
+            self.assertIn("source comes from ASR", translation_options["domains"])
 
     def test_generic_model_prompt_requests_conservative_asr_correction(self):
         translator = Translator(
@@ -121,12 +121,15 @@ class CourseGlossaryTests(unittest.TestCase):
         )
 
         system_prompt = translator.client.chat.completions.options["messages"][0]["content"]
-        self.assertIn("misrecognized words", system_prompt)
-        self.assertIn("only obvious ASR errors", system_prompt)
-        self.assertIn("never invent missing content", system_prompt)
-        self.assertIn("Start directly with the translation", system_prompt)
-        self.assertIn("Never output analysis, reasoning", system_prompt)
-        self.assertIn("Markdown", system_prompt)
+        self.assertIn(
+            "The source comes from ASR and may contain recognition errors.",
+            system_prompt,
+        )
+        self.assertIn(
+            "Return only the complete Simplified Chinese translation of CURRENT "
+            "as plain text.",
+            system_prompt,
+        )
 
     def test_context_prompt_forbids_notes_and_returns_current_translation_only(self):
         translator = Translator(
@@ -142,9 +145,8 @@ class CourseGlossaryTests(unittest.TestCase):
         )
 
         system_prompt = translator.client.chat.completions.options["messages"][0]["content"]
-        self.assertIn("translation of CURRENT only", system_prompt)
-        self.assertIn("Never output analysis, reasoning", system_prompt)
-        self.assertIn("notes, labels, alternatives", system_prompt)
+        self.assertIn("Use CONTEXT only for references and terminology", system_prompt)
+        self.assertIn("translation of CURRENT as plain text", system_prompt)
 
     def test_previous_preview_prompt_preserves_valid_words_without_locking_errors(self):
         translator = Translator(
@@ -161,9 +163,11 @@ class CourseGlossaryTests(unittest.TestCase):
         )
 
         messages = translator.client.chat.completions.options["messages"]
-        self.assertIn("Preserve accurate wording when possible", messages[0]["content"])
         self.assertIn("Correctness overrides continuity", messages[0]["content"])
-        self.assertIn("conflicts with CURRENT", messages[0]["content"])
+        self.assertIn(
+            "Preserve wording from PREVIOUS only where it remains accurate",
+            messages[0]["content"],
+        )
         self.assertIn("PREVIOUS:\n这个人很喜欢吃西瓜。", messages[1]["content"])
         self.assertIn("CURRENT:\nThe small dog", messages[1]["content"])
 

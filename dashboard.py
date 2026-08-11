@@ -1530,6 +1530,13 @@ class Dashboard(QWidget):
             "按服务商账单填写输入/输出单价；0 表示价格未知，只统计 Token，不猜费用。"
         )
         self.pricing_hint.setWordWrap(True)
+        self.pricing_hint.setMinimumHeight(52)
+        self.pricing_hint.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
+        self.pricing_hint.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
         self.pricing_hint.setStyleSheet("font-size: 12px; color: #bac2de;")
         self.main_model_layout.addRow("Cost Setup（费用计算）:", self.pricing_hint)
 
