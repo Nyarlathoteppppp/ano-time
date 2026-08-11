@@ -3,6 +3,7 @@
 import time
 
 from runtime_log import log_stage
+from overlay_factory import OverlaySpec, create_overlay
 from subtitle_display_scheduler import SubtitleDisplayScheduler
 from translation_usage import session_usage_meter
 
@@ -83,19 +84,13 @@ class SessionController:
         if view.overlay_window:
             view.overlay_window.close()
             view.overlay_window = None
-        if view.display_mode.currentData() == "notch":
-            from native_notch_overlay import NativeNotchOverlay as OverlayClass
-        else:
-            from overlay_window import OverlayWindow as OverlayClass
-        overlay_kwargs = dict(
+        view.overlay_window = create_overlay(OverlaySpec(
             display_duration=config.display_duration,
             window_width=config.window_width,
             window_height=config.window_height,
             display_mode=view.display_mode.currentData(),
-        )
-        if view.display_mode.currentData() != "notch":
-            overlay_kwargs["video_overlay"] = actual_audio == "SystemAudioCapture"
-        view.overlay_window = OverlayClass(**overlay_kwargs)
+            system_audio=actual_audio == "SystemAudioCapture",
+        ))
         view.overlay_window.show()
 
         if hasattr(view.overlay_window, "update_event"):

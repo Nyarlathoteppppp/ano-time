@@ -14,7 +14,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 from audio_capture import AudioCapture
 from system_audio_capture import SystemAudioCapture
 from transcriber import Transcriber
-from overlay_window import OverlayWindow
+from overlay_factory import OverlaySpec, create_overlay
 from config import config
 from runtime_log import diagnostics_enabled, log_stage
 from stable_prefix import StablePrefixTracker
@@ -1531,19 +1531,13 @@ def start_overlay_session():
     global _pipeline, _app
     
     # Initialize Overlay Window
-    if config.display_mode == "notch":
-        from native_notch_overlay import NativeNotchOverlay as OverlayClass
-    else:
-        OverlayClass = OverlayWindow
-    overlay_kwargs = dict(
+    window = create_overlay(OverlaySpec(
         display_duration=config.display_duration,
         window_width=config.window_width,
         window_height=config.window_height,
         display_mode=config.display_mode,
-    )
-    if config.display_mode != "notch":
-        overlay_kwargs["video_overlay"] = config.device_index == "system"
-    window = OverlayClass(**overlay_kwargs)
+        system_audio=config.device_index == "system",
+    ))
     window.show()
     
     # Logic
