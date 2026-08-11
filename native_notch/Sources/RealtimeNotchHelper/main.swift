@@ -71,16 +71,21 @@ private final class SubtitleState: ObservableObject {
             fragments: nil
         )
     ] {
-        didSet { refreshContentWidth() }
+        didSet {
+            refreshContentWidth()
+            refreshTranslationLineReservation()
+        }
     }
     @Published var displayCount: Int
     @Published private(set) var contentWidth: CGFloat = 360
+    @Published private(set) var reservedTranslationLineCount = 1
     @Published var isPaused = false
     var compactTask: Task<Void, Never>?
     private(set) var subtitleGeneration = 0
     private(set) var activityGeneration = 0
     private var busyStages = Set<String>()
     private var widthShrinkTask: Task<Void, Never>?
+    private var translationLineShrinkTask: Task<Void, Never>?
     private var finalLayoutTask: Task<Void, Never>?
     private var holdsFinalLayout = false
     private var modeTransitionTask: Task<Void, Never>?
@@ -192,6 +197,7 @@ private final class SubtitleState: ObservableObject {
                 allowImmediateShrink: true,
                 animated: true
             )
+            self.refreshTranslationLineReservation(allowImmediateShrink: true)
         }
     }
 
@@ -227,6 +233,58 @@ private final class SubtitleState: ObservableObject {
             }
         } else {
             contentWidth = width
+        }
+        refreshTranslationLineReservation()
+    }
+
+    private func measuredTranslationLineCount() -> Int {
+        let availableWidth = max(
+            1,
+            contentWidth - SubtitlePresentationPlanner.reservedEdgeWidth
+        )
+        let translatedFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
+        return max(1, visibleRows().reduce(0) { total, row in
+            let measured = (row.translated as NSString).size(
+                withAttributes: [.font: translatedFont]
+            ).width
+            return total + SubtitlePresentationPlanner.estimatedLineCount(
+                measuredTextWidth: measured,
+                availableWidth: availableWidth
+            )
+        })
+    }
+
+    var translationBottomReserve: CGFloat {
+        let currentLines = measuredTranslationLineCount()
+        return CGFloat(max(0, reservedTranslationLineCount - currentLines))
+            * SubtitlePresentationPlanner.translatedLineHeight
+    }
+
+    private func refreshTranslationLineReservation(
+        allowImmediateShrink: Bool = false
+    ) {
+        let required = measuredTranslationLineCount()
+        translationLineShrinkTask?.cancel()
+        if required >= reservedTranslationLineCount || allowImmediateShrink {
+            var immediate = Transaction()
+            immediate.disablesAnimations = true
+            withTransaction(immediate) {
+                reservedTranslationLineCount = required
+            }
+            return
+        }
+        translationLineShrinkTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(
+                for: .seconds(SubtitlePresentationPlanner.lineShrinkDelaySeconds)
+            )
+            guard let self, !Task.isCancelled else { return }
+            let latestRequired = self.measuredTranslationLineCount()
+            guard latestRequired < self.reservedTranslationLineCount else { return }
+            withAnimation(.easeInOut(
+                duration: SubtitlePresentationPlanner.shrinkAnimationSeconds
+            )) {
+                self.reservedTranslationLineCount = latestRequired
+            }
         }
     }
 
@@ -290,28 +348,18 @@ private func emitEvent(_ event: String) {
 
 private struct StableStreamingText: View {
     let text: String
-    let availableWidth: CGFloat
     let committedPrefixLength: Int
 
     @State private var displayedText: String
     @State private var displayedRuns: [RevisionRun]
     @State private var clearHighlightTask: Task<Void, Never>?
-    @State private var reservedLineCount: Int
-    @State private var lineShrinkTask: Task<Void, Never>?
 
-    init(text: String, availableWidth: CGFloat, committedPrefixLength: Int) {
+    init(text: String, committedPrefixLength: Int) {
         self.text = text
-        self.availableWidth = availableWidth
         self.committedPrefixLength = committedPrefixLength
         _displayedText = State(initialValue: text)
         _displayedRuns = State(initialValue:
             SubtitlePresentationPlanner.revisionRuns(from: "", to: text)
-        )
-        _reservedLineCount = State(initialValue:
-            SubtitlePresentationPlanner.estimatedLineCount(
-                measuredTextWidth: Self.measuredWidth(text),
-                availableWidth: availableWidth
-            )
         )
     }
 
@@ -357,7 +405,6 @@ private struct StableStreamingText: View {
             displayedText = newText
             displayedRuns = nextRuns
         }
-        updateLineReservation(for: newText, width: availableWidth)
         clearHighlightTask?.cancel()
         clearHighlightTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 180_000_000)
@@ -368,44 +415,6 @@ private struct StableStreamingText: View {
                 displayedRuns = newText.isEmpty
                     ? []
                     : [RevisionRun(text: newText, changed: false)]
-            }
-        }
-    }
-
-    private static func measuredWidth(_ value: String) -> CGFloat {
-        (value as NSString).size(withAttributes: [
-            .font: NSFont.systemFont(ofSize: 16, weight: .semibold)
-        ]).width
-    }
-
-    private func updateLineReservation(for value: String, width: CGFloat) {
-        let required = SubtitlePresentationPlanner.estimatedLineCount(
-            measuredTextWidth: Self.measuredWidth(value),
-            availableWidth: width
-        )
-        lineShrinkTask?.cancel()
-        if required >= reservedLineCount {
-            var immediate = Transaction()
-            immediate.disablesAnimations = true
-            withTransaction(immediate) {
-                reservedLineCount = required
-            }
-            return
-        }
-        lineShrinkTask = Task { @MainActor in
-            try? await Task.sleep(
-                for: .seconds(SubtitlePresentationPlanner.lineShrinkDelaySeconds)
-            )
-            guard !Task.isCancelled else { return }
-            let latestRequired = SubtitlePresentationPlanner.estimatedLineCount(
-                measuredTextWidth: Self.measuredWidth(displayedText),
-                availableWidth: availableWidth
-            )
-            guard latestRequired < reservedLineCount else { return }
-            withAnimation(.easeInOut(
-                duration: SubtitlePresentationPlanner.shrinkAnimationSeconds
-            )) {
-                reservedLineCount = latestRequired
             }
         }
     }
@@ -423,18 +432,9 @@ private struct StableStreamingText: View {
                     transaction.disablesAnimations = true
                 }
         }
-        .frame(
-            minHeight: CGFloat(reservedLineCount)
-                * SubtitlePresentationPlanner.translatedLineHeight,
-            alignment: .center
-        )
             .onChange(of: text, perform: replaceText)
-            .onChange(of: availableWidth) { newWidth in
-                updateLineReservation(for: displayedText, width: newWidth)
-            }
             .onDisappear {
                 clearHighlightTask?.cancel()
-                lineShrinkTask?.cancel()
             }
     }
 }
@@ -468,11 +468,6 @@ private struct SubtitleContent: View {
 
                         StableStreamingText(
                             text: item.translated,
-                            availableWidth: max(
-                                1,
-                                state.contentWidth
-                                    - SubtitlePresentationPlanner.reservedEdgeWidth
-                            ),
                             committedPrefixLength: item.committedPrefixLength ?? 0
                         )
                     }
@@ -480,6 +475,7 @@ private struct SubtitleContent: View {
                 }
             }
             .padding(.horizontal, 40)
+            .padding(.bottom, state.translationBottomReserve)
 
             HStack(spacing: 0) {
                 if let mascotImage = MascotAsset.image {

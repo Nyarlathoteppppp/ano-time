@@ -93,12 +93,26 @@ class NativeNotchSourceContractTests(unittest.TestCase):
 
     def test_two_line_height_shrinks_only_after_a_stable_cooldown(self):
         self.assertIn("lineShrinkDelaySeconds = 0.80", self.planner_source)
-        self.assertIn("@State private var reservedLineCount", self.source)
-        self.assertIn("lineShrinkTask?.cancel()", self.source)
-        self.assertIn("updateLineReservation(for: newText", self.source)
+        self.assertIn(
+            "@Published private(set) var reservedTranslationLineCount",
+            self.source,
+        )
+        self.assertIn("translationLineShrinkTask?.cancel()", self.source)
+        self.assertIn("refreshTranslationLineReservation()", self.source)
         self.assertIn(
             "SubtitlePresentationPlanner.lineShrinkDelaySeconds", self.source
         )
+
+    def test_reserved_height_is_added_only_below_the_whole_subtitle_stack(self):
+        self.assertIn("var translationBottomReserve: CGFloat", self.source)
+        self.assertIn(
+            ".padding(.bottom, state.translationBottomReserve)", self.source
+        )
+        streaming_source = self.source[
+            self.source.index("private struct StableStreamingText"):
+            self.source.index("private struct SubtitleContent")
+        ]
+        self.assertNotIn("minHeight:", streaming_source)
 
     def test_display_fragments_keep_a_stable_semantic_parent(self):
         self.assertIn("let fragments: [SubtitleFragment]?", self.source)
