@@ -163,7 +163,23 @@ def normalize_math_subtitles(text, final=True):
     users never see half a command such as ``$\\hat{``. The final pass converts
     that tail if it contains recognizable mathematical syntax.
     """
-    value = str(text or "")
+    escaped_dollar = "\ue000"
+    display_open = "\ue100"
+    display_close = "\ue101"
+    display_blocks = []
+    value = str(text or "").replace(r"\$", escaped_dollar)
+    def replace_display_math(match):
+        display_blocks.append(
+            _convert_or_preserve(match.group(1), "$$", "$$")
+        )
+        return f"{display_open}{len(display_blocks) - 1}{display_close}"
+
+    value = re.sub(
+        r"\$\$(.+?)\$\$",
+        replace_display_math,
+        value,
+        flags=re.DOTALL,
+    )
     value = re.sub(
         r"\\\((.+?)\\\)",
         lambda match: _convert_or_preserve(match.group(1), r"\(", r"\)"),
@@ -200,6 +216,11 @@ def normalize_math_subtitles(text, final=True):
             rendered.append("$" + unfinished)
 
     result = "".join(rendered)
+    result = re.sub(
+        rf"{display_open}(\d+){display_close}",
+        lambda match: display_blocks[int(match.group(1))],
+        result,
+    )
     # Some providers omit delimiters despite the prompt. Convert only when a
     # known command remains; normal prose and currency never enter this path.
     if re.search(r"\\(?:hat|bar|overline|tilde|vec|dot|frac|dfrac|sqrt|mathbb|"
@@ -207,7 +228,7 @@ def normalize_math_subtitles(text, final=True):
                  r"operatorname|alpha|beta|gamma|theta|lambda|mu|sigma|phi|"
                  r"omega|sum|prod|int|partial|infty)(?![A-Za-z])", result):
         result = _convert_or_preserve(result)
-    return result.strip()
+    return result.replace(escaped_dollar, "$").strip()
 
 
 def safe_normalize_math_subtitles(text, final=True):

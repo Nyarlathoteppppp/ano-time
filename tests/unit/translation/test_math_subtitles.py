@@ -67,6 +67,19 @@ class MathSubtitleTests(unittest.TestCase):
             normalize_math_subtitles("费用从 $5 增加到 $10。"),
             "费用从 $5 增加到 $10。",
         )
+        self.assertEqual(normalize_math_subtitles(r"费用为 \$5。"), "费用为 $5。")
+
+    def test_converts_display_math_without_leaking_delimiters(self):
+        self.assertEqual(
+            normalize_math_subtitles(r"协方差为 $$\frac{1}{n}X^\top X$$。"),
+            "协方差为 (1)/(n)Xᵀ X。",
+        )
+
+    def test_unknown_display_math_is_preserved(self):
+        self.assertEqual(
+            normalize_math_subtitles(r"暂不支持 $$\unknown{x}$$。"),
+            r"暂不支持 $$\unknown{x}$$。",
+        )
 
     def test_withholds_unfinished_streaming_formula(self):
         self.assertEqual(

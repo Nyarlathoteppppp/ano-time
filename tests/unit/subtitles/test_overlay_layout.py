@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import QRect
 from PyQt6.QtWidgets import QApplication, QScrollBar
 
 from overlay_window import (
@@ -12,6 +13,7 @@ from overlay_window import (
     MAX_VISIBLE_TRANSCRIPT_ITEMS,
     LogItem,
     OverlayWindow,
+    clamp_window_rect,
 )
 
 
@@ -47,6 +49,28 @@ class OverlayLayoutTests(unittest.TestCase):
             + max(0, item.layout.spacing())
         )
         self.assertEqual(item.height(), required)
+
+    def test_restored_window_is_moved_back_from_disconnected_display(self):
+        clamped = clamp_window_rect(
+            QRect(3000, 200, 500, 400),
+            [QRect(0, 0, 1440, 900)],
+        )
+        self.assertEqual(clamped, QRect(940, 200, 500, 400))
+
+    def test_restored_window_is_reduced_to_available_screen(self):
+        clamped = clamp_window_rect(
+            QRect(-100, -100, 3000, 2000),
+            [QRect(0, 0, 1440, 900)],
+        )
+        self.assertEqual(clamped, QRect(0, 0, 1440, 900))
+
+    def test_valid_geometry_on_secondary_screen_is_preserved(self):
+        original = QRect(1600, 100, 500, 400)
+        clamped = clamp_window_rect(
+            original,
+            [QRect(0, 0, 1440, 900), QRect(1440, 0, 1440, 900)],
+        )
+        self.assertEqual(clamped, original)
 
     def test_glass_panel_uses_seventy_percent_opaque_neutral_background(self):
         self.assertEqual(GLASS_PANEL_BACKGROUND, "rgba(0, 0, 0, 179)")

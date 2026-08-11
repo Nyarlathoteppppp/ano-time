@@ -18,6 +18,36 @@ FULLSCREEN_OVERLAY_LEVEL = int(_CORE_GRAPHICS.CGShieldingWindowLevel()) + 1
 MAX_VISIBLE_TRANSCRIPT_ITEMS = 40
 GLASS_PANEL_BACKGROUND = "rgba(0, 0, 0, 179)"
 
+
+def clamp_window_rect(rect, available_rects, minimum_width=320,
+                      minimum_height=140):
+    """Keep a restored window usable after displays are disconnected."""
+    original = QRect(rect)
+    screens = [QRect(bounds) for bounds in available_rects if bounds.isValid()]
+    if not screens:
+        return original
+
+    target = next(
+        (bounds for bounds in screens if bounds.contains(original.center())),
+        None,
+    )
+    if target is None:
+        target = max(
+            screens,
+            key=lambda bounds: original.intersected(bounds).width()
+            * original.intersected(bounds).height(),
+        )
+        if original.intersected(target).isEmpty():
+            target = screens[0]
+
+    width = min(max(original.width(), int(minimum_width)), target.width())
+    height = min(max(original.height(), int(minimum_height)), target.height())
+    max_x = target.x() + target.width() - width
+    max_y = target.y() + target.height() - height
+    x = min(max(original.x(), target.x()), max_x)
+    y = min(max(original.y(), target.y()), max_y)
+    return QRect(x, y, width, height)
+
 # macOS: Make window visible on all desktops (Spaces)
 try:
     from AppKit import (
@@ -660,6 +690,7 @@ class OverlayWindow(QWidget):
         saved_geometry = self._settings.value("glass/geometry")
         if self.display_mode == "glass" and saved_geometry is not None:
             self.restoreGeometry(saved_geometry)
+            self._clamp_glass_geometry()
         self._glass_geometry = self.geometry()
         
         # Data storage: list of (chunk_id, widget) inclusive
@@ -700,6 +731,17 @@ class OverlayWindow(QWidget):
     def _save_glass_geometry(self):
         if self.display_mode == "glass":
             self._settings.setValue("glass/geometry", self.saveGeometry())
+
+    def _clamp_glass_geometry(self):
+        screens = [screen.availableGeometry() for screen in QApplication.screens()]
+        clamped = clamp_window_rect(
+            self.geometry(),
+            screens,
+            self.minimumWidth(),
+            self.minimumHeight(),
+        )
+        if clamped != self.geometry():
+            self.setGeometry(clamped)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
