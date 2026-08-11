@@ -1,12 +1,14 @@
 import os
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QScrollBar
 
 from overlay_window import (
+    GLASS_PANEL_BACKGROUND,
     MAX_VISIBLE_TRANSCRIPT_ITEMS,
     LogItem,
     OverlayWindow,
@@ -45,6 +47,38 @@ class OverlayLayoutTests(unittest.TestCase):
             + max(0, item.layout.spacing())
         )
         self.assertEqual(item.height(), required)
+
+    def test_glass_panel_uses_seventy_percent_opaque_neutral_background(self):
+        self.assertEqual(GLASS_PANEL_BACKGROUND, "rgba(0, 0, 0, 179)")
+
+        class Container:
+            def set_notch_geometry(self, enabled):
+                self.notch_enabled = enabled
+
+            def setStyleSheet(self, stylesheet):
+                self.stylesheet = stylesheet
+
+        view = SimpleNamespace(container=Container())
+        OverlayWindow._set_glass_style(view)
+
+        self.assertFalse(view.container.notch_enabled)
+        self.assertIn(GLASS_PANEL_BACKGROUND, view.container.stylesheet)
+        self.assertIn("border-radius: 20px", view.container.stylesheet)
+
+    def test_direct_glass_window_does_not_activate_legacy_qt_notch(self):
+        with patch("overlay_window.HAS_APPKIT", False):
+            window = OverlayWindow(
+                window_width=480,
+                window_height=260,
+                display_mode="glass",
+                allow_notch_switch=False,
+            )
+        try:
+            window.container.mode_switch_requested.emit()
+            self.assertEqual(window.display_mode, "glass")
+            self.assertFalse(window.container.notch_mode)
+        finally:
+            window.close()
 
     def test_manual_scroll_disables_tail_follow_until_user_returns_to_bottom(self):
         scrollbar = QScrollBar()

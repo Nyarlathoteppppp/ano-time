@@ -5,6 +5,7 @@ import re
 import time
 
 from glossary import CourseGlossary
+from math_subtitles import safe_normalize_math_subtitles
 
 class Translator:
     def __init__(self, api_key=None, base_url=None, model="MBZUAI-IFM/K2-Think-nothink",
@@ -174,7 +175,9 @@ class Translator:
 
         output_constraint = (
             f"Return only the complete {self.prompt_target_lang} translation "
-            "of CURRENT as plain text."
+            "of CURRENT. Write every clearly stated mathematical variable, operator, "
+            "and formula as inline LaTeX; never transliterate symbol names. Otherwise "
+            "use plain text. No Markdown or explanations."
         )
 
         # Qwen-MT is a purpose-built, single-turn translation API. It rejects
@@ -308,6 +311,7 @@ class Translator:
             if on_update is not None:
                 parts = []
                 stream_usage = None
+                last_display_partial = ""
                 try:
                     for chunk in response:
                         if time.monotonic() >= deadline:
@@ -322,7 +326,15 @@ class Translator:
                             parts.append(content)
                             partial = self._strip_thinking("".join(parts))
                             if partial:
-                                on_update(partial)
+                                display_partial = safe_normalize_math_subtitles(
+                                    partial, final=False
+                                )
+                                if (
+                                    display_partial
+                                    and display_partial != last_display_partial
+                                ):
+                                    on_update(display_partial)
+                                    last_display_partial = display_partial
                 finally:
                     close = getattr(response, "close", None)
                     if close:
@@ -336,7 +348,9 @@ class Translator:
             if time.monotonic() >= deadline:
                 raise TimeoutError("AI translation exceeded its hard deadline")
             # Strip thinking tags if present
-            result = self._strip_thinking(raw_result)
+            result = safe_normalize_math_subtitles(
+                self._strip_thinking(raw_result), final=True
+            )
             
             # Store for next translation context
             if remember_context:

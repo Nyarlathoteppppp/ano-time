@@ -145,10 +145,13 @@ class CourseGlossaryTests(unittest.TestCase):
             system_prompt,
         )
         self.assertIn(
-            "Return only the complete Simplified Chinese translation of CURRENT "
-            "as plain text.",
+            "Return only the complete Simplified Chinese translation of CURRENT.",
             system_prompt,
         )
+        self.assertIn("mathematical variable, operator", system_prompt)
+        self.assertIn("as inline LaTeX", system_prompt)
+        self.assertIn("never transliterate symbol names", system_prompt)
+        self.assertIn("No Markdown or explanations", system_prompt)
 
     def test_context_prompt_forbids_notes_and_returns_current_translation_only(self):
         translator = Translator(
@@ -165,7 +168,7 @@ class CourseGlossaryTests(unittest.TestCase):
 
         system_prompt = translator.client.chat.completions.options["messages"][0]["content"]
         self.assertIn("Use CONTEXT only for references and terminology", system_prompt)
-        self.assertIn("translation of CURRENT as plain text", system_prompt)
+        self.assertIn("translation of CURRENT", system_prompt)
 
     def test_previous_preview_prompt_preserves_valid_words_without_locking_errors(self):
         translator = Translator(

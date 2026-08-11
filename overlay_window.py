@@ -16,22 +16,13 @@ _CORE_GRAPHICS = CDLL(
 _CORE_GRAPHICS.CGShieldingWindowLevel.restype = c_int32
 FULLSCREEN_OVERLAY_LEVEL = int(_CORE_GRAPHICS.CGShieldingWindowLevel()) + 1
 MAX_VISIBLE_TRANSCRIPT_ITEMS = 40
+GLASS_PANEL_BACKGROUND = "rgba(0, 0, 0, 179)"
 
 # macOS: Make window visible on all desktops (Spaces)
 try:
     from AppKit import (
-        NSBackingStoreBuffered,
-        NSColor,
         NSScreen,
         NSPanel,
-        NSScreenSaverWindowLevel,
-        NSViewHeightSizable,
-        NSViewWidthSizable,
-        NSVisualEffectBlendingModeBehindWindow,
-        NSVisualEffectMaterialHUDWindow,
-        NSVisualEffectStateActive,
-        NSVisualEffectView,
-        NSWindowBelow,
         NSWindowCollectionBehaviorAuxiliary,
         NSWindowCollectionBehaviorCanJoinAllApplications,
         NSWindowCollectionBehaviorCanJoinAllSpaces,
@@ -42,7 +33,6 @@ try:
         NSWindowCollectionBehaviorMoveToActiveSpace,
         NSWindowCollectionBehaviorPrimary,
         NSWindowCollectionBehaviorStationary,
-        NSWindowStyleMaskBorderless,
     )
     import objc
     HAS_APPKIT = True
@@ -406,8 +396,6 @@ class OverlayWindow(QWidget):
             self._maintain_topmost
         )
         self._last_native_visibility = None
-        self._native_blur_window = None
-        self._native_blur_view = None
         
         self.initUI()
         self.oldPos = self.pos()
@@ -429,59 +417,7 @@ class OverlayWindow(QWidget):
 
     def closeEvent(self, event):
         self._topmost_timer.stop()
-        if self._native_blur_window is not None:
-            self._native_blur_window.close()
-            self._native_blur_window = None
-            self._native_blur_view = None
         super().closeEvent(event)
-
-    def _install_native_blur(self, ns_window):
-        """Put an AppKit vibrancy panel behind microphone-mode glass."""
-        if self._native_blur_window is not None or self.video_overlay:
-            return
-        blur_window = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
-            ns_window.frame(), NSWindowStyleMaskBorderless,
-            NSBackingStoreBuffered, False,
-        )
-        blur_window.setOpaque_(False)
-        blur_window.setBackgroundColor_(NSColor.clearColor())
-        blur_window.setHasShadow_(False)
-        blur_window.setIgnoresMouseEvents_(True)
-        blur_window.setHidesOnDeactivate_(False)
-        blur_window.setCanHide_(False)
-        blur_window.setCollectionBehavior_(ns_window.collectionBehavior())
-        blur_window.setLevel_(NSScreenSaverWindowLevel)
-
-        effect = NSVisualEffectView.alloc().initWithFrame_(
-            blur_window.contentView().bounds()
-        )
-        effect.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
-        effect.setMaterial_(NSVisualEffectMaterialHUDWindow)
-        effect.setBlendingMode_(NSVisualEffectBlendingModeBehindWindow)
-        effect.setState_(NSVisualEffectStateActive)
-        effect.setWantsLayer_(True)
-        effect.layer().setCornerRadius_(20.0)
-        effect.layer().setMasksToBounds_(True)
-        effect.layer().setBackgroundColor_(
-            NSColor.colorWithCalibratedRed_green_blue_alpha_(
-                1.0, 0.58, 0.75, 0.16
-            ).CGColor()
-        )
-        blur_window.contentView().addSubview_(effect)
-        ns_window.addChildWindow_ordered_(blur_window, NSWindowBelow)
-        self._native_blur_window = blur_window
-        self._native_blur_view = effect
-        print("[Overlay] Native macOS HUD blur installed", flush=True)
-
-    def _sync_native_blur(self, ns_window):
-        if self._native_blur_window is None:
-            return
-        self._native_blur_window.setFrame_display_(ns_window.frame(), True)
-        if self.display_mode == "glass" and self.isVisible():
-            self._native_blur_window.orderFrontRegardless()
-            ns_window.orderFrontRegardless()
-        else:
-            self._native_blur_window.orderOut_(None)
     
     def _set_all_spaces(self, log_ready=False):
         """Make window appear on all macOS Spaces/Desktops"""
@@ -518,9 +454,6 @@ class OverlayWindow(QWidget):
             # levels so browser-native video full screen cannot cover them.
             ns_window.setCanBecomeVisibleWithoutLogin_(False)
             ns_window.setLevel_(FULLSCREEN_OVERLAY_LEVEL)
-            if self.display_mode == "glass" and not self.video_overlay:
-                self._install_native_blur(ns_window)
-            self._sync_native_blur(ns_window)
             ns_window.orderFrontRegardless()
             native_visibility = (
                 bool(ns_window.isVisible()),
@@ -627,8 +560,6 @@ class OverlayWindow(QWidget):
         self.container.setObjectName("glassPanel")
         if self.allow_notch_switch:
             self.container.mode_switch_requested.connect(self.notch_requested.emit)
-        else:
-            self.container.mode_switch_requested.connect(self.toggle_display_mode)
         self._set_glass_style()
         self.container_layout = QVBoxLayout()
         self.container_layout.setContentsMargins(10, 10, 10, 10)
@@ -777,25 +708,20 @@ class OverlayWindow(QWidget):
             self._schedule_geometry_save()
         if hasattr(self, "_content_reflow_timer"):
             self._schedule_content_reflow()
-        if HAS_APPKIT and self._native_blur_window is not None:
-            self._set_all_spaces()
 
     def moveEvent(self, event):
         super().moveEvent(event)
         if hasattr(self, "_geometry_save_timer"):
             self._schedule_geometry_save()
-        if HAS_APPKIT and self._native_blur_window is not None:
-            self._set_all_spaces()
 
     def _set_glass_style(self):
         self.container.set_notch_geometry(False)
-        # The native blur/transparent top-level window is the only surface.
-        # Keeping this inner frame clear avoids a visible frame-within-frame.
-        self.container.setStyleSheet("""
-            QFrame#glassPanel {
-                background-color: transparent;
+        self.container.setStyleSheet(f"""
+            QFrame#glassPanel {{
+                background-color: {GLASS_PANEL_BACKGROUND};
                 border: none;
-            }
+                border-radius: 20px;
+            }}
         """)
 
     def _set_notch_style(self):
