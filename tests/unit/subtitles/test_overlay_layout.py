@@ -18,6 +18,12 @@ from overlay_window import (
 
 
 class OverlayLayoutTests(unittest.TestCase):
+    def test_empty_translation_shows_only_the_english_row(self):
+        item = LogItem(1, "00:00:00", "English arrives first", "")
+        self.assertFalse(item.original_label.isHidden())
+        self.assertTrue(item.translated_label.isHidden())
+        self.assertEqual(item.translated_label.text(), "")
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])

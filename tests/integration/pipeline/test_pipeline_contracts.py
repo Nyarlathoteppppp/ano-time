@@ -9,6 +9,7 @@ from main import (
     Pipeline,
     WorkerSignals,
     diagnostic_audio_activity_threshold,
+    effective_streaming_step_size,
     recent_audio_anchor,
 )
 from subtitle_event import SubtitleStage
@@ -30,6 +31,11 @@ class PipelineContractTests(unittest.TestCase):
         )
         self.assertEqual(recent_audio_anchor(10.0, 11.4), 10.0)
         self.assertIsNone(recent_audio_anchor(10.0, 11.6))
+
+    def test_apple_live_asr_uses_small_audio_blocks_without_changing_other_backends(self):
+        self.assertEqual(effective_streaming_step_size("apple", 0.2), 0.05)
+        self.assertEqual(effective_streaming_step_size("apple", 0.03), 0.03)
+        self.assertEqual(effective_streaming_step_size("mlx", 0.2), 0.2)
 
     def test_start_runs_processing_loop_on_daemon_thread(self):
         pipeline = Pipeline.__new__(Pipeline)

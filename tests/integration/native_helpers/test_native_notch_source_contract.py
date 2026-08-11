@@ -114,6 +114,14 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         ]
         self.assertNotIn("minHeight:", streaming_source)
 
+    def test_empty_translation_shows_english_without_a_placeholder_row(self):
+        self.assertIn("guard !row.translated.isEmpty else", self.source)
+        self.assertIn("if !item.translated.isEmpty", self.source)
+        self.assertIn(
+            "state.displayCount == 1 && !item.translated.isEmpty",
+            self.source,
+        )
+
     def test_display_fragments_keep_a_stable_semantic_parent(self):
         self.assertIn("let fragments: [SubtitleFragment]?", self.source)
         self.assertIn("func visibleRows() -> [SubtitleFragment]", self.source)
@@ -126,9 +134,10 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn("let isShrinking = width < contentWidth", self.source)
         self.assertIn("Task.sleep(for: .seconds(0.30))", self.source)
 
-    def test_compact_and_oldest_large_line_hide_english(self):
-        self.assertIn("let hidesOriginal = displayCount == 1", self.source)
-        self.assertIn("displayCount == 3 && item.id == visibleItems.first?.id", self.source)
+    def test_modes_hide_english_only_after_translation_exists(self):
+        self.assertIn("displayCount == 1 && !item.translated.isEmpty", self.source)
+        self.assertIn("item.id == visibleItems.first?.id", self.source)
+        self.assertIn("&& !item.translated.isEmpty", self.source)
         self.assertIn("if !hidesOriginal", self.source)
 
     def test_launch_and_exit_use_directional_notch_transitions(self):

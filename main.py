@@ -44,6 +44,12 @@ def recent_audio_anchor(recent_activity_at, now, max_age=1.5):
         return None
     return recent_activity_at if now - recent_activity_at <= max_age else None
 
+
+def effective_streaming_step_size(asr_backend, configured_step):
+    """Feed Apple live ASR at most 50 ms of audio without changing other ASR paths."""
+    step = max(0.01, float(configured_step))
+    return min(step, 0.05) if str(asr_backend).lower() == "apple" else step
+
 class WorkerSignals(QObject):
     subtitle_event = pyqtSignal(object)
     # (chunk_id, original, translated, ASR state: "partial" | "final")
@@ -119,7 +125,9 @@ class Pipeline(QObject):
             max_phrase_duration=config.max_phrase_duration,
             streaming_mode=config.streaming_mode,
             streaming_interval=config.streaming_interval,
-            streaming_step_size=config.streaming_step_size,
+            streaming_step_size=effective_streaming_step_size(
+                config.asr_backend, config.streaming_step_size
+            ),
             streaming_overlap=config.streaming_overlap
         )
         log_stage(

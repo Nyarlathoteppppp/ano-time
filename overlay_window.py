@@ -128,8 +128,10 @@ class LogItem(QFrame):
 
     def _render_translation(self):
         if not self._translated_text:
-            self.translated_label.setText("…")
+            self.translated_label.clear()
+            self.translated_label.hide()
             return
+        self.translated_label.show()
         offset = 0
         rendered = []
         for span in self._revision.spans:

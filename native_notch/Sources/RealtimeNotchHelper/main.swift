@@ -207,8 +207,12 @@ private final class SubtitleState: ObservableObject {
         let englishFont = NSFont.systemFont(ofSize: 11.5, weight: .regular)
         let translatedFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
         let measured = visibleItems.reduce(CGFloat(0)) { longest, item in
-            let hidesOriginal = displayCount == 1 || (
-                displayCount == 3 && item.id == visibleItems.first?.id
+            let hidesOriginal = (
+                displayCount == 1 && !item.translated.isEmpty
+            ) || (
+                displayCount == 3
+                    && item.id == visibleItems.first?.id
+                    && !item.translated.isEmpty
             )
             let englishWidth = hidesOriginal ? 0 : (item.original as NSString).size(
                 withAttributes: [.font: englishFont]
@@ -244,7 +248,8 @@ private final class SubtitleState: ObservableObject {
             contentWidth - SubtitlePresentationPlanner.reservedEdgeWidth
         )
         let translatedFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
-        return max(1, visibleRows().reduce(0) { total, row in
+        return visibleRows().reduce(0) { total, row in
+            guard !row.translated.isEmpty else { return total }
             let measured = (row.translated as NSString).size(
                 withAttributes: [.font: translatedFont]
             ).width
@@ -252,7 +257,7 @@ private final class SubtitleState: ObservableObject {
                 measuredTextWidth: measured,
                 availableWidth: availableWidth
             )
-        })
+        }
     }
 
     var translationBottomReserve: CGFloat {
@@ -271,7 +276,7 @@ private final class SubtitleState: ObservableObject {
             pendingShrinkTarget: pendingTranslationLineTarget,
             force: allowImmediateShrink
         )
-        if intent == .replaceImmediately {
+        if intent == .replaceImmediately || required == 0 {
             translationLineShrinkTask?.cancel()
             translationLineShrinkTask = nil
             pendingTranslationLineTarget = nil
@@ -470,9 +475,12 @@ private struct SubtitleContent: View {
             VStack(alignment: .center, spacing: 5) {
                 ForEach(visibleItems) { item in
                     VStack(alignment: .center, spacing: 2) {
-                        let hidesOriginal = state.displayCount == 1 || (
+                        let hidesOriginal = (
+                            state.displayCount == 1 && !item.translated.isEmpty
+                        ) || (
                             state.displayCount == 3
                                 && item.id == visibleItems.first?.id
+                                && !item.translated.isEmpty
                         )
                         if !hidesOriginal {
                             Text(item.original)
@@ -488,10 +496,12 @@ private struct SubtitleContent: View {
                                 .frame(maxWidth: .infinity, alignment: .center)
                         }
 
-                        StableStreamingText(
-                            text: item.translated,
-                            committedPrefixLength: item.committedPrefixLength ?? 0
-                        )
+                        if !item.translated.isEmpty {
+                            StableStreamingText(
+                                text: item.translated,
+                                committedPrefixLength: item.committedPrefixLength ?? 0
+                            )
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                 }

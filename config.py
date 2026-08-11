@@ -151,7 +151,7 @@ class Config:
         # Streaming mode settings
         self.streaming_mode = self._get("audio", "streaming_mode", "true").lower() == "true"
         self.streaming_interval = self._getfloat("audio", "streaming_interval", 3.0)
-        self.streaming_step_size = self._getfloat("audio", "streaming_step_size", 0.2)
+        self.streaming_step_size = self._getfloat("audio", "streaming_step_size", 0.05)
         self.update_interval = self._getfloat("audio", "update_interval", 0.5)
         self.streaming_overlap = self._getfloat("audio", "streaming_overlap", 0.3)
         self.stable_prefix_window = self._getfloat("audio", "stable_prefix_window", 0.25)
