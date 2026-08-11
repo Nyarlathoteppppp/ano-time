@@ -23,6 +23,19 @@ class DashboardSettingsRepository:
         self.config_path = config_path
         self.keychain = keychain or default_keychain
 
+    def save_bridge_provider(self, provider):
+        """Persist only the bridge switch without saving unrelated edits."""
+        provider = "groq" if str(provider) == "groq" else "off"
+        parser = configparser.ConfigParser()
+        parser.read(self.config_path)
+        if not parser.has_section("translation"):
+            parser.add_section("translation")
+        parser.set("translation", "bridge_provider", provider)
+        with open(self.config_path, "w", encoding="utf-8") as handle:
+            parser.write(handle)
+        os.chmod(self.config_path, 0o600)
+        return provider
+
     def save(self, snapshot, previous_secrets=None):
         previous_secrets = dict(previous_secrets or {})
         parser = configparser.ConfigParser()

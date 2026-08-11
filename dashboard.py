@@ -1653,9 +1653,18 @@ class Dashboard(QWidget):
         }
 
     def _on_bridge_toggle_clicked(self, enabled):
-        index = self.bridge_provider.findData("groq" if enabled else "off")
+        provider = "groq" if enabled else "off"
+        index = self.bridge_provider.findData(provider)
         if index >= 0:
             self.bridge_provider.setCurrentIndex(index)
+        try:
+            config_path = os.path.join(os.path.dirname(__file__), "config.ini")
+            DashboardSettingsRepository(config_path).save_bridge_provider(provider)
+            config.bridge_provider = provider
+        except Exception as exc:
+            self._show_save_feedback(
+                f"Bridge state was not saved: {exc}", success=False
+            )
 
     def _sync_bridge_toggle(self, enabled=True):
         active = enabled and (self.bridge_provider.currentData() == "groq")

@@ -172,15 +172,21 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.bridge_toggle.fontMetrics().horizontalAdvance("Bridge OFF") + 24,
         )
         self.assertGreaterEqual(self.dashboard.bridge_toggle.height(), 42)
-        self.dashboard.bridge_toggle.click()
-        self.assertEqual(self.dashboard.bridge_provider.currentData(), "off")
-        self.assertEqual(self.dashboard.bridge_toggle.text(), "Bridge OFF")
-        self.assertFalse(self.dashboard.bridge_toggle.isChecked())
+        with patch.object(
+            dashboard_module.DashboardSettingsRepository,
+            "save_bridge_provider",
+        ) as save_bridge:
+            self.dashboard.bridge_toggle.click()
+            self.assertEqual(self.dashboard.bridge_provider.currentData(), "off")
+            self.assertEqual(self.dashboard.bridge_toggle.text(), "Bridge OFF")
+            self.assertFalse(self.dashboard.bridge_toggle.isChecked())
+            save_bridge.assert_called_with("off")
 
-        self.dashboard.bridge_toggle.click()
-        self.assertEqual(self.dashboard.bridge_provider.currentData(), "groq")
-        self.assertEqual(self.dashboard.bridge_toggle.text(), "Bridge ON")
-        self.assertTrue(self.dashboard.bridge_toggle.isChecked())
+            self.dashboard.bridge_toggle.click()
+            self.assertEqual(self.dashboard.bridge_provider.currentData(), "groq")
+            self.assertEqual(self.dashboard.bridge_toggle.text(), "Bridge ON")
+            self.assertTrue(self.dashboard.bridge_toggle.isChecked())
+            save_bridge.assert_called_with("groq")
 
     def test_save_shows_global_success_feedback(self):
         with (

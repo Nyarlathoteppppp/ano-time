@@ -60,6 +60,28 @@ def make_snapshot(groq_key="groq-secret"):
 
 
 class DashboardSettingsRepositoryTests(unittest.TestCase):
+    def test_bridge_switch_is_saved_without_overwriting_other_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.ini")
+            parser = configparser.ConfigParser()
+            parser["audio"] = {"sample_rate": "48000"}
+            parser["translation"] = {
+                "bridge_provider": "off",
+                "model": "keep-this-model",
+            }
+            with open(path, "w", encoding="utf-8") as handle:
+                parser.write(handle)
+
+            repository = DashboardSettingsRepository(path, keychain=FakeKeychain())
+            self.assertEqual(repository.save_bridge_provider("groq"), "groq")
+
+            saved = configparser.ConfigParser()
+            saved.read(path)
+            self.assertEqual(saved.get("translation", "bridge_provider"), "groq")
+            self.assertEqual(saved.get("translation", "model"), "keep-this-model")
+            self.assertEqual(saved.get("audio", "sample_rate"), "48000")
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+
     def test_unchanged_secret_keeps_reference_without_keychain_write(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "config.ini")
