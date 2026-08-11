@@ -150,6 +150,17 @@ class DashboardWorkflowTests(unittest.TestCase):
             ],
         )
 
+    def test_single_model_empty_model_is_reported_as_incomplete(self):
+        self._choose_workflow("single_model")
+        self.dashboard.api_key.setText("test-key")
+        self.dashboard.base_url.setText("https://example.com/v1")
+        self.dashboard.model.setCurrentText("")
+
+        self.dashboard._on_translation_workflow_changed()
+
+        self.assertIn("Model ID", self.dashboard.workflow_preview.text())
+        self.assertIn("缺少", self.dashboard.workflow_preview.text())
+
     def test_bridge_configuration_accepts_either_provider_key(self):
         self._choose_workflow("single_model")
         self.dashboard.bridge_provider.setCurrentIndex(

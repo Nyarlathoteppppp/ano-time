@@ -34,6 +34,7 @@ class SingleModelStreamingAdapter:
         normalized = str(mode or "auto").casefold()
         self.mode = normalized if normalized in {"auto", "on", "off"} else "auto"
         self._streaming_supported = None
+        self._streaming_probe_in_progress = False
         self._lock = threading.Lock()
 
     def __getattr__(self, name):
@@ -43,8 +44,18 @@ class SingleModelStreamingAdapter:
         on_update = kwargs.get("on_update")
         if on_update is None or self.mode == "on":
             return self.translator.translate(*args, **kwargs)
+        should_probe = False
         with self._lock:
             supported = self._streaming_supported
+            if self.mode == "auto" and supported is None:
+                if self._streaming_probe_in_progress:
+                    # Preview and finalization can arrive together. Let only one
+                    # request discover streaming support; concurrent work uses a
+                    # normal completion instead of duplicating a failing probe.
+                    supported = False
+                else:
+                    self._streaming_probe_in_progress = True
+                    should_probe = True
         if self.mode == "off" or supported is False:
             non_streaming = dict(kwargs)
             non_streaming.pop("on_update", None)
@@ -54,13 +65,18 @@ class SingleModelStreamingAdapter:
             result = self.translator.translate(*args, **kwargs)
         except Exception as exc:
             if not is_streaming_unsupported(exc):
+                if should_probe:
+                    with self._lock:
+                        self._streaming_probe_in_progress = False
                 raise
             with self._lock:
                 self._streaming_supported = False
+                self._streaming_probe_in_progress = False
             non_streaming = dict(kwargs)
             non_streaming.pop("on_update", None)
             return self.translator.translate(*args, **non_streaming)
         else:
             with self._lock:
                 self._streaming_supported = True
+                self._streaming_probe_in_progress = False
             return result

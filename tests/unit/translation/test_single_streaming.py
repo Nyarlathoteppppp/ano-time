@@ -1,4 +1,5 @@
 import unittest
+import threading
 
 from translation_workflows.single_streaming import SingleModelStreamingAdapter
 
@@ -47,3 +48,39 @@ class SingleModelStreamingTests(unittest.TestCase):
         adapter = SingleModelStreamingAdapter(translator, "off")
         adapter.translate("one", on_update=lambda _text: None)
         self.assertNotIn("on_update", translator.calls[0])
+
+    def test_concurrent_auto_calls_do_not_duplicate_capability_probe(self):
+        probe_started = threading.Event()
+        release_probe = threading.Event()
+
+        class BlockingTranslator(_FakeTranslator):
+            def translate(self, _text, **kwargs):
+                self.calls.append(dict(kwargs))
+                if kwargs.get("on_update") is not None:
+                    probe_started.set()
+                    release_probe.wait(1.0)
+                    raise RuntimeError("Streaming is not supported for this model")
+                return "译文"
+
+        translator = BlockingTranslator()
+        adapter = SingleModelStreamingAdapter(translator, "auto")
+        first_result = []
+        first = threading.Thread(
+            target=lambda: first_result.append(
+                adapter.translate("one", on_update=lambda _text: None)
+            )
+        )
+        first.start()
+        self.assertTrue(probe_started.wait(1.0))
+
+        second = adapter.translate("two", on_update=lambda _text: None)
+        release_probe.set()
+        first.join(1.0)
+
+        self.assertEqual(first_result, ["译文"])
+        self.assertEqual(second, "译文")
+        streaming_calls = [
+            call for call in translator.calls if call.get("on_update") is not None
+        ]
+        self.assertEqual(len(streaming_calls), 1)
+        self.assertEqual(len(translator.calls), 3)

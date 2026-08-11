@@ -1976,10 +1976,13 @@ class Dashboard(QWidget):
             )
             if not (has_gemini or has_glm):
                 missing.append("Gemini 或 GLM")
-        elif single and not (
-            self.api_key.text().strip() and self.base_url.text().strip()
-        ):
-            missing.append("最终模型 API")
+        elif single:
+            if not (
+                self.api_key.text().strip() and self.base_url.text().strip()
+            ):
+                missing.append("最终模型 API")
+            if not self.model.currentText().strip():
+                missing.append("Model ID")
         if missing:
             preview += "\n⚠ 缺少：" + "、".join(missing)
             color = "#f9e2af"

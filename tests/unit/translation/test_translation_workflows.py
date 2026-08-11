@@ -164,6 +164,36 @@ class TranslationWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(workflow.final_translator.model, "qwen-mt-plus")
 
+    def test_single_model_runtime_receives_portable_control_values(self):
+        workflow = self._build(
+            workflow_config(
+                translation_workflow="single_model",
+                single_provider="Custom OpenAI-Compatible",
+                api_base_url="https://portable.example/v1",
+                api_key="portable-key",
+                model="vendor/live-translation",
+                target_lang="Japanese",
+                current_course_topic="Graph search and admissible heuristics",
+                bridge_provider="off",
+                input_price_per_million=0.25,
+                output_price_per_million=1.5,
+                single_streaming_mode="off",
+            )
+        )
+
+        translator = workflow.final_translator
+        self.assertEqual(translator.mode, "off")
+        self.assertEqual(translator.base_url, "https://portable.example/v1")
+        self.assertEqual(translator.model, "vendor/live-translation")
+        self.assertEqual(translator.target_lang, "Japanese")
+        self.assertEqual(
+            translator.domain_prompt,
+            "Current lecture topic: Graph search and admissible heuristics.",
+        )
+        self.assertEqual(translator.translator.input_price, 0.25)
+        self.assertEqual(translator.translator.output_price, 1.5)
+        self.assertIsNone(workflow.bridge_translator)
+
     def test_smart_hybrid_does_not_use_single_streaming_adapter(self):
         workflow = self._build(workflow_config(single_streaming_mode="off"))
         self.assertFalse(hasattr(workflow.final_translator, "mode"))

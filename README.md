@@ -10,9 +10,9 @@
 
 <p align="center"><strong>这款应用帮助大家度过一开始的语言难关，避免大家像 Ano 一样过了雅思却听不懂课（早知道不如去花咲川）。</strong></p>
 
-**面向 macOS 课堂、会议和全屏视频的速度优先型英译中实时字幕工具。**
+**面向 macOS 课堂、会议和全屏视频的速度优先型英译中实时字幕工具：先显示 Apple 本地草稿，再由可选 AI 持续修正。**
 
-Anotime 使用 Apple 端侧语音识别与即时翻译提供低延迟草稿，并可通过 Groq → Cerebras 自动轮换桥接池和带严格截止时间的 AI 精修。即使远程模型变慢、不可用或免费额度耗尽，Apple 草稿也不会被阻塞。
+Anotime 使用 Apple 端侧语音识别与即时翻译提供低延迟草稿。普通用户只需配置一个常见模型或任意 OpenAI-compatible 接口；模型支持时，会在老师尚未说完时持续补出临时译文，再更新最终稿。远程模型变慢或失败时，Apple 草稿仍会保留。
 
 应用可通过 ScreenCaptureKit 直接监听 Mac 本机音频，无需配置 BlackHole；字幕可以显示为可调整大小的磨砂玻璃窗口，也可以贴合 MacBook 物理刘海显示。
 
@@ -25,8 +25,8 @@ Anotime 已经不只是原项目的界面换皮，而是围绕 macOS 课堂使�
 - 使用 Apple 原生流式 ASR、Apple Translation 快速草稿和独立远程定稿路径，网络请求不会阻塞本地字幕。
 - 使用 ScreenCaptureKit 直接捕获网页、播放器和会议软件的系统音频，不再把 BlackHole 作为默认方案。
 - 增加贴合 MacBook 物理刘海的原生字幕，以及可在全屏视频上置顶、任意边缘缩放的玻璃字幕。
-- 将翻译拆为通用 Single Model、完全本地 Apple Only，以及维护者使用的 Smart Hybrid；普通用户不需要复刻维护者的 API 池。
-- Single Model 支持常见 OpenAI-compatible 服务、自定义 Base URL/模型、五次测速和按服务保存的本地 Profile。
+- 将翻译拆为通用 Single Model、完全本地 Apple Only，以及维护者专用 Smart Hybrid；三条流程彼此隔离。
+- Single Model 支持常见 OpenAI-compatible 服务、自定义 Base URL/模型、流式兼容降级、五次测速和按服务保存的本地 Profile。
 - API Key 进入 macOS Keychain；服务档案和配置文件只保存 Keychain 引用。
 - 增加 stable/finalized 字幕状态、latest-wins、硬截止时间、长句显示切分、后台课堂记录与延迟诊断。
 
@@ -36,13 +36,7 @@ Anotime 已经不只是原项目的界面换皮，而是围绕 macOS 课堂使�
 
 ![Anotime 磨砂玻璃控制中心](./demo/control-center.png)
 
-#### 小型物理刘海
-
-<p align="center">
-  <img src="./demo/compact-notch.png" width="68%" alt="Anotime 小型物理刘海字幕">
-</p>
-
-#### 展开的物理刘海字幕
+#### 物理刘海字幕
 
 ![Anotime 物理刘海字幕](./demo/physical-notch.png)
 
@@ -57,7 +51,8 @@ Anotime 已经不只是原项目的界面换皮，而是围绕 macOS 课堂使�
 - Apple Speech 实时识别，并用透明度区分临时英文与 finalized 英文。
 - 通过 ScreenCaptureKit 直接翻译浏览器视频、网课、Zoom 和其他应用音频。
 - Apple 草稿走独立快速路径，远程模型限时执行，不阻塞后续字幕。
-- 三种独立流程：普通用户优先使用通用 Single Model，也可选择完全本地 Apple Only；Smart Hybrid 仅供维护者的固定 API 池使用。
+- 三种独立流程：普通用户优先使用通用 Single Model，也可选择完全本地 Apple Only；Smart Hybrid 仅供维护者的固定 API 池使用，修改 Single Model 不会改变它。
+- Single Model 的 Key、URL、模型、课程主题、目标语言、实时返回、桥接、价格和测速均由控制中心统一配置；`Auto` 会在服务不支持流式返回时自动退回完整译文。
 - 内置 API 测速：发送五条固定技术语句，显示首字延迟和平均单次总耗时。
 - 物理刘海支持显示 1/2/3 条消息、自动宽度、长译文切段、暂停、玻璃模式和退出菜单。
 - 磨砂玻璃字幕可以从任意边缘或角落调整大小，并保持在全屏视频上方。
@@ -337,9 +332,9 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -q
 
 <p align="center"><strong>Helping students through the initial language barrier—so passing IELTS does not still mean being unable to follow a lecture like Ano (perhaps Hanasakigawa would have been easier).</strong></p>
 
-**Speed-first English → Chinese live subtitles for macOS classes, meetings, and fullscreen video.**
+**Speed-first English → Chinese live subtitles for macOS classes, meetings, and fullscreen video: show the local Apple draft first, then refine it continuously with an optional AI model.**
 
-Anotime combines Apple on-device speech recognition and instant translation with an optional Groq → Cerebras bridge pool and deadline-limited AI refinement. Apple drafts stay responsive even when a remote model is slow, unavailable, or out of free quota.
+Anotime combines Apple on-device speech recognition and instant translation with a portable Single Model workflow. Configure one common provider or any OpenAI-compatible endpoint; when streaming is supported, the model can refine partial speech before the lecturer finishes the sentence. Apple drafts remain visible when the remote model is slow or unavailable.
 
 It can listen directly to Mac system audio through ScreenCaptureKit—no BlackHole setup required—and render subtitles either as a resizable glass overlay or as an adaptive window attached to the physical MacBook notch.
 
@@ -352,8 +347,8 @@ Anotime is no longer a cosmetic fork. Its runtime has been reorganized around la
 - Native streaming Apple ASR and Apple Translation drafts run independently from deadline-limited remote finalization, so network work cannot block local captions.
 - ScreenCaptureKit captures browser, player, and meeting audio directly; BlackHole is no longer the default path.
 - A native physical-notch subtitle UI and a fullscreen-safe, edge-resizable glass overlay replace the original single overlay experience.
-- Translation is separated into portable Single Model, local Apple Only, and the maintainer-specific Smart Hybrid API pool.
-- Single Model supports common OpenAI-compatible providers, custom URLs/model IDs, five-request benchmarking, and per-provider local profiles.
+- Translation is separated into portable Single Model, local Apple Only, and the maintainer-specific Smart Hybrid API pool; their builders and credentials remain isolated.
+- Single Model supports common OpenAI-compatible providers, custom URLs/model IDs, automatic streaming fallback, five-request benchmarking, and per-provider local profiles.
 - API keys live in macOS Keychain; configuration and provider-profile files contain Keychain references instead of plaintext secrets.
 - Stable/finalized subtitle states, latest-wins queues, hard deadlines, display-aware segmentation, background transcripts, and latency diagnostics are built into the pipeline.
 
@@ -363,13 +358,7 @@ Anotime is no longer a cosmetic fork. Its runtime has been reorganized around la
 
 ![Anotime glass control center](./demo/control-center.png)
 
-### Compact physical notch
-
-<p align="center">
-  <img src="./demo/compact-notch.png" width="68%" alt="Anotime compact mascot control in the physical MacBook notch">
-</p>
-
-### Expanded physical-notch subtitles
+### Physical-notch subtitles
 
 ![Anotime subtitles expanding from the physical MacBook notch](./demo/physical-notch.png)
 
@@ -384,7 +373,8 @@ Anotime is no longer a cosmetic fork. Its runtime has been reorganized around la
 - **Live Apple Speech transcription** with visibly distinct provisional and finalized English.
 - **Direct system-audio capture** through ScreenCaptureKit for browser videos, lectures, Zoom, and media apps—BlackHole is optional.
 - **Speed-first translation pipeline**: Apple drafts appear immediately while remote AI refinement runs under a strict deadline.
-- **Three selectable workflows**: Single Model for regular users, developer-only Smart Hybrid, or fully local Apple Only; bridge and final translators remain independent.
+- **Three isolated workflows**: Single Model for regular users, developer-only Smart Hybrid, or fully local Apple Only; changing Single Model cannot alter Smart Hybrid routing.
+- **Single Model controls that match runtime behavior**: provider profile, Keychain credential, URL, model, lecture topic, target language, streaming mode, optional bridge, pricing, and speed test are configured in one place. `Auto` falls back to non-streaming completion when an endpoint explicitly rejects streaming.
 - **Built-in API speed test** sends five fixed technical sentences and reports first-token and average per-request latency before class.
 - **Physical MacBook notch subtitles** with 1/2/3-message modes, centered adaptive width, long-translation segmentation, pause/resume, glass-mode switch, and exit controls.
 - **Resizable glass overlay** that stays above fullscreen video and supports edge/corner resizing.
