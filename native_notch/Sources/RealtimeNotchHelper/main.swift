@@ -162,6 +162,12 @@ private final class SubtitleState: ObservableObject {
 
     var hasActiveWork: Bool { !busyStages.isEmpty }
 
+    var hasSubtitleContent: Bool {
+        !(items.count == 1
+            && items[0].id == 0
+            && items[0].original == "Waiting for speech…")
+    }
+
     func cycleSize() {
         modeTransitionTask?.cancel()
         widthShrinkTask?.cancel()
@@ -721,9 +727,13 @@ private struct RealtimeNotchHelper {
                         if !wasPaused {
                             compactForPause()
                         }
-                    } else {
+                    } else if state.hasSubtitleContent {
                         await expandActiveNotch()
                         scheduleAutoCompact()
+                    } else {
+                        // Runtime status frames arrive during initialization.
+                        // They must not expand an empty notch before speech.
+                        await compactActiveNotch()
                     }
                 }
             }

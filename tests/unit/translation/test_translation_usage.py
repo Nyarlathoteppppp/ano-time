@@ -68,6 +68,28 @@ class TranslationUsageTests(unittest.TestCase):
         self.assertEqual(later["elapsed_seconds"], 10.0)
         self.assertEqual(paused["hourly_cost_usd"], later["hourly_cost_usd"])
 
+    def test_warmup_cost_is_totaled_but_excluded_from_hourly_projection(self):
+        meter = TranslationUsageMeter()
+        with patch(
+            "translation_usage.time.monotonic",
+            side_effect=[0.0, 10.0, 10.0, 70.0],
+        ):
+            meter.record("Gemini", {
+                "prompt_tokens": 1_000_000,
+                "completion_tokens": 0,
+                "total_tokens": 1_000_000,
+            }, 1.0, 1.0, True)
+            meter.set_active(True)
+            meter.record("Gemini", {
+                "prompt_tokens": 1_000_000,
+                "completion_tokens": 0,
+                "total_tokens": 1_000_000,
+            }, 1.0, 1.0, True)
+            snapshot = meter.snapshot()
+        self.assertEqual(snapshot["cost_usd"], 2.0)
+        self.assertEqual(snapshot["elapsed_seconds"], 60.0)
+        self.assertEqual(snapshot["hourly_cost_usd"], 60.0)
+
 
 if __name__ == "__main__":
     unittest.main()

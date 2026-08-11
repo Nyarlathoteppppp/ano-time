@@ -11,6 +11,8 @@ class TranslationUsageMeter:
         self._first_usage_at = None
         self._active_started_at = None
         self._active_elapsed = 0.0
+        self._projection_started = False
+        self._projection_cost_baseline = 0.0
         self._providers = {}
 
     def reset(self):
@@ -19,6 +21,8 @@ class TranslationUsageMeter:
             self._first_usage_at = None
             self._active_started_at = None
             self._active_elapsed = 0.0
+            self._projection_started = False
+            self._projection_cost_baseline = 0.0
             self._providers.clear()
 
     def set_active(self, active):
@@ -26,6 +30,11 @@ class TranslationUsageMeter:
         now = time.monotonic()
         with self._lock:
             if active and self._active_started_at is None:
+                if not self._projection_started:
+                    self._projection_started = True
+                    self._projection_cost_baseline = sum(
+                        item["cost_usd"] for item in self._providers.values()
+                    )
                 self._active_started_at = now
             elif not active and self._active_started_at is not None:
                 self._active_elapsed += max(0.0, now - self._active_started_at)
@@ -84,8 +93,11 @@ class TranslationUsageMeter:
             )
         }
         totals["elapsed_seconds"] = elapsed
+        projected_cost = max(
+            0.0, totals["cost_usd"] - self._projection_cost_baseline
+        )
         totals["hourly_cost_usd"] = (
-            totals["cost_usd"] * 3600 / elapsed if elapsed >= 10 else None
+            projected_cost * 3600 / elapsed if elapsed >= 10 else None
         )
         totals["providers"] = providers
         return totals

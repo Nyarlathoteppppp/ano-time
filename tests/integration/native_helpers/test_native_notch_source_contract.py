@@ -115,6 +115,13 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         )
         self.assertIn("state.replaceItems", self.source)
 
+    def test_runtime_status_does_not_expand_notch_before_first_subtitle(self):
+        self.assertIn("var hasSubtitleContent: Bool", self.source)
+        self.assertIn("else if state.hasSubtitleContent", self.source)
+        self.assertIn(
+            "Runtime status frames arrive during initialization", self.source
+        )
+
     def test_pause_compacts_immediately_without_idle_delay(self):
         pause_helper = self.source.index("func compactForPause")
         pause_compact = self.source.index("await compactActiveNotch()", pause_helper)

@@ -124,7 +124,7 @@ class SessionController:
                 view.transcript_recorder = None
                 log_stage("transcript_recording", status="error", detail=str(exc))
         view.pipeline.signals.pipeline_error.connect(view.on_pipeline_error)
-        view.pipeline.signals.runtime_status.connect(view.update_runtime_status)
+        view.pipeline.signals.runtime_status.connect(self.handle_runtime_status)
         if hasattr(view.overlay_window, "update_runtime_status"):
             view.pipeline.signals.runtime_status.connect(
                 view.overlay_window.update_runtime_status
@@ -137,7 +137,6 @@ class SessionController:
             )
 
         view.pipeline.start()
-        session_usage_meter.set_active(True)
         view._session_state = "running"
         view.status_label.setText("Running...")
         view.status_label.setStyleSheet("font-size: 18px; color: #a6e3a1;")
@@ -167,7 +166,9 @@ class SessionController:
             return
         started = time.perf_counter()
         view.pipeline.set_paused(paused)
-        session_usage_meter.set_active(not paused)
+        # A resumed session waits for fresh speech before restarting the
+        # projection clock, so an unattended paused/resumed app stays idle.
+        session_usage_meter.set_active(False)
         if update_overlay and view.overlay_window and hasattr(
             view.overlay_window, "set_paused"
         ):
@@ -186,6 +187,16 @@ class SessionController:
             "session_pause" if paused else "session_resume",
             elapsed_ms=(time.perf_counter() - started) * 1000,
         )
+
+    def handle_runtime_status(self, stage, status, detail):
+        """Update presentation and start cost projection on real speech."""
+        # Starting the process is not billable classroom time. Begin the
+        # hourly projection only after Apple detects actual speech. This also
+        # excludes optional model warm-up from the projection while retaining
+        # it in the exact session total.
+        if stage == "ASR" and status == "active":
+            session_usage_meter.set_active(True)
+        self.view.update_runtime_status(stage, status, detail)
 
     def stop(self):
         view = self.view

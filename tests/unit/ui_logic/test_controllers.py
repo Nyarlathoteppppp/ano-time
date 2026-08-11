@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from permission_controller import PermissionController
 from session_controller import SessionController
@@ -120,6 +121,19 @@ class ControllerTests(unittest.TestCase):
         controller.set_paused(False)
         self.assertEqual(paused, [True, False])
         self.assertEqual(view.pause_btn.text, "⏸ Pause Translator")
+
+    def test_usage_projection_starts_only_on_real_asr_activity(self):
+        updates = []
+        view = SimpleNamespace(
+            update_runtime_status=lambda *args: updates.append(args)
+        )
+        controller = SessionController(view, None)
+        with patch("session_controller.session_usage_meter.set_active") as set_active:
+            controller.handle_runtime_status("Remote", "active", "Gemini")
+            set_active.assert_not_called()
+            controller.handle_runtime_status("ASR", "active", "Apple · listening")
+            set_active.assert_called_once_with(True)
+        self.assertEqual(len(updates), 2)
 
     def test_shortcut_idle_launches_notch_through_existing_view_api(self):
         calls = []
