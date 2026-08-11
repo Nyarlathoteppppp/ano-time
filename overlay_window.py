@@ -15,6 +15,7 @@ _CORE_GRAPHICS = CDLL(
 )
 _CORE_GRAPHICS.CGShieldingWindowLevel.restype = c_int32
 FULLSCREEN_OVERLAY_LEVEL = int(_CORE_GRAPHICS.CGShieldingWindowLevel()) + 1
+MAX_VISIBLE_TRANSCRIPT_ITEMS = 40
 
 # macOS: Make window visible on all desktops (Spaces)
 try:
@@ -933,6 +934,13 @@ class OverlayWindow(QWidget):
         if visibility_changed:
             self._schedule_content_reflow()
 
+    def _trim_visible_items(self):
+        """Bound live Qt widgets without removing full transcript records."""
+        while len(self.items) > MAX_VISIBLE_TRANSCRIPT_ITEMS:
+            _, stale_widget = self.items.pop(0)
+            self.container_layout.removeWidget(stale_widget)
+            stale_widget.deleteLater()
+
     def update_event(self, event):
         self.update_text(
             event.segment_id,
@@ -1031,10 +1039,7 @@ class OverlayWindow(QWidget):
             self.container_layout.insertWidget(insert_idx, new_widget)
             # Bound the live widget tree during multi-hour classes. Full history
             # remains in transcript_data and is still exported by Save.
-            while len(self.items) > 200:
-                _, stale_widget = self.items.pop(0)
-                self.container_layout.removeWidget(stale_widget)
-                stale_widget.deleteLater()
+            self._trim_visible_items()
 
             # Scroll to bottom
             QTimer.singleShot(10, self._scroll_to_bottom)

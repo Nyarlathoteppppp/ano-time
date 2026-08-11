@@ -34,7 +34,7 @@ Anotime 已经不只是原项目的界面换皮，而是围绕 macOS 课堂使�
 
 #### 控制中心
 
-![Anotime 磨砂玻璃控制中心](./demo/control-center.png)
+![Anotime 淡粉色透明控制中心](./demo/control-center.png)
 
 #### 物理刘海字幕
 
@@ -356,7 +356,7 @@ Anotime is no longer a cosmetic fork. Its runtime has been reorganized around la
 
 ### Control center
 
-![Anotime glass control center](./demo/control-center.png)
+![Anotime translucent pink control center](./demo/control-center.png)
 
 ### Physical-notch subtitles
 

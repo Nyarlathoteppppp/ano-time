@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
                              QMessageBox, QTextEdit, QDialog, QLayout, QInputDialog)
 from PyQt6.QtWidgets import QCheckBox, QDoubleSpinBox
-from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
+from PyQt6.QtCore import QEvent, Qt, QSize, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap
 import sys
 import os
@@ -38,23 +38,6 @@ from dashboard_support.settings_snapshot import (
 from dashboard_support.panels import AsrPanel, AudioPanel, DEFAULT_AUDIO_SETTINGS
 from translation_usage import session_usage_meter
 
-try:
-    from ctypes import c_void_p
-    from AppKit import (
-        NSBackingStoreBuffered, NSColor, NSPanel,
-        NSViewHeightSizable, NSViewWidthSizable,
-        NSVisualEffectBlendingModeBehindWindow,
-        NSVisualEffectMaterialHUDWindow, NSVisualEffectStateActive,
-        NSVisualEffectView, NSWindowBelow,
-        NSWindowCollectionBehaviorIgnoresCycle,
-        NSWindowCollectionBehaviorTransient,
-        NSWindowStyleMaskBorderless,
-    )
-    import objc
-    HAS_NATIVE_GLASS = True
-except ImportError:
-    HAS_NATIVE_GLASS = False
-
 class Dashboard(QWidget):
     start_requested = pyqtSignal()
     stop_requested = pyqtSignal()
@@ -87,11 +70,6 @@ class Dashboard(QWidget):
         shortcut_controller = getattr(self, "shortcut_controller", None)
         if shortcut_controller:
             shortcut_controller.stop()
-        if self._native_blur_window is not None:
-            self._detach_native_glass()
-            self._native_blur_window.close()
-            self._native_blur_window = None
-            self._native_blur_view = None
         # Exit after Qt has finished dispatching this close event. Immediate
         # teardown here can destroy the shared QApplication re-entrantly.
         QTimer.singleShot(0, QApplication.quit)
@@ -104,14 +82,13 @@ class Dashboard(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        self._install_native_glass()
-        self._sync_native_glass()
-        # Qt's QNSWindow can be attached one event-loop turn after showEvent.
-        QTimer.singleShot(0, self._refresh_native_glass)
-        QTimer.singleShot(200, self._refresh_native_glass)
+        self._set_ui_timers_active(not self.isMinimized())
 
     def changeEvent(self, event):
         super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            minimized = self.isMinimized()
+            self._set_ui_timers_active(not minimized and self.isVisible())
         fullscreen = self.isFullScreen()
         if fullscreen != getattr(self, "_fullscreen_fallback", False):
             self._fullscreen_fallback = fullscreen
@@ -119,130 +96,25 @@ class Dashboard(QWidget):
             self.style().unpolish(self)
             self.style().polish(self)
             self.update()
-            if fullscreen:
-                self._detach_native_glass()
-            else:
-                # AppKit finishes moving the Qt window out of its full-screen
-                # Space after the Qt state event. Reattach only once settled.
-                QTimer.singleShot(200, self._refresh_native_glass)
-        if (
-            not fullscreen
-            and getattr(self, "_native_blur_window", None) is not None
-        ):
-            QTimer.singleShot(0, self._sync_native_glass)
-
-    def _refresh_native_glass(self):
-        self._install_native_glass()
-        self._sync_native_glass()
 
     def hideEvent(self, event):
-        self._detach_native_glass()
+        self._set_ui_timers_active(False)
         super().hideEvent(event)
 
-    def moveEvent(self, event):
-        super().moveEvent(event)
-        self._sync_native_glass()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._sync_native_glass()
-
-    def _native_window(self):
-        if not HAS_NATIVE_GLASS:
-            return None
-        try:
-            ns_view = objc.objc_object(c_void_p=c_void_p(int(self.winId())))
-            return ns_view.window()
-        except Exception as exc:
-            print(f"[Dashboard] Could not resolve native window: {exc}")
-            return None
-
-    def _install_native_glass(self):
-        if (
-            not HAS_NATIVE_GLASS
-            or self.isFullScreen()
-            or self._native_blur_window is not None
-        ):
+    def _set_ui_timers_active(self, active):
+        """Suspend presentation-only polling while the dashboard is not visible."""
+        timer = getattr(self, "usage_timer", None)
+        if timer is None:
             return
-        ns_window = self._native_window()
-        if ns_window is None:
-            return
-        ns_window.setOpaque_(False)
-        ns_window.setBackgroundColor_(NSColor.clearColor())
-        ns_window.setTitlebarAppearsTransparent_(True)
-
-        blur_window = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
-            ns_window.frame(), NSWindowStyleMaskBorderless,
-            NSBackingStoreBuffered, False,
-        )
-        blur_window.setOpaque_(False)
-        blur_window.setBackgroundColor_(NSColor.clearColor())
-        blur_window.setHasShadow_(False)
-        blur_window.setIgnoresMouseEvents_(True)
-        blur_window.setHidesOnDeactivate_(False)
-        blur_window.setCanHide_(True)
-        blur_window.setCollectionBehavior_(
-            NSWindowCollectionBehaviorTransient
-            | NSWindowCollectionBehaviorIgnoresCycle
-        )
-        if hasattr(blur_window, "setExcludedFromWindowsMenu_"):
-            blur_window.setExcludedFromWindowsMenu_(True)
-
-        effect = NSVisualEffectView.alloc().initWithFrame_(
-            blur_window.contentView().bounds()
-        )
-        effect.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
-        effect.setMaterial_(NSVisualEffectMaterialHUDWindow)
-        effect.setBlendingMode_(NSVisualEffectBlendingModeBehindWindow)
-        effect.setState_(NSVisualEffectStateActive)
-        effect.setWantsLayer_(True)
-        effect.layer().setCornerRadius_(16.0)
-        effect.layer().setMasksToBounds_(True)
-        effect.layer().setBackgroundColor_(
-            NSColor.colorWithCalibratedRed_green_blue_alpha_(
-                1.0, 0.58, 0.75, 0.16
-            ).CGColor()
-        )
-        blur_window.contentView().addSubview_(effect)
-        self._native_blur_window = blur_window
-        self._native_blur_view = effect
-        self._sync_native_glass()
-        print("[Dashboard] Native macOS glass installed", flush=True)
-
-    def _sync_native_glass(self):
-        blur_window = getattr(self, "_native_blur_window", None)
-        if blur_window is None:
-            return
-        ns_window = self._native_window()
-        if ns_window is None:
-            return
-        if not self.isVisible() or self.isMinimized() or self.isFullScreen():
-            self._detach_native_glass(ns_window)
-            return
-        blur_window.setFrame_display_(ns_window.frame(), True)
-        children = list(ns_window.childWindows() or [])
-        if blur_window not in children:
-            ns_window.addChildWindow_ordered_(blur_window, NSWindowBelow)
-
-    def _detach_native_glass(self, ns_window=None):
-        """Remove the backing panel from Mission Control/window composition."""
-        blur_window = getattr(self, "_native_blur_window", None)
-        if blur_window is None:
-            return
-        ns_window = ns_window or self._native_window()
-        if ns_window is not None:
-            try:
-                children = list(ns_window.childWindows() or [])
-                if blur_window in children:
-                    ns_window.removeChildWindow_(blur_window)
-            except Exception:
-                pass
-        blur_window.orderOut_(None)
+        if active:
+            self._refresh_usage_status()
+            if not timer.isActive():
+                timer.start()
+        elif timer.isActive():
+            timer.stop()
 
     def __init__(self):
         super().__init__()
-        self._native_blur_window = None
-        self._native_blur_view = None
         self._fullscreen_fallback = False
         self.setObjectName("DashboardRoot")
         self.setProperty("fullscreenFallback", False)
@@ -506,7 +378,6 @@ class Dashboard(QWidget):
         self.usage_timer = QTimer(self)
         self.usage_timer.setInterval(1000)
         self.usage_timer.timeout.connect(self._refresh_usage_status)
-        self.usage_timer.start()
 
         display_row = QHBoxLayout()
         display_row.addWidget(QLabel("Subtitle Mode（字幕显示模式）:"))

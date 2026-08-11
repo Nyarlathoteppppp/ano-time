@@ -5,7 +5,7 @@ QWidget {
     font-family: 'Helvetica Neue', Arial, sans-serif;
 }
 QWidget#DashboardRoot {
-    background-color: rgba(255, 184, 211, 46);
+    background-color: rgba(255, 184, 211, 72);
 }
 QWidget#DashboardRoot[fullscreenFallback="true"] {
     background-color: rgba(28, 30, 39, 252);

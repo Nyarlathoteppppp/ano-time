@@ -6,7 +6,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QScrollBar
 
-from overlay_window import LogItem, OverlayWindow
+from overlay_window import (
+    MAX_VISIBLE_TRANSCRIPT_ITEMS,
+    LogItem,
+    OverlayWindow,
+)
 
 
 class OverlayLayoutTests(unittest.TestCase):
@@ -72,6 +76,39 @@ class OverlayLayoutTests(unittest.TestCase):
         self.assertIn('color:#d7dbe5', rendered)
         self.assertIn("稳定前缀", rendered)
         self.assertEqual(item._committed_prefix_length, 4)
+
+    def test_visible_history_is_capped_without_deleting_transcript_records(self):
+        class Widget:
+            def __init__(self):
+                self.deleted = False
+
+            def deleteLater(self):
+                self.deleted = True
+
+        removed = []
+        self.assertEqual(MAX_VISIBLE_TRANSCRIPT_ITEMS, 40)
+        widgets = [Widget() for _ in range(MAX_VISIBLE_TRANSCRIPT_ITEMS + 5)]
+        view = SimpleNamespace(
+            items=list(enumerate(widgets)),
+            transcript_data={
+                index: {"original": str(index)}
+                for index in range(MAX_VISIBLE_TRANSCRIPT_ITEMS + 5)
+            },
+            container_layout=SimpleNamespace(removeWidget=removed.append),
+        )
+
+        OverlayWindow._trim_visible_items(view)
+
+        self.assertEqual(len(view.items), MAX_VISIBLE_TRANSCRIPT_ITEMS)
+        self.assertEqual(
+            [item[0] for item in view.items],
+            list(range(5, MAX_VISIBLE_TRANSCRIPT_ITEMS + 5)),
+        )
+        self.assertEqual(removed, widgets[:5])
+        self.assertTrue(all(widget.deleted for widget in widgets[:5]))
+        self.assertEqual(
+            len(view.transcript_data), MAX_VISIBLE_TRANSCRIPT_ITEMS + 5
+        )
 
 
 if __name__ == "__main__":
