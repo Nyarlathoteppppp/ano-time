@@ -15,6 +15,12 @@ PLANNER_PATH = project_path(
     "SubtitlePresentation",
     "SubtitlePresentationPlanner.swift",
 )
+PRESENTATION_PATH = project_path(
+    "native_notch",
+    "Sources",
+    "SubtitlePresentation",
+    "NotchPresentation.swift",
+)
 
 
 class NativeNotchSourceContractTests(unittest.TestCase):
@@ -24,6 +30,8 @@ class NativeNotchSourceContractTests(unittest.TestCase):
             cls.source = handle.read()
         with PLANNER_PATH.open(encoding="utf-8") as handle:
             cls.planner_source = handle.read()
+        with PRESENTATION_PATH.open(encoding="utf-8") as handle:
+            cls.presentation_source = handle.read()
 
     def test_all_display_counts_share_one_dynamic_notch_instance(self):
         self.assertIn("let notch = makeNotch", self.source)
@@ -35,8 +43,22 @@ class NativeNotchSourceContractTests(unittest.TestCase):
             self.source.index("private struct SubtitleContent"):
             self.source.index("private struct CompactLeading")
         ]
-        self.assertNotIn(".transition(", subtitle_content)
+        self.assertNotIn(".transition(.opacity", subtitle_content)
+        self.assertNotIn(".transition(.move", subtitle_content)
         self.assertNotIn(".move(edge:", self.source)
+
+    def test_only_new_semantic_segments_trigger_rollup_animation(self):
+        self.assertIn("public struct NotchCueSlot", self.presentation_source)
+        self.assertIn("public enum NotchCueRole", self.presentation_source)
+        self.assertIn("visibleSlots(displayCount:", self.presentation_source)
+        self.assertIn(
+            "nextPresentation.rollupGeneration != presentation.rollupGeneration",
+            self.source,
+        )
+        self.assertIn(
+            "SubtitlePresentationPlanner.rollupAnimationSeconds", self.source
+        )
+        self.assertIn(".transition(.identity)", self.source)
 
     def test_authoritative_final_temporarily_holds_notch_width(self):
         self.assertIn("let authoritativeFinalRevision", self.source)
@@ -63,7 +85,9 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         )
 
     def test_streaming_translation_visually_separates_stable_prefix(self):
-        self.assertIn("let committedPrefixLength: Int?", self.source)
+        self.assertIn(
+            "let committedPrefixLength: Int?", self.presentation_source
+        )
         self.assertIn("private var styledText: Text", self.source)
         self.assertIn("String(run.text.prefix(stableCount))", self.source)
         self.assertIn("run.changed", self.source)
@@ -116,16 +140,30 @@ class NativeNotchSourceContractTests(unittest.TestCase):
 
     def test_empty_translation_shows_english_without_a_placeholder_row(self):
         self.assertIn("guard !row.translated.isEmpty else", self.source)
-        self.assertIn("if !item.translated.isEmpty", self.source)
+        self.assertIn("if !fragment.translated.isEmpty", self.source)
         self.assertIn(
-            "state.displayCount == 1 && !item.translated.isEmpty",
+            "guard !slot.cue.translated.isEmpty else { return false }",
             self.source,
         )
 
     def test_display_fragments_keep_a_stable_semantic_parent(self):
-        self.assertIn("let fragments: [SubtitleFragment]?", self.source)
+        self.assertIn("public struct NotchCue", self.presentation_source)
+        self.assertIn(
+            "let fragments: [NotchFragment]?", self.presentation_source
+        )
+        self.assertIn("public var semanticID", self.presentation_source)
+        self.assertIn(
+            "public var latestDisplayFragment", self.presentation_source
+        )
         self.assertIn("func visibleRows() -> [SubtitleFragment]", self.source)
-        self.assertIn("items.map(\\.id) == newItems.map(\\.id)", self.source)
+        self.assertIn(
+            "visibleCues().map(\\.latestDisplayFragment)", self.source
+        )
+        self.assertIn(
+            "items.map(\\.semanticID) == newItems.map(\\.semanticID)",
+            self.source,
+        )
+        self.assertIn("NotchRollupPlanner.reconcile", self.source)
 
     def test_mode_switch_shrinks_smoothly_but_grows_immediately(self):
         self.assertIn("isChangingDisplayCount = true", self.source)
@@ -135,10 +173,16 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn("Task.sleep(for: .seconds(0.30))", self.source)
 
     def test_modes_hide_english_only_after_translation_exists(self):
-        self.assertIn("displayCount == 1 && !item.translated.isEmpty", self.source)
-        self.assertIn("item.id == visibleItems.first?.id", self.source)
-        self.assertIn("&& !item.translated.isEmpty", self.source)
-        self.assertIn("if !hidesOriginal", self.source)
+        self.assertIn("state.displayCount == 1", self.source)
+        self.assertIn("state.displayCount == 3", self.source)
+        self.assertIn(
+            "guard !slot.cue.translated.isEmpty else { return false }",
+            self.source,
+        )
+        self.assertIn("slot.role == .active", self.source)
+        self.assertIn(
+            "if !hidesOriginal || fragment.translated.isEmpty", self.source
+        )
 
     def test_launch_and_exit_use_directional_notch_transitions(self):
         self.assertIn("openingAnimation: .easeOut(duration: 0.55)", self.source)

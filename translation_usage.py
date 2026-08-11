@@ -10,7 +10,9 @@ from datetime import datetime
 
 _USAGE_KEYS = (
     "requests", "prompt_tokens", "completion_tokens", "total_tokens",
-    "cost_usd", "unpriced_requests",
+    "cost_usd", "unpriced_requests", "estimated_requests",
+    "estimated_prompt_tokens", "estimated_completion_tokens",
+    "estimated_total_tokens", "estimated_cost_usd",
 )
 
 
@@ -22,6 +24,7 @@ class DailyUsageLedger:
         self._lock = threading.Lock()
         self._pending = queue.Queue()
         self._writer = None
+        self._writer_start_lock = threading.Lock()
         self._date = self._today()
         self._totals = self._empty_totals()
         self._load()
@@ -32,7 +35,10 @@ class DailyUsageLedger:
 
     @staticmethod
     def _empty_totals():
-        return {key: 0.0 if key == "cost_usd" else 0 for key in _USAGE_KEYS}
+        return {
+            key: 0.0 if key in {"cost_usd", "estimated_cost_usd"} else 0
+            for key in _USAGE_KEYS
+        }
 
     def _roll_date_locked(self):
         today = self._today()
@@ -52,9 +58,15 @@ class DailyUsageLedger:
         for key in _USAGE_KEYS:
             value = totals.get(key, 0)
             try:
-                self._totals[key] = float(value) if key == "cost_usd" else int(value)
+                self._totals[key] = (
+                    float(value)
+                    if key in {"cost_usd", "estimated_cost_usd"}
+                    else int(value)
+                )
             except (TypeError, ValueError):
-                self._totals[key] = 0.0 if key == "cost_usd" else 0
+                self._totals[key] = (
+                    0.0 if key in {"cost_usd", "estimated_cost_usd"} else 0
+                )
 
     def record(self, values):
         with self._lock:
@@ -71,10 +83,14 @@ class DailyUsageLedger:
 
     def _enqueue_write(self, payload):
         if self._writer is None:
-            self._writer = threading.Thread(
-                target=self._write_pending, name="daily-usage-writer", daemon=True
-            )
-            self._writer.start()
+            with self._writer_start_lock:
+                if self._writer is None:
+                    self._writer = threading.Thread(
+                        target=self._write_pending,
+                        name="daily-usage-writer",
+                        daemon=True,
+                    )
+                    self._writer.start()
         self._pending.put((payload, None))
 
     def _write_pending(self):
@@ -179,6 +195,7 @@ class TranslationUsageMeter:
         # invent a cost split.
         has_split = bool(prompt or completion)
         priced = has_split and bool(pricing_known)
+        estimated = bool(usage.get("estimated", False))
         cost = (
             prompt * max(0.0, float(input_price or 0.0))
             + completion * max(0.0, float(output_price or 0.0))
@@ -196,6 +213,11 @@ class TranslationUsageMeter:
                 "total_tokens": 0,
                 "cost_usd": 0.0,
                 "unpriced_requests": 0,
+                "estimated_requests": 0,
+                "estimated_prompt_tokens": 0,
+                "estimated_completion_tokens": 0,
+                "estimated_total_tokens": 0,
+                "estimated_cost_usd": 0.0,
             })
             item["requests"] += 1
             item["prompt_tokens"] += prompt
@@ -204,6 +226,12 @@ class TranslationUsageMeter:
             item["cost_usd"] += cost
             if not priced:
                 item["unpriced_requests"] += 1
+            if estimated:
+                item["estimated_requests"] += 1
+                item["estimated_prompt_tokens"] += prompt
+                item["estimated_completion_tokens"] += completion
+                item["estimated_total_tokens"] += total
+                item["estimated_cost_usd"] += cost
             daily_values = {
                 "requests": 1,
                 "prompt_tokens": prompt,
@@ -211,6 +239,11 @@ class TranslationUsageMeter:
                 "total_tokens": total,
                 "cost_usd": cost,
                 "unpriced_requests": 0 if priced else 1,
+                "estimated_requests": 1 if estimated else 0,
+                "estimated_prompt_tokens": prompt if estimated else 0,
+                "estimated_completion_tokens": completion if estimated else 0,
+                "estimated_total_tokens": total if estimated else 0,
+                "estimated_cost_usd": cost if estimated else 0.0,
             }
         if self._daily_ledger is not None:
             self._daily_ledger.record(daily_values)
@@ -228,6 +261,9 @@ class TranslationUsageMeter:
             for key in (
                 "requests", "prompt_tokens", "completion_tokens",
                 "total_tokens", "cost_usd", "unpriced_requests",
+                "estimated_requests", "estimated_prompt_tokens",
+                "estimated_completion_tokens", "estimated_total_tokens",
+                "estimated_cost_usd",
             )
         }
         totals["elapsed_seconds"] = elapsed
@@ -247,7 +283,10 @@ class TranslationUsageMeter:
 
     @staticmethod
     def _empty_daily_totals():
-        return {key: 0.0 if key == "cost_usd" else 0 for key in _USAGE_KEYS}
+        return {
+            key: 0.0 if key in {"cost_usd", "estimated_cost_usd"} else 0
+            for key in _USAGE_KEYS
+        }
 
 
 session_usage_meter = TranslationUsageMeter(DailyUsageLedger(os.path.join(

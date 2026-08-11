@@ -10,7 +10,7 @@ from subtitle_event import SubtitleStage
 class SubtitleDisplayScheduler(QObject):
     """Show the leading update immediately, then coalesce same-stage bursts."""
 
-    def __init__(self, consumer, interval_ms=80, parent=None):
+    def __init__(self, consumer, interval_ms=110, parent=None):
         super().__init__(parent)
         self.consumer = consumer
         self.interval_seconds = max(0.0, int(interval_ms) / 1000)

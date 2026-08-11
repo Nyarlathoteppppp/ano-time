@@ -35,6 +35,10 @@ class SubtitleDisplaySchedulerTests(unittest.TestCase):
             time.sleep(0.005)
         self.assertEqual([event.revision for event in shown], [1, 3])
 
+    def test_default_stream_cadence_is_110_ms(self):
+        scheduler = SubtitleDisplayScheduler(lambda _event: None)
+        self.assertAlmostEqual(scheduler.interval_seconds, 0.110, places=3)
+
     def test_stage_change_and_final_are_immediate(self):
         shown = []
         scheduler = SubtitleDisplayScheduler(shown.append, interval_ms=100)

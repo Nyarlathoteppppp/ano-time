@@ -5,6 +5,23 @@ from translator import Translator
 
 
 class TranslatorLanguageTest(unittest.TestCase):
+    def test_fallback_token_estimate_marks_usage_as_estimated(self):
+        usage = Translator._estimated_usage(
+            [
+                {"role": "system", "content": "Translate accurately."},
+                {"role": "user", "content": "CURRENT:\nCovariance matrix"},
+            ],
+            "协方差矩阵",
+        )
+
+        self.assertTrue(usage["estimated"])
+        self.assertGreater(usage["prompt_tokens"], 0)
+        self.assertGreater(usage["completion_tokens"], 0)
+        self.assertEqual(
+            usage["total_tokens"],
+            usage["prompt_tokens"] + usage["completion_tokens"],
+        )
+
     def test_chinese_aliases_are_simplified_for_generic_prompts(self):
         aliases = ("Chinese", "zh", "zh-CN", "zh_Hans", "Simplified Chinese")
         for language in aliases:

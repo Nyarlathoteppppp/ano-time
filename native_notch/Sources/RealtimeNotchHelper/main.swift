@@ -38,22 +38,8 @@ private struct InputMessage: Decodable {
     let busyStages: [String]?
 }
 
-private struct SubtitleFragment: Codable, Identifiable {
-    let id: Int
-    let original: String
-    let translated: String
-    let finalized: Bool?
-    let committedPrefixLength: Int?
-}
-
-private struct SubtitleLine: Codable, Identifiable {
-    let id: Int
-    let original: String
-    let translated: String
-    let finalized: Bool?
-    let committedPrefixLength: Int?
-    let fragments: [SubtitleFragment]?
-}
+private typealias SubtitleFragment = NotchFragment
+private typealias SubtitleLine = NotchCue
 
 @MainActor
 private final class SubtitleState: ObservableObject {
@@ -61,8 +47,8 @@ private final class SubtitleState: ObservableObject {
         suiteName: "com.nyarlathotep.realtime-ton.notch"
     )
 
-    @Published var items = [
-        SubtitleLine(
+    @Published private(set) var presentation = NotchPresentationState(
+        active: SubtitleLine(
             id: 0,
             original: "Waiting for speech…",
             translated: "",
@@ -70,12 +56,13 @@ private final class SubtitleState: ObservableObject {
             committedPrefixLength: 0,
             fragments: nil
         )
-    ] {
+    ) {
         didSet {
             refreshContentWidth()
             refreshTranslationLineReservation()
         }
     }
+    var items: [SubtitleLine] { presentation.allCues }
     @Published var displayCount: Int
     @Published private(set) var contentWidth: CGFloat = 360
     @Published private(set) var reservedTranslationLineCount = 1
@@ -114,7 +101,23 @@ private final class SubtitleState: ObservableObject {
             finalLayoutTask?.cancel()
             holdsFinalLayout = true
         }
-        items = newItems
+        let nextPresentation = NotchRollupPlanner.reconcile(
+            current: presentation,
+            incoming: newItems
+        )
+        if nextPresentation.rollupGeneration != presentation.rollupGeneration {
+            withAnimation(.easeOut(
+                duration: SubtitlePresentationPlanner.rollupAnimationSeconds
+            )) {
+                presentation = nextPresentation
+            }
+        } else {
+            var immediate = Transaction()
+            immediate.disablesAnimations = true
+            withTransaction(immediate) {
+                presentation = nextPresentation
+            }
+        }
         if authoritativeFinalRevision {
             finalLayoutTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(
@@ -137,23 +140,19 @@ private final class SubtitleState: ObservableObject {
     }
 
     func hasSameItemIdentity(as newItems: [SubtitleLine]) -> Bool {
-        items.map(\.id) == newItems.map(\.id)
+        items.map(\.semanticID) == newItems.map(\.semanticID)
+    }
+
+    func visibleCues() -> [SubtitleLine] {
+        presentation.visibleCues(displayCount: displayCount)
+    }
+
+    func visibleSlots() -> [NotchCueSlot] {
+        presentation.visibleSlots(displayCount: displayCount)
     }
 
     func visibleRows() -> [SubtitleFragment] {
-        let rows = items.flatMap { item -> [SubtitleFragment] in
-            if let fragments = item.fragments, !fragments.isEmpty {
-                return fragments
-            }
-            return [SubtitleFragment(
-                id: item.id * 1000,
-                original: item.original,
-                translated: item.translated,
-                finalized: item.finalized,
-                committedPrefixLength: item.committedPrefixLength
-            )]
-        }
-        return Array(rows.suffix(displayCount))
+        visibleCues().map(\.latestDisplayFragment)
     }
 
     func replaceBusyStages(_ stages: [String]) {
@@ -203,21 +202,24 @@ private final class SubtitleState: ObservableObject {
     }
 
     private func measuredContentWidth() -> CGFloat {
-        let visibleItems = visibleRows()
+        let visibleCues = visibleCues()
         let englishFont = NSFont.systemFont(ofSize: 11.5, weight: .regular)
         let translatedFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
-        let measured = visibleItems.reduce(CGFloat(0)) { longest, item in
+        let measured = visibleCues.enumerated().reduce(CGFloat(0)) {
+            longest, indexedCue in
+            let (index, cue) = indexedCue
             let hidesOriginal = (
-                displayCount == 1 && !item.translated.isEmpty
+                displayCount == 1 && !cue.translated.isEmpty
             ) || (
                 displayCount == 3
-                    && item.id == visibleItems.first?.id
-                    && !item.translated.isEmpty
+                    && index == 0
+                    && !cue.translated.isEmpty
             )
-            let englishWidth = hidesOriginal ? 0 : (item.original as NSString).size(
+            let fragment = cue.latestDisplayFragment
+            let englishWidth = hidesOriginal ? 0 : (fragment.original as NSString).size(
                 withAttributes: [.font: englishFont]
             ).width
-            let translatedWidth = (item.translated as NSString).size(
+            let translatedWidth = (fragment.translated as NSString).size(
                 withAttributes: [.font: translatedFont]
             ).width
             return max(longest, max(englishWidth, translatedWidth))
@@ -466,44 +468,54 @@ private struct StableStreamingText: View {
     }
 }
 
+private struct SubtitleCueView: View {
+    let cue: SubtitleLine
+    let hidesOriginal: Bool
+
+    var body: some View {
+        let fragment = cue.latestDisplayFragment
+        VStack(alignment: .center, spacing: 2) {
+            if !hidesOriginal || fragment.translated.isEmpty {
+                Text(fragment.original)
+                    .font(.system(
+                        size: 11.5,
+                        weight: fragment.finalized == true ? .medium : .regular
+                    ))
+                    .foregroundStyle(
+                        .white.opacity(fragment.finalized == true ? 0.96 : 0.78)
+                    )
+                    .lineLimit(1)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+
+            if !fragment.translated.isEmpty {
+                StableStreamingText(
+                    text: fragment.translated,
+                    committedPrefixLength: fragment.committedPrefixLength ?? 0
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+}
+
 private struct SubtitleContent: View {
     @ObservedObject var state: SubtitleState
 
     var body: some View {
-        let visibleItems = state.visibleRows()
+        let visibleSlots = state.visibleSlots()
         ZStack(alignment: .top) {
             VStack(alignment: .center, spacing: 5) {
-                ForEach(visibleItems) { item in
-                    VStack(alignment: .center, spacing: 2) {
-                        let hidesOriginal = (
-                            state.displayCount == 1 && !item.translated.isEmpty
-                        ) || (
-                            state.displayCount == 3
-                                && item.id == visibleItems.first?.id
-                                && !item.translated.isEmpty
+                ForEach(visibleSlots) { slot in
+                    SubtitleCueView(
+                        cue: slot.cue,
+                        hidesOriginal: shouldHideOriginal(
+                            slot: slot,
+                            visibleSlots: visibleSlots
                         )
-                        if !hidesOriginal {
-                            Text(item.original)
-                                .font(.system(
-                                    size: 11.5,
-                                    weight: item.finalized == true ? .medium : .regular
-                                ))
-                                .foregroundStyle(
-                                    .white.opacity(item.finalized == true ? 0.96 : 0.78)
-                                )
-                                .lineLimit(1)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        }
-
-                        if !item.translated.isEmpty {
-                            StableStreamingText(
-                                text: item.translated,
-                                committedPrefixLength: item.committedPrefixLength ?? 0
-                            )
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    )
+                    .transition(.identity)
                 }
             }
             .padding(.horizontal, 40)
@@ -543,6 +555,21 @@ private struct SubtitleContent: View {
                 state.onExit?()
             }
         }
+    }
+
+    private func shouldHideOriginal(
+        slot: NotchCueSlot,
+        visibleSlots: [NotchCueSlot]
+    ) -> Bool {
+        guard !slot.cue.translated.isEmpty else { return false }
+        if state.displayCount == 1 && slot.role == .active {
+            return true
+        }
+        if state.displayCount == 3,
+           slot.id == visibleSlots.first?.id {
+            return true
+        }
+        return false
     }
 }
 
@@ -724,26 +751,18 @@ private struct RealtimeNotchHelper {
                     }
                     if let items = message.items {
                         let visibleItems = Array(items.suffix(3))
-                        var contentTransaction = Transaction()
-                        contentTransaction.disablesAnimations = true
-                        withTransaction(contentTransaction) {
-                            // Stable segment and fragment IDs keep existing rows
-                            // alive. Text never inherits the notch frame animation.
-                            state.replaceItems(visibleItems)
-                        }
+                        // SubtitleState animates only a genuine semantic
+                        // roll-up. Text revisions remain immediate.
+                        state.replaceItems(visibleItems)
                     } else if let original = message.original {
-                        var contentTransaction = Transaction()
-                        contentTransaction.disablesAnimations = true
-                        withTransaction(contentTransaction) {
-                            state.replaceItems([SubtitleLine(
-                                id: 0,
-                                original: original,
-                                translated: message.translated ?? "",
-                                finalized: true,
-                                committedPrefixLength: 0,
-                                fragments: nil
-                            )])
-                        }
+                        state.replaceItems([SubtitleLine(
+                            id: 0,
+                            original: original,
+                            translated: message.translated ?? "",
+                            finalized: true,
+                            committedPrefixLength: 0,
+                            fragments: nil
+                        )])
                     }
                     state.compactTask?.cancel()
                     if state.isPaused {

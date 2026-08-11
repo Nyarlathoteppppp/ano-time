@@ -28,6 +28,7 @@ from dashboard_support.workers import (
 )
 from dashboard_support.settings_repository import DashboardSettingsRepository
 from dashboard_support.provider_profiles import ProviderProfileRepository
+from dashboard_support.provider_catalog import default_model_price
 from dashboard_support.settings_snapshot import (
     AudioSettings,
     DashboardSettingsSnapshot,
@@ -332,7 +333,7 @@ class Dashboard(QWidget):
 
         runtime = QFrame()
         runtime.setObjectName("RuntimeStatus")
-        runtime.setMinimumHeight(224)
+        runtime.setMinimumHeight(248)
         runtime.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
         )
@@ -355,12 +356,21 @@ class Dashboard(QWidget):
             ("Network", "Network（网络）"),
             ("Usage", "API Usage（今日 / 本次）"),
         )):
-            runtime_layout.setRowMinimumHeight(row, 30)
+            runtime_layout.setRowMinimumHeight(row, 68 if key == "Usage" else 30)
             title_label = QLabel(title)
             title_label.setMinimumHeight(26)
+            if key == "Usage":
+                title_label.setAlignment(
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+                )
             runtime_layout.addWidget(title_label, row, 0)
             value = QLabel("Waiting")
-            value.setMinimumHeight(26)
+            value.setMinimumHeight(62 if key == "Usage" else 26)
+            value.setWordWrap(key == "Usage")
+            if key == "Usage":
+                value.setAlignment(
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+                )
             value.setStyleSheet("color: #6c7086; font-weight: 600;")
             runtime_layout.addWidget(value, row, 1)
             self.runtime_labels[key] = value
@@ -542,7 +552,7 @@ class Dashboard(QWidget):
                 self.update_runtime_status(
                     "Usage", "ok",
                     f"Today US${today['cost_usd']:.4f} · "
-                    f"{today['requests']} req · waiting for this session",
+                    f"{today['requests']} req\nSession waiting for API usage",
                 )
             else:
                 self.update_runtime_status(
@@ -551,11 +561,23 @@ class Dashboard(QWidget):
             return
         hourly = usage["hourly_cost_usd"]
         hourly_text = "estimating" if hourly is None else f"~US${hourly:.3f}/h"
+        estimated_prompt = usage["estimated_prompt_tokens"]
+        estimated_completion = usage["estimated_completion_tokens"]
+        exact_prompt = usage["prompt_tokens"] - estimated_prompt
+        exact_completion = usage["completion_tokens"] - estimated_completion
+        session_cost_prefix = "~" if usage["estimated_cost_usd"] else ""
+        today_cost_prefix = "~" if today["estimated_cost_usd"] else ""
+        token_text = f"exact in {exact_prompt:,} / out {exact_completion:,}"
+        if usage["estimated_requests"]:
+            token_text += (
+                f" · estimated in {estimated_prompt:,} / "
+                f"out {estimated_completion:,}"
+            )
         detail = (
-            f"Today US${today['cost_usd']:.4f} · "
-            f"Session US${usage['cost_usd']:.4f} · {hourly_text} · "
-            f"{usage['requests']} req · in {usage['prompt_tokens']:,} / "
-            f"out {usage['completion_tokens']:,}"
+            f"Today {today_cost_prefix}US${today['cost_usd']:.4f} · "
+            f"{today['requests']} req\n"
+            f"Session {session_cost_prefix}US${usage['cost_usd']:.4f} · "
+            f"{hourly_text} · {usage['requests']} req\n{token_text}"
         )
         if usage["unpriced_requests"]:
             detail += f" · {usage['unpriced_requests']} unpriced"
@@ -1334,7 +1356,7 @@ class Dashboard(QWidget):
             "SiliconFlow": config.siliconflow_api_key,
             "Alibaba Cloud Qwen-MT": config.qwen_mt_api_key,
             "OpenAI": config.api_key,
-            "Google Gemini": config.api_key,
+            "Google Gemini": config.gemini_api_key or config.api_key,
             "Groq": config.groq_api_key or config.api_key,
             "OpenRouter": config.api_key,
             "Custom OpenAI-Compatible": config.api_key,
@@ -1364,7 +1386,12 @@ class Dashboard(QWidget):
                 "Qwen/Qwen3-30B-A3B-Instruct-2507",
             ],
             "OpenAI": ["gpt-5-mini", "gpt-5-nano"],
-            "Google Gemini": ["gemini-2.5-flash-lite", "gemini-2.5-flash"],
+            "Google Gemini": [
+                "gemini-3.5-flash-lite",
+                "gemini-3.5-flash",
+                "gemini-2.5-flash-lite",
+                "gemini-2.5-flash",
+            ],
             "Groq": ["openai/gpt-oss-20b"],
             "OpenRouter": ["openai/gpt-5-mini", "google/gemini-2.5-flash-lite"],
             "Custom OpenAI-Compatible": [],
@@ -1385,10 +1412,24 @@ class Dashboard(QWidget):
             )
             for name, profile in self.provider_profiles.items()
         }
-        self.provider_prices.setdefault(
-            configured_single_provider,
-            (config.input_price_per_million, config.output_price_per_million),
-        )
+        if configured_single_provider not in self.provider_prices:
+            configured_price = (
+                config.input_price_per_million,
+                config.output_price_per_million,
+            )
+            self.provider_prices[configured_single_provider] = (
+                configured_price
+                if any(configured_price)
+                else default_model_price(configured_single_provider, config.model)
+            )
+        for provider_name, presets in self.provider_model_presets.items():
+            selected_model = self.provider_selected_models.get(provider_name, "")
+            if not selected_model and presets:
+                selected_model = presets[0]
+            self.provider_prices.setdefault(
+                provider_name,
+                default_model_price(provider_name, selected_model),
+            )
         self.provider.currentTextChanged.connect(self._on_translation_provider_changed)
         self.main_model_layout.addRow("Final Provider（最终翻译服务）:", self.provider)
         
@@ -1414,7 +1455,7 @@ class Dashboard(QWidget):
         self.model.setToolTip(
             "可以选择预设，也可以直接输入任意服务支持的模型 ID。"
         )
-        self.model.currentTextChanged.connect(self.update_home_summary)
+        self.model.currentTextChanged.connect(self._on_translation_model_changed)
         model_layout.addWidget(self.model)
 
         self.add_custom_model_btn = QPushButton("＋")
@@ -1649,6 +1690,24 @@ class Dashboard(QWidget):
             self.provider_prices[provider] = (
                 self.input_price.value(), self.output_price.value()
             )
+
+    def _on_translation_model_changed(self, model):
+        """Bind built-in pricing to the exact model instead of a stale provider."""
+        if not self._switching_provider and hasattr(self, "input_price"):
+            provider = self.provider.currentText()
+            normalized_model = model.strip()
+            previous_model = self.provider_selected_models.get(provider, "")
+            if normalized_model and normalized_model != previous_model:
+                prices = default_model_price(provider, normalized_model)
+                self.input_price.blockSignals(True)
+                self.output_price.blockSignals(True)
+                self.input_price.setValue(prices[0])
+                self.output_price.setValue(prices[1])
+                self.input_price.blockSignals(False)
+                self.output_price.blockSignals(False)
+                self.provider_prices[provider] = prices
+                self.provider_selected_models[provider] = normalized_model
+        self.update_home_summary()
 
     def _populate_provider_models(self, provider):
         """Expose useful presets without restricting manually entered model IDs."""

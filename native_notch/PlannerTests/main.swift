@@ -88,4 +88,119 @@ check(
     "line growth cancels a pending shrink"
 )
 
+func cue(
+    _ id: Int,
+    translated: String = "译文",
+    fragments: [NotchFragment]? = nil
+) -> NotchCue {
+    NotchCue(
+        id: id,
+        segmentID: id,
+        original: "source \(id)",
+        translated: translated,
+        finalized: false,
+        committedPrefixLength: 0,
+        fragments: fragments
+    )
+}
+
+let initialPresentation = NotchRollupPlanner.reconcile(
+    current: NotchPresentationState(),
+    incoming: [cue(1), cue(2, translated: "草稿")]
+)
+let sameSegmentRevision = NotchRollupPlanner.reconcile(
+    current: initialPresentation,
+    incoming: [cue(1), cue(2, translated: "最终译文")]
+)
+check(
+    sameSegmentRevision.history.map(\.semanticID) == [1],
+    "same-segment revision preserves history"
+)
+check(
+    sameSegmentRevision.active?.translated == "最终译文",
+    "same-segment revision updates active"
+)
+check(
+    sameSegmentRevision.rollupGeneration
+        == initialPresentation.rollupGeneration,
+    "same-segment revision does not roll up"
+)
+check(
+    sameSegmentRevision.visibleCues(displayCount: 1).map(\.semanticID) == [2],
+    "small mode shows active only"
+)
+check(
+    sameSegmentRevision.visibleCues(displayCount: 2).map(\.semanticID) == [1, 2],
+    "medium mode shows one history cue and active"
+)
+let mediumSlots = sameSegmentRevision.visibleSlots(displayCount: 2)
+check(mediumSlots.map(\.id) == [1, 2], "slot identity follows semantic cue")
+check(mediumSlots[0].role == .history(index: 0), "history slot role")
+check(mediumSlots[1].role == .active, "active slot role")
+
+let newSegment = NotchRollupPlanner.reconcile(
+    current: sameSegmentRevision,
+    incoming: [cue(1), cue(2), cue(3)]
+)
+check(newSegment.history.map(\.semanticID) == [1, 2], "bounded history")
+check(newSegment.active?.semanticID == 3, "new active segment")
+check(
+    newSegment.rollupGeneration
+        == sameSegmentRevision.rollupGeneration + 1,
+    "new segment rolls up once"
+)
+let lateHistoryRevision = NotchRollupPlanner.reconcile(
+    current: newSegment,
+    incoming: [cue(1), cue(2, translated: "迟到最终稿"), cue(3)]
+)
+check(
+    lateHistoryRevision.history.map(\.semanticID) == [1, 2],
+    "late history revision does not reorder"
+)
+check(
+    lateHistoryRevision.history.last?.translated == "迟到最终稿",
+    "late history revision updates in place"
+)
+check(
+    lateHistoryRevision.rollupGeneration == newSegment.rollupGeneration,
+    "late history revision does not roll up"
+)
+
+let fragments = [
+    NotchFragment(
+        id: 7000,
+        original: "first",
+        translated: "第一部分",
+        finalized: true,
+        committedPrefixLength: 4
+    ),
+    NotchFragment(
+        id: 7001,
+        original: "second",
+        translated: "第二部分",
+        finalized: true,
+        committedPrefixLength: 4
+    ),
+]
+let fragmented = NotchRollupPlanner.reconcile(
+    current: NotchPresentationState(),
+    incoming: [cue(7, fragments: fragments)]
+)
+check(fragmented.allCues.count == 1, "fragments stay in one cue")
+check(fragmented.active?.displayFragments.count == 2, "fragments remain visible")
+check(
+    fragmented.active?.latestDisplayFragment.id == 7001,
+    "one notch slot paints only the newest fragment"
+)
+
+let expiredShort = NotchRollupPlanner.reconcile(
+    current: initialPresentation,
+    incoming: [cue(1)]
+)
+check(expiredShort.active?.semanticID == 1, "short expiry reveals prior cue")
+check(
+    expiredShort.rollupGeneration == initialPresentation.rollupGeneration,
+    "short expiry does not roll up"
+)
+
 print("SubtitlePresentationPlanner tests passed")

@@ -131,26 +131,54 @@ class Translator:
     @staticmethod
     def _report_usage(usage, callback):
         if not usage or not callback:
-            return
+            return False
         def value(name):
             return usage.get(name) if isinstance(usage, dict) else getattr(usage, name, None)
 
         total = value("total_tokens")
-        if total is not None:
-            try:
-                callback({
-                    "total_tokens": int(total),
-                    "prompt_tokens": int(value("prompt_tokens") or 0),
-                    "completion_tokens": int(value("completion_tokens") or 0),
-                    "neurons": float(value("neurons") or 0.0),
-                })
-            except Exception as exc:
-                print(f"[Translator] Usage callback failed: {exc}", flush=True)
+        if total is None:
+            return False
+        try:
+            callback({
+                "total_tokens": int(total),
+                "prompt_tokens": int(value("prompt_tokens") or 0),
+                "completion_tokens": int(value("completion_tokens") or 0),
+                "neurons": float(value("neurons") or 0.0),
+                "estimated": False,
+            })
+        except Exception as exc:
+            print(f"[Translator] Usage callback failed: {exc}", flush=True)
+        return True
+
+    @staticmethod
+    def _estimate_token_count(text):
+        """Cheap provider-neutral fallback; never presented as exact usage."""
+        text = str(text or "")
+        if not text:
+            return 0
+        ascii_count = sum(1 for character in text if ord(character) < 128)
+        non_ascii_count = len(text) - ascii_count
+        return max(1, (ascii_count + 3) // 4 + non_ascii_count)
+
+    @classmethod
+    def _estimated_usage(cls, messages, completion):
+        prompt = 2 + sum(
+            4 + cls._estimate_token_count(message.get("content", ""))
+            for message in messages
+        )
+        output = cls._estimate_token_count(completion)
+        return {
+            "prompt_tokens": prompt,
+            "completion_tokens": output,
+            "total_tokens": prompt + output,
+            "estimated": True,
+        }
 
     def translate(self, text, use_context=True, on_update=None, remember_context=True,
                   draft_translation=None, previous_preview=None,
                   context_text=None, deadline=None,
-                  usage_callback=None, failure_scope="final"):
+                  usage_callback=None, failure_scope="final",
+                  prefer_preview_continuity=False):
         """
         Translates the given text. Returns the translated string.
         Uses previous transcription as context for better continuity.
@@ -194,11 +222,19 @@ class Translator:
                 f"DRAFT:\n{draft_translation}\n\nCURRENT:\n{text}"
             )
         elif previous_preview:
+            continuity_rule = (
+                "Correctness is mandatory. If wording in PREVIOUS remains "
+                "semantically accurate for CURRENT, preserve its exact wording "
+                "and word order; change only the text required to correct or "
+                "complete CURRENT."
+                if prefer_preview_continuity else
+                "Correctness overrides continuity. Preserve wording from PREVIOUS "
+                "only where it remains accurate for CURRENT."
+            )
             system_prompt = (
                 f"Domain: {self.domain_prompt} "
                 f"{self.asr_correction_prompt} "
-                "Correctness overrides continuity. Preserve wording from PREVIOUS "
-                "only where it remains accurate for CURRENT. Use CONTEXT only for "
+                f"{continuity_rule} Use CONTEXT only for "
                 f"references and terminology. {output_constraint}{terminology_prompt}"
             )
             context_block = (
@@ -340,10 +376,25 @@ class Translator:
                     if close:
                         close()
                 raw_result = "".join(parts).strip()
-                self._report_usage(stream_usage, usage_callback)
+                usage_reported = self._report_usage(
+                    stream_usage, usage_callback
+                )
             else:
                 raw_result = response.choices[0].message.content.strip()
-                self._report_usage(getattr(response, "usage", None), usage_callback)
+                usage_reported = self._report_usage(
+                    getattr(response, "usage", None), usage_callback
+                )
+
+            if usage_callback and not usage_reported:
+                try:
+                    usage_callback(self._estimated_usage(messages, raw_result))
+                except Exception as exc:
+                    # Optional accounting must never turn a successful
+                    # translation into a subtitle failure.
+                    print(
+                        f"[Translator] Usage callback failed: {exc}",
+                        flush=True,
+                    )
 
             if time.monotonic() >= deadline:
                 raise TimeoutError("AI translation exceeded its hard deadline")

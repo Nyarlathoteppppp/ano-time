@@ -1,6 +1,7 @@
 import unittest
 import os
 import tempfile
+import threading
 from unittest.mock import patch
 
 from translation_usage import DailyUsageLedger, MeteredTranslator, TranslationUsageMeter
@@ -41,6 +42,29 @@ class TranslationUsageTests(unittest.TestCase):
         self.assertEqual(snapshot["total_tokens"], 42)
         self.assertEqual(snapshot["cost_usd"], 0.0)
         self.assertEqual(snapshot["unpriced_requests"], 1)
+
+    def test_estimated_usage_is_kept_separate_from_exact_tokens(self):
+        meter = TranslationUsageMeter()
+        meter.record("Provider", {
+            "prompt_tokens": 120,
+            "completion_tokens": 30,
+            "total_tokens": 150,
+            "estimated": True,
+        }, 1.0, 2.0, True)
+        meter.record("Provider", {
+            "prompt_tokens": 80,
+            "completion_tokens": 20,
+            "total_tokens": 100,
+            "estimated": False,
+        }, 1.0, 2.0, True)
+
+        snapshot = meter.snapshot()
+
+        self.assertEqual(snapshot["prompt_tokens"], 200)
+        self.assertEqual(snapshot["estimated_prompt_tokens"], 120)
+        self.assertEqual(snapshot["estimated_completion_tokens"], 30)
+        self.assertEqual(snapshot["estimated_requests"], 1)
+        self.assertGreater(snapshot["estimated_cost_usd"], 0)
 
     def test_wrapper_preserves_translation_and_records_usage(self):
         meter = TranslationUsageMeter()
@@ -122,6 +146,29 @@ class TranslationUsageTests(unittest.TestCase):
             restored = DailyUsageLedger(path)
             self.assertAlmostEqual(restored.snapshot()["cost_usd"], 0.55)
             self.assertEqual(restored.snapshot()["requests"], 1)
+
+    def test_concurrent_daily_records_use_one_writer_and_lose_no_totals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = DailyUsageLedger(os.path.join(directory, "daily.json"))
+            threads = [
+                threading.Thread(target=ledger.record, args=({
+                    "requests": 1,
+                    "prompt_tokens": 2,
+                    "completion_tokens": 1,
+                    "total_tokens": 3,
+                },))
+                for _ in range(40)
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            ledger.flush()
+
+            snapshot = ledger.snapshot()
+            self.assertEqual(snapshot["requests"], 40)
+            self.assertEqual(snapshot["total_tokens"], 120)
+            self.assertIsNotNone(ledger._writer)
 
     def test_daily_ledger_rolls_over_on_local_date(self):
         with tempfile.TemporaryDirectory() as directory:

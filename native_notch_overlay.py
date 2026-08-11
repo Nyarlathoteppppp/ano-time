@@ -282,7 +282,6 @@ class NativeNotchOverlay(QObject):
         self._send(payload)
 
     def _latest_items(self):
-        rendered_rows = []
         # Display fragments are an ephemeral projection. They never enter the
         # complete semantic record store or classroom export data.
         visible_records = [
@@ -290,6 +289,7 @@ class NativeNotchOverlay(QObject):
             for chunk_id, item in self.record_store.sorted_items()
             if chunk_id not in self._hidden_short_segments
         ][-3:]
+        cues = []
         for chunk_id, item in visible_records:
             translated_parts = self._split_display_text(item["translated"], 58)
             original_parts = (
@@ -297,19 +297,6 @@ class NativeNotchOverlay(QObject):
                 if item["finalized"] else [item["original"]]
             )
             part_count = max(len(original_parts), len(translated_parts))
-            if part_count <= 1:
-                rendered_rows.append({
-                    "id": chunk_id * 1000,
-                    "segmentID": chunk_id,
-                    "original": item["original"],
-                    "translated": item["translated"],
-                    "finalized": item["finalized"],
-                    "committedPrefixLength": item.get(
-                        "committed_prefix_length", 0
-                    ),
-                })
-                continue
-
             if len(original_parts) != part_count:
                 original_parts = self._semantic_parts_for_count(
                     item["original"], part_count
@@ -319,13 +306,13 @@ class NativeNotchOverlay(QObject):
                     item["translated"], part_count
                 )
             remaining_committed = item.get("committed_prefix_length", 0)
+            fragments = []
             for index, (original, translated) in enumerate(zip(
                 original_parts, translated_parts
             )):
                 part_committed = min(len(translated), remaining_committed)
-                rendered_rows.append({
+                fragments.append({
                     "id": chunk_id * 1000 + index,
-                    "segmentID": chunk_id,
                     "original": original,
                     "translated": translated,
                     "finalized": item["finalized"],
@@ -334,25 +321,18 @@ class NativeNotchOverlay(QObject):
                 remaining_committed = max(
                     0, remaining_committed - len(translated)
                 )
-        # Keep semantic segments as the stable top-level SwiftUI identity.
-        # Display fragments live inside their segment, so crossing a wrapping
-        # threshold inserts one row instead of deleting/recreating the entire
-        # notch content tree.
-        grouped = []
-        for row in rendered_rows[-3:]:
-            if not grouped or grouped[-1]["id"] != row["segmentID"]:
-                grouped.append({
-                    "id": row["segmentID"],
-                    "original": row["original"],
-                    "translated": row["translated"],
-                    "finalized": row["finalized"],
-                    "committedPrefixLength": row["committedPrefixLength"],
-                    "fragments": [],
-                })
-            grouped[-1]["fragments"].append({
-                key: value for key, value in row.items() if key != "segmentID"
+            cues.append({
+                "id": chunk_id,
+                "segmentID": chunk_id,
+                "original": item["original"],
+                "translated": item["translated"],
+                "finalized": item["finalized"],
+                "committedPrefixLength": item.get(
+                    "committed_prefix_length", 0
+                ),
+                "fragments": fragments,
             })
-        return grouped
+        return cues
 
     @staticmethod
     def _is_ephemeral_short_segment(record):
@@ -581,18 +561,17 @@ class NativeNotchOverlay(QObject):
             self.delegate.close()
             self.delegate = None
         process = self.process
-        if not process:
-            return
-        self._send({"command": "quit"})
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            process.terminate()
+        if process:
+            self._send({"command": "quit"})
             try:
-                process.wait(timeout=1)
+                process.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=1)
+                process.terminate()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=1)
         self._writer_stop.set()
         if self._writer_thread and self._writer_thread.is_alive():
             self._writer_thread.join(timeout=0.2)

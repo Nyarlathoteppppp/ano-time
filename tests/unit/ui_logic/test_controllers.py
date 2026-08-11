@@ -125,6 +125,8 @@ class ControllerTests(unittest.TestCase):
     def test_usage_projection_starts_only_on_real_asr_activity(self):
         updates = []
         view = SimpleNamespace(
+            _session_state="running",
+            pipeline=SimpleNamespace(is_paused=False),
             update_runtime_status=lambda *args: updates.append(args)
         )
         controller = SessionController(view, None)
@@ -133,6 +135,22 @@ class ControllerTests(unittest.TestCase):
             set_active.assert_not_called()
             controller.handle_runtime_status("ASR", "active", "Apple · listening")
             set_active.assert_called_once_with(True)
+        self.assertEqual(len(updates), 2)
+
+    def test_late_asr_status_cannot_restart_usage_clock_after_pause_or_stop(self):
+        updates = []
+        view = SimpleNamespace(
+            _session_state="running",
+            pipeline=SimpleNamespace(is_paused=True),
+            update_runtime_status=lambda *args: updates.append(args),
+        )
+        controller = SessionController(view, None)
+        with patch("session_controller.session_usage_meter.set_active") as set_active:
+            controller.handle_runtime_status("ASR", "active", "late callback")
+            view.pipeline.is_paused = False
+            view._session_state = "idle"
+            controller.handle_runtime_status("ASR", "active", "after stop")
+            set_active.assert_not_called()
         self.assertEqual(len(updates), 2)
 
     def test_shortcut_idle_launches_notch_through_existing_view_api(self):

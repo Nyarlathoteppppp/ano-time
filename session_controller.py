@@ -191,7 +191,18 @@ class SessionController:
         # hourly projection only after Apple detects actual speech. This also
         # excludes optional model warm-up from the projection while retaining
         # it in the exact session total.
-        if stage == "ASR" and status == "active":
+        pipeline = getattr(self.view, "pipeline", None)
+        session_running = getattr(self.view, "_session_state", "running") == "running"
+        pipeline_paused = bool(
+            pipeline is not None and getattr(pipeline, "is_paused", False)
+        )
+        if (
+            stage == "ASR"
+            and status == "active"
+            and session_running
+            and pipeline is not None
+            and not pipeline_paused
+        ):
             session_usage_meter.set_active(True)
         self.view.update_runtime_status(stage, status, detail)
 

@@ -100,6 +100,9 @@ class ProgressiveTranslationPreviewTests(unittest.TestCase):
                 final.calls[-1][1]["previous_preview"],
                 "第一版中文",
             )
+            self.assertTrue(
+                final.calls[-1][1]["prefer_preview_continuity"]
+            )
         finally:
             service.shutdown()
 

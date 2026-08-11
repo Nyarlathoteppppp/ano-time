@@ -38,6 +38,7 @@ public enum SubtitlePresentationPlanner {
     public static let shrinkAnimationSeconds = 0.20
     public static let lineShrinkDelaySeconds = 0.80
     public static let translatedLineHeight: CGFloat = 20
+    public static let rollupAnimationSeconds = 0.20
 
     public static func revisionRuns(
         from oldText: String,

@@ -193,6 +193,44 @@ class CourseGlossaryTests(unittest.TestCase):
         self.assertIn("PREVIOUS:\n这个人很喜欢吃西瓜。", messages[1]["content"])
         self.assertIn("CURRENT:\nThe small dog", messages[1]["content"])
 
+    def test_preview_continuity_preserves_exact_accurate_wording(self):
+        translator = Translator(
+            api_key="test-key",
+            base_url="https://example.invalid/v1",
+            model="generic-fast-model",
+        )
+        translator.client = _RecordingClient()
+        translator.translate(
+            "The small dog likes eating strawberries.",
+            previous_preview="小花狗喜欢吃草莓。",
+            remember_context=False,
+            prefer_preview_continuity=True,
+        )
+
+        prompt = translator.client.chat.completions.options["messages"][0]["content"]
+        self.assertIn("Correctness is mandatory", prompt)
+        self.assertIn("preserve its exact wording and word order", prompt)
+        self.assertIn("change only the text required", prompt)
+        self.assertNotIn("Correctness overrides continuity", prompt)
+
+    def test_optional_usage_callback_cannot_break_a_translation(self):
+        translator = Translator(
+            api_key="test-key",
+            base_url="https://example.invalid/v1",
+            model="generic-fast-model",
+        )
+        translator.client = _RecordingClient()
+
+        result = translator.translate(
+            "Breadth-first search is complete.",
+            remember_context=False,
+            usage_callback=lambda _usage: (_ for _ in ()).throw(
+                RuntimeError("accounting unavailable")
+            ),
+        )
+
+        self.assertEqual(result, "广度优先搜索是完备的。")
+
     def test_fast_pool_uses_provider_compatible_latency_options(self):
         groq = Translator(
             api_key="test-key",

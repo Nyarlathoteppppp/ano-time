@@ -194,6 +194,20 @@ class DashboardWorkflowTests(unittest.TestCase):
             profiles["Google Gemini"]["api_key"], "gemini-edited"
         )
 
+    def test_model_switch_replaces_stale_price_and_saved_override_round_trips(self):
+        self._choose_workflow("single_model")
+        self.dashboard.provider.setCurrentText("Google Gemini")
+        self.dashboard.model.setCurrentText("gemini-3.5-flash")
+        self.assertEqual(self.dashboard.input_price.value(), 1.50)
+        self.assertEqual(self.dashboard.output_price.value(), 9.00)
+
+        self.dashboard.input_price.setValue(1.75)
+        self.dashboard.output_price.setValue(9.25)
+        profile = self.dashboard._provider_profile_snapshot()["Google Gemini"]
+        self.assertEqual(profile["selected_model"], "gemini-3.5-flash")
+        self.assertEqual(profile["input_price_per_million"], 1.75)
+        self.assertEqual(profile["output_price_per_million"], 9.25)
+
     def test_speed_test_uses_the_same_explicit_course_profile_as_runtime(self):
         self._choose_workflow("single_model")
         self.dashboard.current_course_topic.setText(
@@ -357,6 +371,41 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertIn("Preview", self.dashboard.runtime_labels)
         self.dashboard.update_runtime_status("Preview", "ok", "ON · 0.8s")
         self.assertEqual(self.dashboard.runtime_labels["Preview"].text(), "ON · 0.8s")
+
+    def test_usage_summary_separates_today_session_and_token_accuracy(self):
+        usage = {
+            "requests": 3,
+            "prompt_tokens": 120,
+            "completion_tokens": 60,
+            "cost_usd": 0.0123,
+            "estimated_cost_usd": 0.0020,
+            "estimated_requests": 1,
+            "estimated_prompt_tokens": 20,
+            "estimated_completion_tokens": 10,
+            "unpriced_requests": 0,
+            "hourly_cost_usd": 0.20,
+            "today": {
+                "requests": 8,
+                "cost_usd": 0.0456,
+                "estimated_cost_usd": 0.0020,
+            },
+        }
+        with patch.object(
+            dashboard_module.session_usage_meter,
+            "snapshot",
+            return_value=usage,
+        ):
+            self.dashboard._refresh_usage_status()
+
+        lines = self.dashboard.runtime_labels["Usage"].text().splitlines()
+        self.assertEqual(len(lines), 3)
+        self.assertTrue(lines[0].startswith("Today ~US$0.0456"))
+        self.assertTrue(lines[1].startswith("Session ~US$0.0123"))
+        self.assertIn("exact in 100 / out 50", lines[2])
+        self.assertIn("estimated in 20 / out 10", lines[2])
+        self.assertGreaterEqual(
+            self.dashboard.runtime_labels["Usage"].minimumHeight(), 62
+        )
 
     def test_single_model_offers_popular_and_custom_openai_compatible_providers(self):
         providers = [

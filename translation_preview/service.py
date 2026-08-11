@@ -243,6 +243,7 @@ class ProgressiveTranslationPreview:
                 use_context=False,
                 remember_context=False,
                 previous_preview=previous_preview or None,
+                prefer_preview_continuity=True,
                 context_text=self._context_snapshot(),
                 deadline=request.deadline,
                 failure_scope="preview",

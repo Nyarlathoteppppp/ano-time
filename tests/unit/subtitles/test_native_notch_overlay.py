@@ -95,6 +95,16 @@ class NativeNotchOverlayTest(unittest.TestCase):
         self.assertIsNone(overlay.process)
         thread.assert_called_once()
 
+    def test_close_after_switching_to_glass_stops_native_writer(self):
+        overlay = NativeNotchOverlay()
+        overlay.delegate = MagicMock()
+        overlay.process = None
+
+        overlay.close()
+
+        self.assertTrue(overlay._writer_stop.is_set())
+        overlay.delegate = None
+
     def test_return_to_notch_restarts_helper_and_replays_latest_frame(self):
         overlay = RecordingNotchOverlay()
         overlay.update_text(1, "A sentence", "一句话", "final")
@@ -119,7 +129,24 @@ class NativeNotchOverlayTest(unittest.TestCase):
         self.assertEqual(list(overlay.transcript_data), [7])
         self.assertEqual(overlay.transcript_data[7]["translated"], translation)
         self.assertEqual(len(rendered), 1)
+        self.assertEqual(rendered[0]["segmentID"], 7)
         self.assertGreater(len(rendered[0]["fragments"]), 1)
+
+    def test_long_active_cue_does_not_consume_history_slots(self):
+        overlay = RecordingNotchOverlay()
+        overlay.update_text(1, "First complete sentence", "第一句", "final")
+        overlay.update_text(2, "Second complete sentence", "第二句", "final")
+        overlay.update_text(
+            3,
+            "A long active sentence",
+            "持续增长的当前翻译内容" * 30,
+            "partial",
+        )
+
+        rendered = overlay._latest_items()
+
+        self.assertEqual([cue["segmentID"] for cue in rendered], [1, 2, 3])
+        self.assertGreater(len(rendered[-1]["fragments"]), 3)
 
     def test_long_finalized_source_splits_only_at_clause_boundaries(self):
         overlay = RecordingNotchOverlay()
