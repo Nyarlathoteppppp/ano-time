@@ -53,7 +53,7 @@ tracking_enabled = true
 
 [records]
 # Save one timestamped bilingual transcript per translation session.
-# Files are stored in ~/Documents/Anotime Records and removed after 3 days.
+# Files are stored permanently in ~/Documents/Anotime Records.
 auto_save_transcripts = true
 
 [pipeline]

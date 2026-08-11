@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -24,25 +23,21 @@ class SessionTranscriptRecorderTests(unittest.TestCase):
             self.assertIn("译文：启发式函数是可采纳的。", content)
             self.assertEqual(content.count("原文：A heuristic is admissible."), 1)
 
-    def test_cleanup_removes_only_expired_anotime_records(self):
+    def test_existing_records_are_kept_permanently(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             old = root / "AnoTime_2026-01-01_00-00-00_双语记录.txt"
-            recent = root / "AnoTime_2026-08-09_00-00-00_双语记录.txt"
             unrelated = root / "lecture.txt"
-            for path in (old, recent, unrelated):
+            for path in (old, unrelated):
                 path.write_text("test", encoding="utf-8")
             now = 1_786_300_000
-            os.utime(old, (now - 4 * 86400, now - 4 * 86400))
-            os.utime(recent, (now - 86400, now - 86400))
 
             recorder = SessionTranscriptRecorder(
                 directory, now=lambda: now, flush_delay=0
             )
             recorder.stop()
 
-            self.assertFalse(old.exists())
-            self.assertTrue(recent.exists())
+            self.assertTrue(old.exists())
             self.assertTrue(unrelated.exists())
 
     def test_typed_preview_is_not_persisted_as_final_record(self):
@@ -60,6 +55,31 @@ class SessionTranscriptRecorderTests(unittest.TestCase):
 
             content = recorder.path.read_text(encoding="utf-8")
             self.assertNotIn("一段增长中的预览", content)
+
+    def test_finalized_ai_stream_is_not_written_until_ai_final(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = SessionTranscriptRecorder(directory, flush_delay=0)
+            recorder.update_event(SubtitleEvent.create(
+                3,
+                4,
+                SubtitleStage.AI_STREAM,
+                "A finalized source sentence",
+                "仍在逐字生成",
+                finalized=True,
+            ))
+            recorder.update_event(SubtitleEvent.create(
+                3,
+                5,
+                SubtitleStage.AI_FINAL,
+                "A finalized source sentence",
+                "最终译文",
+                finalized=True,
+            ))
+            recorder.stop()
+
+            content = recorder.path.read_text(encoding="utf-8")
+            self.assertNotIn("仍在逐字生成", content)
+            self.assertIn("译文：最终译文", content)
 
     def test_asr_final_does_not_promote_visible_preview_translation(self):
         with tempfile.TemporaryDirectory() as directory:

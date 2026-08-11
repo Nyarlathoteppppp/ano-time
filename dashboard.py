@@ -4,8 +4,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
                              QMessageBox, QTextEdit, QDialog, QLayout, QInputDialog)
 from PyQt6.QtWidgets import QCheckBox, QDoubleSpinBox
-from PyQt6.QtCore import QEvent, Qt, QSize, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont, QIcon, QPixmap
+from PyQt6.QtCore import QEvent, Qt, QSize, QUrl, pyqtSignal, QTimer
+from PyQt6.QtGui import QDesktopServices, QFont, QIcon, QPixmap
 import sys
 import os
 import sounddevice as sd
@@ -444,14 +444,35 @@ class Dashboard(QWidget):
         )
 
         self.transcript_recording_checkbox = QCheckBox(
-            "自动保存双语记录（保留 3 天）"
+            "自动保存双语记录（永久保留）"
         )
         self.transcript_recording_checkbox.setChecked(
             config.auto_save_transcripts
         )
         self.transcript_recording_checkbox.setToolTip(
             "每次启动翻译后，在“文稿/Anotime Records”生成带日期时间的双语 TXT。\n"
-            "写入在独立后台线程完成，不阻塞实时字幕；超过 3 天自动删除。"
+            "只写入定稿阶段，不保存流式增量；文件永久保留，由用户自行清理。"
+        )
+
+        record_row = QHBoxLayout()
+        self.transcript_status_label = QLabel(
+            "Enabled · starts on Launch"
+            if config.auto_save_transcripts else "Recording Off"
+        )
+        self.transcript_status_label.setWordWrap(True)
+        self.transcript_status_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.transcript_status_label.setStyleSheet(
+            "font-size: 12px; color: #bac2de;"
+        )
+        self.open_records_btn = QPushButton("Open Records Folder")
+        self.open_records_btn.setFixedHeight(36)
+        self.open_records_btn.clicked.connect(self.open_transcript_folder)
+        record_row.addWidget(self.transcript_status_label, 1)
+        record_row.addWidget(self.open_records_btn)
+        self.transcript_recording_checkbox.toggled.connect(
+            self._preview_transcript_recording_setting
         )
 
         self.usage_tracking_checkbox = QCheckBox(
@@ -474,6 +495,7 @@ class Dashboard(QWidget):
         layout.addWidget(self.log_btn)
         layout.addWidget(self.diagnostics_checkbox)
         layout.addWidget(self.transcript_recording_checkbox)
+        layout.addLayout(record_row)
         layout.addWidget(self.usage_tracking_checkbox)
         layout.addWidget(self.shortcut_btn)
         
@@ -501,6 +523,46 @@ class Dashboard(QWidget):
         import subprocess
         from runtime_log import LOG_PATH
         subprocess.run(["open", LOG_PATH], check=False)
+
+    @staticmethod
+    def transcript_output_directory():
+        return os.path.expanduser("~/Documents/Anotime Records")
+
+    def open_transcript_folder(self):
+        directory = self.transcript_output_directory()
+        os.makedirs(directory, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(directory))
+
+    def set_transcript_recording_status(self, status, path="", detail=""):
+        labels = {
+            "recording": "Recording",
+            "saved": "Saved",
+            "off": "Recording Off",
+            "error": "Recording Failed",
+            "ready": "Enabled · starts on Launch",
+        }
+        text = labels.get(status, str(status))
+        if path:
+            text += f" · {path}"
+        if detail:
+            text += f" · {detail}"
+        colors = {
+            "recording": "#a6e3a1",
+            "saved": "#89b4fa",
+            "off": "#6c7086",
+            "error": "#f38ba8",
+            "ready": "#bac2de",
+        }
+        self.transcript_status_label.setText(text)
+        self.transcript_status_label.setStyleSheet(
+            f"font-size: 12px; color: {colors.get(status, '#bac2de')};"
+        )
+
+    def _preview_transcript_recording_setting(self, enabled):
+        if self._session_state != "running":
+            self.set_transcript_recording_status(
+                "ready" if enabled else "off"
+            )
 
     def _update_shortcut_button(self):
         controller = getattr(self, "shortcut_controller", None)

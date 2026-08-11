@@ -88,14 +88,17 @@ class ControllerTests(unittest.TestCase):
 
     def test_session_stop_flushes_automatic_transcript(self):
         calls = []
+        statuses = []
         view = SimpleNamespace(
             _session_generation=3,
             _session_state="running",
             overlay_window=None,
             pipeline=None,
             transcript_recorder=SimpleNamespace(
+                path="/tmp/AnoTime_record.txt",
                 stop=lambda: calls.append("transcript")
             ),
+            set_transcript_recording_status=lambda *args: statuses.append(args),
             status_label=FakeWidget(),
             stop_btn=FakeWidget(),
             pause_btn=FakeWidget(),
@@ -105,6 +108,9 @@ class ControllerTests(unittest.TestCase):
         SessionController(view, None).stop()
         self.assertEqual(calls, ["transcript"])
         self.assertIsNone(view.transcript_recorder)
+        self.assertEqual(
+            statuses, [("saved", "/tmp/AnoTime_record.txt")]
+        )
 
     def test_pause_button_tracks_pipeline_state(self):
         paused = []
@@ -133,9 +139,13 @@ class ControllerTests(unittest.TestCase):
         with patch("session_controller.session_usage_meter.set_active") as set_active:
             controller.handle_runtime_status("Remote", "active", "Gemini")
             set_active.assert_not_called()
+            controller.handle_runtime_status(
+                "ASR", "waiting", "Apple · audio detected"
+            )
+            set_active.assert_not_called()
             controller.handle_runtime_status("ASR", "active", "Apple · listening")
             set_active.assert_called_once_with(True)
-        self.assertEqual(len(updates), 2)
+        self.assertEqual(len(updates), 3)
 
     def test_late_asr_status_cannot_restart_usage_clock_after_pause_or_stop(self):
         updates = []

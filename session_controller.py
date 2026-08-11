@@ -110,16 +110,30 @@ class SessionController:
         if previous_recorder:
             previous_recorder.stop()
         view.transcript_recorder = None
+        recording_status = getattr(view, "set_transcript_recording_status", None)
         if config.auto_save_transcripts:
             try:
                 view.transcript_recorder = self.transcript_recorder_factory()
                 view.pipeline.signals.subtitle_event.connect(
                     view.transcript_recorder.update_event
                 )
+                if recording_status:
+                    recording_status(
+                        "recording", str(view.transcript_recorder.path)
+                    )
+                log_stage(
+                    "transcript_recording",
+                    status="ok",
+                    detail=str(view.transcript_recorder.path),
+                )
             except Exception as exc:
                 # Recording is useful but must never block live captions.
                 view.transcript_recorder = None
                 log_stage("transcript_recording", status="error", detail=str(exc))
+                if recording_status:
+                    recording_status("error", detail=str(exc))
+        elif recording_status:
+            recording_status("off")
         view.pipeline.signals.pipeline_error.connect(view.on_pipeline_error)
         view.pipeline.signals.runtime_status.connect(self.handle_runtime_status)
         if hasattr(view.overlay_window, "update_runtime_status"):
@@ -188,7 +202,8 @@ class SessionController:
     def handle_runtime_status(self, stage, status, detail):
         """Update presentation and start cost projection on real speech."""
         # Starting the process is not billable classroom time. Begin the
-        # hourly projection only after Apple detects actual speech. This also
+        # hourly projection only after Apple produces its first ASR partial.
+        # Raw RMS/audio activity is deliberately insufficient. This also
         # excludes optional model warm-up from the projection while retaining
         # it in the exact session total.
         pipeline = getattr(self.view, "pipeline", None)
@@ -220,8 +235,14 @@ class SessionController:
             view.pipeline = None
         transcript_recorder = getattr(view, "transcript_recorder", None)
         if transcript_recorder:
+            transcript_path = str(getattr(transcript_recorder, "path", ""))
             transcript_recorder.stop()
             view.transcript_recorder = None
+            recording_status = getattr(
+                view, "set_transcript_recording_status", None
+            )
+            if recording_status:
+                recording_status("saved", transcript_path)
         view.status_label.setText("Stopped")
         view.stop_btn.hide()
         if hasattr(view, "pause_btn"):

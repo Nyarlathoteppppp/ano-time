@@ -942,7 +942,7 @@ class Pipeline(QObject):
                         audio_marker = (state["chunk_id"], state["audio_started_at"])
                 if audio_marker:
                     self.signals.runtime_status.emit(
-                        "ASR", "active", "Apple · listening"
+                        "ASR", "waiting", "Apple · audio detected"
                     )
                     log_stage(
                         "speech_audio_detected",

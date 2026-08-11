@@ -16,8 +16,13 @@ from subtitle_event import SubtitleStage
 class SessionTranscriptRecorder:
     """Persist semantic subtitle records without blocking the subtitle fast path."""
 
-    RETENTION_SECONDS = 3 * 24 * 60 * 60
     FILE_PREFIX = "AnoTime_"
+    PERSISTED_STAGES = frozenset({
+        SubtitleStage.ASR_FINAL,
+        SubtitleStage.APPLE_FINAL,
+        SubtitleStage.GROQ_BRIDGE,
+        SubtitleStage.AI_FINAL,
+    })
 
     def __init__(self, output_dir=None, now=None, flush_delay=0.20):
         self._now = now or time.time
@@ -33,7 +38,6 @@ class SessionTranscriptRecorder:
             output_dir or Path.home() / "Documents" / "Anotime Records"
         ).expanduser()
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.cleanup_expired_records()
 
         started_at = datetime.fromtimestamp(self._now()).astimezone()
         self.started_at = started_at
@@ -56,16 +60,6 @@ class SessionTranscriptRecorder:
             suffix += 1
         return candidate
 
-    def cleanup_expired_records(self):
-        cutoff = self._now() - self.RETENTION_SECONDS
-        for path in self.output_dir.glob(f"{self.FILE_PREFIX}*_双语记录.txt"):
-            try:
-                if path.stat().st_mtime < cutoff:
-                    path.unlink()
-            except OSError:
-                # Retention failure must never prevent translation from starting.
-                continue
-
     def update_text(self, chunk_id, original_text, translated_text, state="partial"):
         if self._stopping.is_set():
             return
@@ -78,7 +72,10 @@ class SessionTranscriptRecorder:
 
     def update_event(self, event):
         """Persist semantic finalized state, never provisional display previews."""
-        if not event.finalized:
+        # `event.finalized` describes the ASR source. AI_STREAM events inherit
+        # that flag, so checking it alone would rewrite the whole transcript
+        # for every streamed token. Persist only semantic completion stages.
+        if not event.finalized or event.stage not in self.PERSISTED_STAGES:
             return
         self.update_text(
             event.segment_id,

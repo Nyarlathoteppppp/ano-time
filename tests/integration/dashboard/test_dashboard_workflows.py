@@ -95,6 +95,19 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertIn("2 条", text)
         self.assertIn("3 条", text)
 
+    def test_home_shows_permanent_transcript_status_and_output_location(self):
+        self.assertIn("永久保留", self.dashboard.transcript_recording_checkbox.text())
+        self.dashboard.set_transcript_recording_status(
+            "recording", "/Users/test/Documents/Anotime Records/lecture.txt"
+        )
+        status = self.dashboard.transcript_status_label.text()
+        self.assertIn("Recording", status)
+        self.assertIn("lecture.txt", status)
+        self.assertEqual(
+            self.dashboard.transcript_output_directory(),
+            os.path.expanduser("~/Documents/Anotime Records"),
+        )
+
     def test_existing_install_opens_on_frozen_smart_hybrid_chain(self):
         self.assertEqual(
             self.dashboard.translation_workflow.currentData(), "smart_hybrid"
