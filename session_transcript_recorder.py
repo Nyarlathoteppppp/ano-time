@@ -10,6 +10,7 @@ import threading
 import time
 
 from subtitle_record_store import SubtitleRecordStore
+from subtitle_event import SubtitleStage
 
 
 class SessionTranscriptRecorder:
@@ -74,6 +75,17 @@ class SessionTranscriptRecorder:
             (chunk_id, original_text, translated_text, state)
         )
         self._wake.set()
+
+    def update_event(self, event):
+        """Persist semantic finalized state, never provisional display previews."""
+        if not event.finalized:
+            return
+        self.update_text(
+            event.segment_id,
+            event.original_text,
+            "" if event.stage == SubtitleStage.ASR_FINAL else event.translated_text,
+            "final",
+        )
 
     def _drain_pending(self):
         while True:

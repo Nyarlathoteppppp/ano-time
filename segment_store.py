@@ -7,8 +7,11 @@ from subtitle_event import SubtitleEvent, SubtitleStage
 
 
 TRANSLATION_RANKS = {
+    SubtitleStage.APPLE_PARTIAL: 1,
     SubtitleStage.APPLE_FINAL: 1,
+    SubtitleStage.BRIDGE_PREVIEW: 2,
     SubtitleStage.GROQ_BRIDGE: 2,
+    SubtitleStage.AI_PREVIEW: 3,
     SubtitleStage.AI_STREAM: 3,
     SubtitleStage.AI_FINAL: 3,
 }
@@ -23,6 +26,8 @@ class SegmentState:
     translated_text: str = ""
     finalized: bool = False
     translation_rank: int = 0
+    translation_stage: SubtitleStage | None = None
+    translation_source_text: str = ""
     stage: SubtitleStage = SubtitleStage.ASR_PARTIAL
 
 
@@ -46,6 +51,7 @@ class SegmentStore:
         finalized=False,
         expected_hypothesis=None,
         translation_rank=None,
+        translation_source_text=None,
     ):
         """Return a typed event when an update is current, otherwise ``None``."""
         stage = SubtitleStage(stage)
@@ -53,6 +59,7 @@ class SegmentStore:
         translated_text = str(translated_text)
         with self._lock:
             state = self._state(segment_id)
+            preserve_current_source = False
 
             if stage == SubtitleStage.ASR_PARTIAL:
                 if state.finalized:
@@ -64,15 +71,35 @@ class SegmentStore:
                 if state.original_text == original_text and not translated_text:
                     return None
                 state.hypothesis_revision += 1
+                if (
+                    state.translation_stage in (
+                        SubtitleStage.APPLE_PARTIAL,
+                        SubtitleStage.BRIDGE_PREVIEW,
+                        SubtitleStage.AI_PREVIEW,
+                    )
+                    and state.translation_source_text
+                    and not original_text.startswith(state.translation_source_text)
+                ):
+                    state.translation_rank = 0
+                    state.translation_stage = None
+                    state.translation_source_text = ""
+                    state.translated_text = ""
 
             elif stage == SubtitleStage.APPLE_PARTIAL:
                 if state.finalized:
                     return None
                 if (
                     expected_hypothesis is not None
-                    and int(expected_hypothesis) != state.hypothesis_revision
+                    and (
+                        int(expected_hypothesis) > state.hypothesis_revision
+                        or not state.original_text.startswith(original_text)
+                    )
                 ):
                     return None
+                preserve_current_source = (
+                    expected_hypothesis is not None
+                    and int(expected_hypothesis) < state.hypothesis_revision
+                )
                 if (
                     state.stage == stage
                     and state.original_text == original_text
@@ -85,6 +112,25 @@ class SegmentStore:
                     return None
                 state.hypothesis_revision += 1
                 state.finalized = True
+
+            elif stage in (
+                SubtitleStage.BRIDGE_PREVIEW,
+                SubtitleStage.AI_PREVIEW,
+            ):
+                source = str(translation_source_text or original_text)
+                if (
+                    state.finalized
+                    or expected_hypothesis is None
+                    or state.hypothesis_revision < int(expected_hypothesis)
+                    or not state.original_text.startswith(source)
+                ):
+                    return None
+                if (
+                    state.stage == stage
+                    and state.translated_text == translated_text
+                    and state.translation_source_text == source
+                ):
+                    return None
 
             rank = (
                 TRANSLATION_RANKS.get(stage, 0)
@@ -101,11 +147,23 @@ class SegmentStore:
                 ):
                     return None
                 state.translation_rank = rank
+                if translated_text:
+                    state.translation_stage = stage
+                    state.translation_source_text = str(
+                        translation_source_text or original_text
+                    )
                 state.finalized = state.finalized or bool(finalized)
 
             state.revision += 1
             state.stage = stage
-            if original_text:
+            if (
+                original_text
+                and stage not in (
+                    SubtitleStage.BRIDGE_PREVIEW,
+                    SubtitleStage.AI_PREVIEW,
+                )
+                and not preserve_current_source
+            ):
                 state.original_text = original_text
             if translated_text:
                 state.translated_text = translated_text
@@ -114,9 +172,18 @@ class SegmentStore:
                 state.segment_id,
                 state.revision,
                 stage,
-                original_text,
-                translated_text,
-                finalized=bool(finalized),
+                state.original_text,
+                state.translated_text,
+                finalized=state.finalized,
+            )
+
+    def preview_is_compatible(self, segment_id, hypothesis_revision, stable_text):
+        with self._lock:
+            state = self._state(segment_id)
+            return (
+                not state.finalized
+                and state.hypothesis_revision >= int(hypothesis_revision)
+                and state.original_text.startswith(str(stable_text))
             )
 
     def hypothesis_revision(self, segment_id):
@@ -129,6 +196,16 @@ class SegmentStore:
             return (
                 not state.finalized
                 and state.hypothesis_revision == int(hypothesis_revision)
+            )
+
+    def partial_is_compatible(self, segment_id, hypothesis_revision, source_text):
+        """Allow a completed local draft while its source remains a prefix."""
+        with self._lock:
+            state = self._state(segment_id)
+            return (
+                not state.finalized
+                and state.hypothesis_revision >= int(hypothesis_revision)
+                and state.original_text.startswith(str(source_text))
             )
 
     def invalidate_partial(self, segment_id):
@@ -155,5 +232,7 @@ class SegmentStore:
                 translated_text=state.translated_text,
                 finalized=state.finalized,
                 translation_rank=state.translation_rank,
+                translation_stage=state.translation_stage,
+                translation_source_text=state.translation_source_text,
                 stage=state.stage,
             )

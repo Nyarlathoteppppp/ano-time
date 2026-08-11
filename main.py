@@ -27,6 +27,7 @@ from runtime_performance import RuntimePerformanceSampler
 from segment_store import SegmentStore
 from fast_path import FastPath
 from translation_workflows import build_translation_workflow
+from translation_preview import ProgressiveTranslationPreview
 
 
 FINAL_CONTEXT_SEGMENTS = 4
@@ -75,6 +76,7 @@ class Pipeline(QObject):
         self._subtitle_event_count_lock = threading.Lock()
         self._segment_store = SegmentStore()
         self._fast_path = None
+        self._preview_service = None
         self._pause_boundary_handler = None
         self._apple_reset_thread = None
         self._subtitle_events_since_sample = 0
@@ -290,6 +292,7 @@ class Pipeline(QObject):
         stage=None,
         expected_hypothesis=None,
         translation_rank=None,
+        translation_source_text=None,
     ):
         """Publish one typed event; retain the legacy signal through the adapter."""
         if stage is None:
@@ -308,6 +311,7 @@ class Pipeline(QObject):
             finalized=state == "final",
             expected_hypothesis=expected_hypothesis,
             translation_rank=translation_rank,
+            translation_source_text=translation_source_text,
         )
         return self._publish_subtitle_event(event)
 
@@ -333,6 +337,9 @@ class Pipeline(QObject):
     def stop(self):
         print("\n[Pipeline] Stopping...")
         self.running = False
+        preview_service = self.__dict__.get("_preview_service")
+        if preview_service:
+            preview_service.reset()
         self.audio.stop()
         if hasattr(self, "thread") and self.thread.is_alive():
             self.thread.join(timeout=2)
@@ -562,6 +569,16 @@ class Pipeline(QObject):
         fast_executor = None if fast_path else ThreadPoolExecutor(max_workers=1)
         bridge_executor = ThreadPoolExecutor(max_workers=1)
         refine_executor = ThreadPoolExecutor(max_workers=2)
+        preview_service = ProgressiveTranslationPreview(
+            emit_subtitle=self._emit_subtitle,
+            segment_store=self._segment_state_store(),
+            bridge_client=self._bridge_translation_client,
+            final_client=self._final_translation_client,
+            bridge_gate=self._groq_bridge_gate,
+            context_snapshot=self._current_finalized_context,
+            is_active=lambda: self.running and not self._paused.is_set(),
+        )
+        self._preview_service = preview_service
         state_lock = threading.Lock()
         state = {
             "chunk_id": 1,
@@ -616,6 +633,7 @@ class Pipeline(QObject):
                 )
             else:
                 log_stage("pause_boundary", status="reset")
+            preview_service.reset()
 
         self._pause_boundary_handler = seal_pause_boundary
 
@@ -655,6 +673,7 @@ class Pipeline(QObject):
             self._emit_subtitle(
                 chunk_id, text, "", "final", SubtitleStage.ASR_FINAL
             )
+            preview_service.finalize(chunk_id)
             self._schedule_final_remote(
                 text,
                 chunk_id,
@@ -682,6 +701,7 @@ class Pipeline(QObject):
                 return
             now = time.monotonic()
             finalized_segments = []
+            preview_stable_text = ""
             with state_lock:
                 audio_anchor = state["audio_started_at"]
                 if audio_anchor is None:
@@ -725,6 +745,15 @@ class Pipeline(QObject):
                     text, stable_text=stable_text, is_final=is_final, now=now
                 )
                 state["latest_remainder"] = "" if is_final else remainder
+                if not is_final and stable_text and remainder:
+                    stable_word_count = len(stable_text.split())
+                    committed_word_count = state["segmenter"].committed_words
+                    stable_remainder_count = max(
+                        0, stable_word_count - committed_word_count
+                    )
+                    preview_stable_text = " ".join(
+                        remainder.split()[:stable_remainder_count]
+                    )
                 cut_reasons = list(state["segmenter"].last_cut_reasons)
                 for index, segment in enumerate(segments):
                     finalized_segments.append((
@@ -758,6 +787,7 @@ class Pipeline(QObject):
                 return
             if not is_meaningful_final(remainder):
                 return
+            prior_state = self._segment_state_store().snapshot(current_chunk_id)
             event = self._emit_subtitle(
                 current_chunk_id,
                 remainder,
@@ -767,18 +797,32 @@ class Pipeline(QObject):
             )
             if event is None:
                 return
+            preview_service.reset_if_source_rewritten(
+                current_chunk_id,
+                prior_state,
+                remainder,
+            )
             with self._translation_state_lock:
                 previous = self._last_partial_text.get(current_chunk_id)
                 if previous == remainder:
                     return
                 self._last_partial_text[current_chunk_id] = remainder
-                if fast_path:
-                    version = self._segment_state_store().hypothesis_revision(
+                hypothesis_revision = (
+                    self._segment_state_store().hypothesis_revision(
                         current_chunk_id
                     )
+                )
+                if fast_path:
+                    version = hypothesis_revision
                 else:
                     version = self._partial_versions.get(current_chunk_id, 0) + 1
                 self._partial_versions[current_chunk_id] = version
+            preview_service.observe(
+                current_chunk_id,
+                hypothesis_revision,
+                remainder,
+                stable_source_text=preview_stable_text,
+            )
             # Speed-first path: every distinct Apple partial is translated. Stable
             # Prefix is measured in parallel and never gates the local draft.
             partial_args = (
@@ -860,6 +904,9 @@ class Pipeline(QObject):
             self._pause_boundary_handler = None
             bridge_executor.shutdown(wait=False, cancel_futures=True)
             refine_executor.shutdown(wait=False, cancel_futures=True)
+            preview_service.shutdown()
+            if self.__dict__.get("_preview_service") is preview_service:
+                self._preview_service = None
 
     def _process_partial_chunk(self, audio_data, chunk_id, prompt="", translate_executor=None):
         """Transcribe and translate an in-progress utterance."""
@@ -962,8 +1009,8 @@ class Pipeline(QObject):
                         return
             def emit_if_current(partial):
                 if fast_path:
-                    current = self._segment_state_store().is_current_partial(
-                        chunk_id, version
+                    current = self._segment_state_store().partial_is_compatible(
+                        chunk_id, version, text
                     )
                     current = current and not self._paused.is_set()
                 else:
@@ -1028,6 +1075,11 @@ class Pipeline(QObject):
             context = "\n".join(self._finalized_context)
             self._finalized_context.append(text)
         return context
+
+    def _current_finalized_context(self):
+        """Read prior finalized context without appending a provisional prefix."""
+        with self._context_lock:
+            return "\n".join(self._finalized_context)
 
     def _forget_refinement(self, future):
         with self._refine_queue_lock:

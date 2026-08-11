@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 from session_transcript_recorder import SessionTranscriptRecorder
+from subtitle_event import SubtitleEvent, SubtitleStage
 
 
 class SessionTranscriptRecorderTests(unittest.TestCase):
@@ -43,6 +44,39 @@ class SessionTranscriptRecorderTests(unittest.TestCase):
             self.assertFalse(old.exists())
             self.assertTrue(recent.exists())
             self.assertTrue(unrelated.exists())
+
+    def test_typed_preview_is_not_persisted_as_final_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = SessionTranscriptRecorder(directory, flush_delay=0)
+            recorder.update_event(SubtitleEvent.create(
+                1,
+                1,
+                SubtitleStage.AI_PREVIEW,
+                "A growing source prefix",
+                "一段增长中的预览",
+                finalized=False,
+            ))
+            recorder.stop()
+
+            content = recorder.path.read_text(encoding="utf-8")
+            self.assertNotIn("一段增长中的预览", content)
+
+    def test_asr_final_does_not_promote_visible_preview_translation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = SessionTranscriptRecorder(directory, flush_delay=0)
+            recorder.update_event(SubtitleEvent.create(
+                2,
+                2,
+                SubtitleStage.ASR_FINAL,
+                "A complete source sentence",
+                "仍然只是预览",
+                finalized=True,
+            ))
+            recorder.stop()
+
+            content = recorder.path.read_text(encoding="utf-8")
+            self.assertIn("原文：A complete source sentence", content)
+            self.assertNotIn("仍然只是预览", content)
 
 
 if __name__ == "__main__":

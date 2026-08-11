@@ -16,6 +16,7 @@ from tests.support.recorders import RecordingSignal
 
 
 class PipelineContractTests(unittest.TestCase):
+
     def test_fast_translation_readiness_is_optional_for_legacy_fakes(self):
         pipeline = Pipeline.__new__(Pipeline)
         pipeline.fast_translator = SimpleNamespace()
@@ -212,7 +213,7 @@ class PipelineContractTests(unittest.TestCase):
             ],
         )
 
-    def test_pipeline_adapter_rejects_stale_apple_partial(self):
+    def test_pipeline_adapter_accepts_prefix_compatible_apple_partial(self):
         pipeline = Pipeline.__new__(Pipeline)
         pipeline.signals = WorkerSignals()
         typed = []
@@ -229,7 +230,7 @@ class PipelineContractTests(unittest.TestCase):
             "partial",
             SubtitleStage.ASR_PARTIAL,
         )
-        stale = pipeline._emit_subtitle(
+        compatible = pipeline._emit_subtitle(
             20,
             "A heuristic",
             "一种启发式方法",
@@ -238,9 +239,10 @@ class PipelineContractTests(unittest.TestCase):
             expected_hypothesis=old_hypothesis,
         )
 
-        self.assertIsNone(stale)
-        self.assertEqual(len(typed), 2)
+        self.assertIsNotNone(compatible)
+        self.assertEqual(len(typed), 3)
         self.assertEqual(typed[-1].original_text, "A heuristic is admissible")
+        self.assertEqual(typed[-1].translated_text, "一种启发式方法")
 
 
 if __name__ == "__main__":

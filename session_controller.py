@@ -99,8 +99,8 @@ class SessionController:
         if config.auto_save_transcripts:
             try:
                 view.transcript_recorder = self.transcript_recorder_factory()
-                view.pipeline.signals.update_text.connect(
-                    view.transcript_recorder.update_text
+                view.pipeline.signals.subtitle_event.connect(
+                    view.transcript_recorder.update_event
                 )
             except Exception as exc:
                 # Recording is useful but must never block live captions.

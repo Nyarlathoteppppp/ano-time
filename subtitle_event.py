@@ -10,6 +10,8 @@ class SubtitleStage(str, Enum):
     ASR_FINAL = "asr_final"
     APPLE_PARTIAL = "apple_partial"
     APPLE_FINAL = "apple_final"
+    BRIDGE_PREVIEW = "bridge_preview"
+    AI_PREVIEW = "ai_preview"
     GROQ_BRIDGE = "groq_bridge"
     AI_STREAM = "ai_stream"
     AI_FINAL = "ai_final"
