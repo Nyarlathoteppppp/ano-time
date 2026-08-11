@@ -199,6 +199,66 @@ private func emitEvent(_ event: String) {
     FileHandle.standardOutput.write(Data(line.utf8))
 }
 
+private struct StableStreamingText: View {
+    let text: String
+    let availableWidth: CGFloat
+
+    @State private var displayedText: String
+    @State private var horizontalCompensation: CGFloat = 0
+
+    init(text: String, availableWidth: CGFloat) {
+        self.text = text
+        self.availableWidth = availableWidth
+        _displayedText = State(initialValue: text)
+    }
+
+    private func textWidth(_ value: String) -> CGFloat {
+        (value as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: 16, weight: .semibold)
+        ]).width
+    }
+
+    private func replaceText(with newText: String) {
+        guard newText != displayedText else { return }
+        let oldText = displayedText
+        let oldWidth = textWidth(oldText)
+        let newWidth = textWidth(newText)
+        let isSingleLineGrowth = (
+            !oldText.isEmpty
+                && newText.hasPrefix(oldText)
+                && oldWidth <= availableWidth
+                && newWidth <= availableWidth
+        )
+
+        var immediate = Transaction()
+        immediate.disablesAnimations = true
+        withTransaction(immediate) {
+            displayedText = newText
+            // A centered string normally jumps left by half of its added
+            // width. Compensate that jump, then gently settle to center.
+            horizontalCompensation = isSingleLineGrowth
+                ? max(0, (newWidth - oldWidth) / 2)
+                : 0
+        }
+        if isSingleLineGrowth {
+            withAnimation(.easeOut(duration: 0.11)) {
+                horizontalCompensation = 0
+            }
+        }
+    }
+
+    var body: some View {
+        Text(displayedText.isEmpty ? "…" : displayedText)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(.white)
+            .lineLimit(2)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .offset(x: horizontalCompensation)
+            .onChange(of: text, perform: replaceText)
+    }
+}
+
 private struct SubtitleContent: View {
     @ObservedObject var state: SubtitleState
 
@@ -225,12 +285,10 @@ private struct SubtitleContent: View {
                                 .frame(maxWidth: .infinity, alignment: .center)
                         }
 
-                        Text(item.translated.isEmpty ? "…" : item.translated)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity, alignment: .center)
+                        StableStreamingText(
+                            text: item.translated,
+                            availableWidth: max(1, state.contentWidth - 80)
+                        )
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                     .transition(.opacity)

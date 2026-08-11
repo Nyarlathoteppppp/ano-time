@@ -26,6 +26,17 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn(".transition(.opacity)", self.source)
         self.assertNotIn(".move(edge:", self.source)
 
+    def test_streaming_text_anchors_single_line_growth_without_delaying_updates(self):
+        self.assertIn("private struct StableStreamingText", self.source)
+        self.assertIn("newText.hasPrefix(oldText)", self.source)
+        self.assertIn("(newWidth - oldWidth) / 2", self.source)
+        self.assertIn(".easeOut(duration: 0.11)", self.source)
+        self.assertIn("immediate.disablesAnimations = true", self.source)
+        self.assertNotIn("Task.sleep", self.source[
+            self.source.index("private struct StableStreamingText"):
+            self.source.index("private struct SubtitleContent")
+        ])
+
     def test_mode_switch_shrinks_smoothly_but_grows_immediately(self):
         self.assertIn("isChangingDisplayCount = true", self.source)
         self.assertIn("if nextDisplayCount < displayCount", self.source)
