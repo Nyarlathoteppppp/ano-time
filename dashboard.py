@@ -672,10 +672,41 @@ class Dashboard(QWidget):
             f"color: {colors.get(status, '#cdd6f4')}; font-weight: 600;"
         )
         if stage == "Hint" and hasattr(self, "smart_hint_status"):
-            self.smart_hint_status.setText(detail)
-            self.smart_hint_status.setStyleSheet(
-                f"font-size: 12px; color: {colors.get(status, '#cdd6f4')};"
-            )
+            self._set_smart_hint_status(status, detail)
+
+    def _set_smart_hint_status(self, status, detail, *, test_result=False):
+        """Keep the Smart Hint card to one stable, readable status line.
+
+        The generated topic/keywords can be useful, but showing their complete
+        text in a QFormLayout makes the status row grow over neighbouring
+        controls. Keep that diagnostic detail in the tooltip instead.
+        """
+        status = str(status or "").lower()
+        detail = " ".join(str(detail or "").split())
+        if test_result:
+            summary = "连接成功" if status == "ok" else "测试失败"
+        else:
+            summary = {
+                "active": "更新中…",
+                "ok": "已更新",
+                "waiting": "等待首轮总结",
+                "off": "已关闭",
+                "warning": "更新失败",
+                "error": "更新失败",
+            }.get(status, detail or "等待中")
+        colors = {
+            "ok": "#a6e3a1",
+            "active": "#89b4fa",
+            "waiting": "#f9e2af",
+            "warning": "#f9e2af",
+            "error": "#f38ba8",
+            "off": "#6c7086",
+        }
+        self.smart_hint_status.setText(summary)
+        self.smart_hint_status.setToolTip(detail)
+        self.smart_hint_status.setStyleSheet(
+            f"font-size: 12px; color: {colors.get(status, '#cdd6f4')};"
+        )
 
     def _refresh_usage_status(self):
         if "Usage" not in getattr(self, "runtime_labels", {}):
@@ -1747,8 +1778,12 @@ class Dashboard(QWidget):
         self.smart_hint_model = QLineEdit(config.smart_hint_model)
         self.smart_hint_model.setPlaceholderText("deepseek-ai/DeepSeek-V4-Flash")
         self.smart_hint_form.addRow("Model:", self.smart_hint_model)
-        self.smart_hint_status = QLabel("关闭")
-        self.smart_hint_status.setWordWrap(True)
+        self.smart_hint_status = QLabel("已关闭")
+        self.smart_hint_status.setWordWrap(False)
+        self.smart_hint_status.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.smart_hint_status.setMinimumHeight(24)
         self.smart_hint_status.setStyleSheet("font-size: 12px; color: #6c7086;")
         self.smart_hint_form.addRow("本次状态:", self.smart_hint_status)
         self.smart_hint_test_btn = QPushButton("Test Smart Hint（测试连接）")
@@ -2187,12 +2222,14 @@ class Dashboard(QWidget):
         base_url = self.smart_hint_base_url.text().strip()
         model = self.smart_hint_model.text().strip()
         if not api_key or not base_url or not model:
-            self.smart_hint_status.setText("测试失败：请填写 API Key、Base URL 和 Model")
-            self.smart_hint_status.setStyleSheet("font-size: 12px; color: #f38ba8;")
+            self._set_smart_hint_status(
+                "error",
+                "测试失败：请填写 API Key、Base URL 和 Model",
+                test_result=True,
+            )
             return
         self.smart_hint_test_btn.setEnabled(False)
-        self.smart_hint_status.setText("正在测试连接…")
-        self.smart_hint_status.setStyleSheet("font-size: 12px; color: #89b4fa;")
+        self._set_smart_hint_status("active", "正在测试连接…")
         worker = SmartHintTestWorker(api_key, base_url, model)
         self.smart_hint_test_worker = worker
         worker.completed.connect(self._smart_hint_test_completed)
@@ -2201,9 +2238,9 @@ class Dashboard(QWidget):
         worker.start()
 
     def _smart_hint_test_completed(self, success, detail):
-        color = "#a6e3a1" if success else "#f38ba8"
-        self.smart_hint_status.setText(detail)
-        self.smart_hint_status.setStyleSheet(f"font-size: 12px; color: {color};")
+        self._set_smart_hint_status(
+            "ok" if success else "error", detail, test_result=True
+        )
 
     def _smart_hint_test_finished(self):
         self.smart_hint_test_worker = None

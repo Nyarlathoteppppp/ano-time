@@ -676,6 +676,17 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertIn("测试失败", self.dashboard.smart_hint_status.text())
         self.assertIsNone(getattr(self.dashboard, "smart_hint_test_worker", None))
 
+    def test_smart_hint_runtime_status_stays_single_line_with_full_detail_in_tooltip(self):
+        detail = (
+            "Bias-variance tradeoff in regularized estimators · "
+            "keywords: bias, variance, regularization parameter, model "
+            "complexity, cross-validation, generalization error"
+        )
+        self.dashboard.update_runtime_status("Hint", "ok", detail)
+        self.assertEqual(self.dashboard.smart_hint_status.text(), "已更新")
+        self.assertEqual(self.dashboard.smart_hint_status.toolTip(), detail)
+        self.assertFalse(self.dashboard.smart_hint_status.wordWrap())
+
     def test_smart_hint_test_worker_formats_a_success_without_subtitle_events(self):
         worker = SmartHintTestWorker("key", "https://example.test/v1", "hint-model")
         messages = []
