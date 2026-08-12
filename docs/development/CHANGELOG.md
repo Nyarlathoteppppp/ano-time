@@ -9,6 +9,7 @@
 - `9a163be`：新增受邀体验者指南、产品发布路线和 `tools/release_audit.py`。发布扫描只检查 Git 跟踪文件，永不打印匹配到的密钥。
 - `codex/pyside6-migration` M1：新增唯一 Qt 绑定边界 `ui/qt.py`；`api_test_controller`、后台 workers、字幕显示调度器、全局快捷键和应用图标模块改为只经该边界导入 Qt。主分支运行行为未改。
 - M1 测试安全网：Dashboard 工作流测试改为显式无密钥配置，不再读取开发者的 `config.ini` / Keychain；新增绑定边界静态测试。完整回归为 416/416，PySide6-only 导入烟测通过。
+- `codex/pyside6-migration` M2：通用下拉控件、Audio、ASR 和快捷键设置控制器均接入 Qt 绑定边界。没有改动 Carbon 热键实现、权限流程、音频采集或实时翻译。
 
 ## 运行不变式
 

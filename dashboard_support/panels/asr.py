@@ -1,4 +1,10 @@
-from PyQt6.QtWidgets import QFormLayout, QLabel, QMessageBox, QWidget
+from ui.qt import QtWidgets
+
+
+QFormLayout = QtWidgets.QFormLayout
+QLabel = QtWidgets.QLabel
+QMessageBox = QtWidgets.QMessageBox
+QWidget = QtWidgets.QWidget
 
 from dashboard_support.widgets import ReadableComboBox
 

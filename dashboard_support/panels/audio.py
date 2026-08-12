@@ -1,13 +1,14 @@
-from PyQt6.QtWidgets import (
-    QDoubleSpinBox,
-    QGridLayout,
-    QHBoxLayout,
-    QLabel,
-    QLayout,
-    QPushButton,
-    QSpinBox,
-    QWidget,
-)
+from ui.qt import QtWidgets
+
+
+QDoubleSpinBox = QtWidgets.QDoubleSpinBox
+QGridLayout = QtWidgets.QGridLayout
+QHBoxLayout = QtWidgets.QHBoxLayout
+QLabel = QtWidgets.QLabel
+QLayout = QtWidgets.QLayout
+QPushButton = QtWidgets.QPushButton
+QSpinBox = QtWidgets.QSpinBox
+QWidget = QtWidgets.QWidget
 
 from dashboard_support.widgets import ReadableComboBox
 

@@ -5,7 +5,10 @@ from unittest.mock import Mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication
+from ui.qt import QtWidgets
+
+
+QApplication = QtWidgets.QApplication
 
 from dashboard_support.panels import AudioPanel, DEFAULT_AUDIO_SETTINGS
 

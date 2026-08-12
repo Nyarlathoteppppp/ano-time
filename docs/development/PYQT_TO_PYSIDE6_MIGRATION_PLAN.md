@@ -138,11 +138,11 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 > M1—M4 的“逐批”指代码与测试的交付粒度，不代表主目录可在半迁移状态运行。只有完整依赖闭包完成后才做集成启动。
 
-### M2：普通 Panel 与小控件（下一批）
+### M2：普通 Panel 与小控件（已完成于迁移分支）
 
 迁移 `dashboard_support/widgets.py`、`dashboard_support/panels/asr.py`、`dashboard_support/panels/audio.py`、`shortcut_controller.py`。
 
-**验收**：Audio/ASR 下拉框文字完整；保存、恢复默认、权限提示、快捷键设置不回归。
+**实现与验收**：四个模块均接入 `ui/qt.py`；Audio/ASR 控件、下拉框、恢复默认、权限按钮、快捷键控制器与 Dashboard 工作流回归通过。PySide6-only 离屏环境已创建 Audio/ASR 页面并验证控件初始值。Carbon 热键的真实 macOS 全局回调不在半迁移阶段触发，最终切换后单独实机验收。
 
 ### M3：控制中心与单实例壳
 

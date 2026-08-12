@@ -2,7 +2,15 @@
 
 import os
 
-from PyQt6.QtWidgets import QCheckBox, QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from ui.qt import QtWidgets
+
+
+QCheckBox = QtWidgets.QCheckBox
+QDialog = QtWidgets.QDialog
+QHBoxLayout = QtWidgets.QHBoxLayout
+QLabel = QtWidgets.QLabel
+QPushButton = QtWidgets.QPushButton
+QVBoxLayout = QtWidgets.QVBoxLayout
 
 
 class ShortcutController:

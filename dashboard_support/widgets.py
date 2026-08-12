@@ -1,5 +1,9 @@
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QComboBox
+from ui.qt import QtCore, QtWidgets
+
+
+Qt = QtCore.Qt
+QApplication = QtWidgets.QApplication
+QComboBox = QtWidgets.QComboBox
 
 
 class ReadableComboBox(QComboBox):
