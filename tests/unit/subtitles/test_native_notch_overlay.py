@@ -340,14 +340,19 @@ class NativeNotchOverlayTest(unittest.TestCase):
 
     def test_crossing_display_split_threshold_keeps_semantic_identity(self):
         overlay = RecordingNotchOverlay()
-        overlay.update_text(22, "source", "较短的翻译", "partial")
+        initial = "甲" * 58
+        overlay.update_text(22, "source", initial, "partial")
         before = overlay.sent[-1]["items"][0]
-        overlay.update_text(22, "source", "很长的翻译内容" * 20, "partial")
+        overlay.update_text(22, "source", initial + ("乙" * 58), "partial")
         after = overlay.sent[-1]["items"][0]
 
         self.assertEqual(before["id"], after["id"])
         self.assertEqual(before["fragments"][0]["id"], after["fragments"][0]["id"])
         self.assertGreater(len(after["fragments"]), 1)
+        self.assertEqual(
+            after["fragments"][0]["translated"],
+            before["fragments"][0]["translated"],
+        )
 
 
 if __name__ == "__main__":

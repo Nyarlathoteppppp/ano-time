@@ -7,6 +7,7 @@ import threading
 import unicodedata
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from display_fragment_plan import DisplayFragmentPlan
 from subtitle_record_store import SubtitleRecordStore
 
 
@@ -25,6 +26,9 @@ class NativeNotchOverlay(QObject):
         self.process = None
         self.delegate = None
         self.record_store = SubtitleRecordStore()
+        # Only the notch owns this projection cache. Glass and transcript
+        # records must always retain their complete semantic sentences.
+        self._display_fragment_plan = DisplayFragmentPlan()
         self._last_native_items = None
         self._paused = False
         self._busy_stages = set()
@@ -287,9 +291,16 @@ class NativeNotchOverlay(QObject):
             3,
             self._hidden_short_segments,
         )
+        self._display_fragment_plan.retain(
+            chunk_id for chunk_id, _item in visible_records
+        )
         cues = []
         for chunk_id, item in visible_records:
-            translated_parts = self._split_display_text(item["translated"], 58)
+            translated_parts = self._display_fragment_plan.project(
+                chunk_id,
+                item["translated"],
+                lambda value: self._split_display_text(value, 58),
+            )
             original_parts = (
                 self._split_finalized_source(item["original"], 34)
                 if item["finalized"] else [item["original"]]
