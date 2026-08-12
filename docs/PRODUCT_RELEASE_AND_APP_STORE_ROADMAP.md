@@ -1,7 +1,7 @@
-# AnoTime：体验版、云服务与双平台 App Store 路线
+# AnoTime：macOS 体验版与 Mac App Store 路线
 
 > 状态：设计文档，不改变当前运行代码。
-> 范围：macOS 体验版、未来 Mac App Store、未来 iPhone/iPad App Store。
+> 当前范围：只做 macOS 体验版与未来 Mac App Store。iPhone/iPad 已明确延期，不进入近期工程计划。
 > 产品原则：先让用户在十分钟内听懂一段课或会议；任何商业化、记录和 AI 功能都不能拖慢本地 Apple 草稿路径。
 
 ---
@@ -18,12 +18,26 @@
   → 可安装的 macOS Beta
   → AnoTime Cloud + 本地课堂记录
   → Mac App Store
-  → 独立的 iPhone/iPad 客户端
 ```
 
-手机端不是把当前 Mac 程序打包一下就能得到。iPhone/iPad 的系统音频、悬浮字幕和动态岛都受系统约束，必须是独立 SwiftUI 客户端；两端共享的是账号、课程档案、记录和 AnoTime Cloud API。
+**当前决策：先把 Mac 做成一个可交给别人、可稳定收费验证的产品。**手机端不排期、不占当前开发时间；它日后会是独立 SwiftUI 客户端，而不是当前 Mac 程序的缩小打包版。
 
-### 1.1 当前最值得做的体验版
+### 1.1 UI 与许可决策：不购买 PyQt6
+
+PyQt6 的免费分发是 GPLv3。AnoTime 不购买 PyQt 商业许可，也不应把“免费 PyQt6 + 闭源收费 App”当成可行方案。
+
+近期技术决策：
+
+```text
+当前 PyQt6 控制中心 / 玻璃字幕
+  → PySide6（LGPL，保留 Python 实时 Pipeline）
+  → 可安装 macOS Beta
+  → SwiftUI/AppKit 逐步接管正式 Mac App Store 外壳
+```
+
+这不是今天立即重写 UI 的决定：**先做 PySide6 迁移，降低许可成本和外部体验版风险；等产品证明有人持续使用后，再投入原生 SwiftUI。**
+
+### 1.2 当前最值得做的体验版
 
 给外部用户体验时，提供：
 
@@ -275,30 +289,65 @@ Cloud
 
 ---
 
-## 6. PyQt6、开源许可与 App Store
+## 6. PyQt6、PySide6 与 Mac App Store
 
 ### 6.1 当前事实
 
 当前工程依赖 `PyQt6`，其免费分发版本是 **GPLv3**，不是 LGPL。项目当前根许可证是 MIT，且代码历史包含上游 `Vanyoo/realtime-subtitle` 的贡献，原作者版权和 MIT 通知必须保留。
 
-因此，不能把“继续使用免费 PyQt6 + 闭源收费 App Store”当作无风险路线。许可选择必须在首次向外分发专有 Beta 前定下来。
+因此，不能把“继续使用免费 PyQt6 + 闭源收费 App Store”当作无风险路线。既然不购买 PyQt 商业许可，外部体验版前必须完成 PySide6 迁移或接受整个客户端按 GPLv3 开源；AnoTime 选择前者。
 
 ### 6.2 可选路线
 
-| 方案 | 代码量 | 适合什么阶段 | 判断 |
+| 方案 | 成本 | 工程量 | 判断 |
 | --- | ---: | --- | --- |
-| 保持 PyQt6 GPLv3，整个客户端开源 GPLv3 | 极低 | 开源体验版 | 不适合闭源商业产品；也要单独评估 App Store 条款兼容性。 |
-| 购买 PyQt6 商业许可 | 低 | 快速发布专有 macOS Beta | 不用大改代码；有许可证成本。 |
-| PyQt6 迁移 PySide6 | 中 | 想脱离 Riverbank 商业绑定 | 生产文件约 14 个直接导入 PyQt6，机械迁移不难，但要完整回归窗口、信号、打包和许可合规。 |
-| macOS 改 SwiftUI/AppKit | 很高 | 正式 Mac App Store 产品 | 最符合原生权限、打包和体验，但需重写控制中心/玻璃 UI。 |
+| 保持 PyQt6 GPLv3，整个客户端开源 GPLv3 | 无 | 极低 | 不适合你当前想做的闭源/收费体验版。 |
+| 购买 PyQt6 商业许可 | 有持续许可成本 | 极低 | 不采用。 |
+| **PyQt6 迁移 PySide6** | **无 PyQt 许可成本** | **低—中** | **近期唯一推荐。**两者都映射 Qt 6；`QObject`、signal、widget、layout 绝大多数可机械替换。 |
+| macOS 改 SwiftUI/AppKit | 无 PyQt 许可成本 | 很高 | 正式 App Store 长期路线；等完成 macOS Beta 和产品验证后再做。 |
+
+### 6.3 PySide6 迁移到底需要改什么
+
+它只解决**控制中心 / 玻璃字幕的 Qt 绑定许可**，不改你的翻译算法，也不需要改 Swift 刘海程序：
+
+| 范围 | 处理 | 风险 |
+| --- | --- | --- |
+| Python 文件中的 `PyQt6.*` import | 统一替换为 `PySide6.*` | 低 |
+| Signal / Slot | `pyqtSignal` / `pyqtSlot` 改为 `Signal` / `Slot` | 低 |
+| `exec()`、枚举、少量 API 差异 | 逐文件修正并跑现有 Qt 测试 | 低—中 |
+| 控制中心和玻璃 UI | 保持现有布局与行为，不顺便 redesign | 中 |
+| Swift notch、Apple ASR、Apple Translation、模型路由 | **完全不碰** | 无 |
+
+项目目前约 14 个生产文件直接导入 PyQt6。迁移不是“全新重写”，但必须按小批次推进：
+
+1. 先替换不含窗口生命周期的工具和 Worker，单独测试。
+2. 再替换控制中心 Panel 与普通 Widgets。
+3. 最后处理玻璃窗口、全屏、Mission Control、快捷键等 macOS 集成，并实机回归。
+4. 每批可独立回滚；**不在迁移期间修改实时翻译、字幕策略或模型路由。**
+
+预计代码改动约 1—3 天，随后至少留出 2—3 天做不同权限、显示器、刘海和长课的实机回归。真正要发布时仍需做 LGPL 合规清单：保留许可证/版权声明、使用动态链接方式和提供替换库所需信息；发布前再做一次专业许可复核。[Qt for Python 官方许可说明](https://doc.qt.io/qtforpython-6/)明确 PySide6 社区版采用 LGPLv3/GPLv3 双许可。
+
+### 6.4 为什么不直接现在改 SwiftUI
+
+因为控制中心只是 UI，但 UI 仍然承担权限、启动/暂停、配置、Keychain、系统音频报错、Glass 与 Swift notch 协调。直接重写会把当前可用产品冻结数周，并引入一批新 bug；它不提高 Apple 草稿速度，也不提高翻译准确率。
+
+正确顺序是：
+
+```text
+PySide6 消除 PyQt 商业许可问题
+→ 做 10–20 人 macOS 体验验证
+→ 保留真实用户反馈和崩溃数据
+→ 再把已验证的少量普通用户 UI 用 SwiftUI 重写
+```
 
 推荐决策：
 
-1. 外部体验测试前，先确定开源 GPL 还是购买/迁移许可；不要忽略这个问题。
-2. 真正 App Store 的长期路线优先 SwiftUI/AppKit；不要指望当前 Python + AppleScript 启动器直接过审核。
-3. 涉及 GPL/LGPL/App Store 分发时，发布前请做专业许可证合规确认；本文件不替代法律意见。
+1. 不购买 PyQt6 商业许可。
+2. 近期执行 PySide6 迁移；未完成前不发送闭源、可收费的外部体验包。
+3. 正式 Mac App Store 再选择 SwiftUI/AppKit 外壳；不要指望当前 Python + AppleScript 启动器直接过审核。
+4. 涉及 LGPL/App Store 分发时，发布前做专业许可证合规确认；本文件不替代法律意见。
 
-### 6.3 当前 macOS 打包和 App Store 的具体差距
+### 6.5 当前 macOS 打包和 App Store 的具体差距
 
 当前安装方式会创建桌面 AppleScript `.app`、项目内 `.venv`、在用户机器编译 Swift helper，并通过 shell / `nohup` 启动后台 Python。它很适合开发，但不符合正式 App Store Bundle 的要求。
 
@@ -314,7 +363,9 @@ Cloud
 
 ---
 
-## 7. iPhone/iPad：必须是独立产品，不是 Mac 的缩小版
+## 7. iPhone/iPad：明确延期的产品备忘
+
+**本节不是当前计划，不能进入 macOS 近期 Backlog。**保留它只是为了避免未来误把 Mac 的方案照搬到手机。
 
 ### 可以共享
 
@@ -329,7 +380,7 @@ Cloud
 - iPhone Dynamic Island 是 Live Activity，不是自由浮窗；有尺寸和更新数据限制，不能承载完整滚动双语 transcript。
 - iOS 系统音频捕获必须使用公开系统 API 和系统选择器，能力受系统版本、用户授权和使用场景限制。它不能成为“任何 App 都像 Mac 一样无感监听”的承诺。
 
-推荐 iPhone 1.0：
+未来 iPhone 1.0 的最低形态：
 
 ```text
 Mic / 录音文件 / 支持的内容共享捕获
@@ -338,7 +389,7 @@ Mic / 录音文件 / 支持的内容共享捕获
 → 云端同步后的 Session / Summary / Ask
 ```
 
-因此优先级是：先完成 Mac 产品和 Cloud API 契约，再开始 iPhone SwiftUI。否则会同时维护两个不同音频捕获和 UI 平台，进度会失控。
+在 Mac 体验版验证“用户愿意持续用 / 愿意付费”以前，不启动 iPhone 开发。当前资源全部投向 Mac。
 
 ---
 
@@ -378,7 +429,7 @@ Mic / 录音文件 / 支持的内容共享捕获
 
 **目标**：确认后续分发不被许可或素材问题卡死。
 
-- 确定 PyQt 商业许可 / PySide6 / GPL 开源体验版三选一。
+- 确认 PySide6 的 LGPL 分发清单和上游 MIT 版权通知；不购买 PyQt 商业许可。
 - 做代码、依赖、素材、字体、上游版权清单。
 - 写隐私政策草案、记录保留与删除策略。
 - 确定体验用户画像：英语技术课程留学生优先，先不承诺所有会议软件和所有手机音频。
@@ -422,23 +473,12 @@ Mic / 录音文件 / 支持的内容共享捕获
 
 **目标**：形成可审核的单 App Bundle。
 
-- 处理 PyQt/SwiftUI 最终技术决策。
+- 完成 PySide6 Beta 的打包与回归；根据真实用户反馈决定何时以 SwiftUI/AppKit 替换普通用户外壳。
 - 移除开发期桌面启动器、运行时编译和散落 helper。
 - Xcode target、entitlements、签名、sandbox、崩溃报告和隐私清单。
 - TestFlight Mac 内测，再提交 Mac App Store。
 
 **验收**：无需终端、无需 Homebrew、无需用户手动运行安装脚本；TestFlight 外部测试稳定。
-
-### P5：iPhone/iPad 客户端
-
-**目标**：提供移动场景和历史记录，不承诺复制 macOS 全部能力。
-
-- 原生 SwiftUI App + Account / Session / Course Profile。
-- 麦克风、录音文件、系统允许的内容共享捕获。
-- Live Activity 仅显示简短状态；完整字幕在 App 内。
-- 与 Mac 共用 AnoTime Cloud、购买 entitlement 和同步记录。
-
-**验收**：手机端能看历史记录、开始一次支持的实时转写、完成订阅验证；不依赖 Mac 专属 helper。
 
 ---
 
@@ -450,6 +490,7 @@ Mic / 录音文件 / 支持的内容共享捕获
 - 跨课程 Ask 功能先于稳定的 Session / Summary。
 - 在没有 Cloud Gateway 前把共享 API Key 发给体验者。
 - 直接为 iPhone 复制现有刘海/玻璃窗口；平台能力不同。
+- 直接把 PyQt6 控制中心重写成 SwiftUI；先完成 PySide6 迁移和真实 macOS Beta 验证。
 
 ---
 
