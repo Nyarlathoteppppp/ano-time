@@ -217,11 +217,17 @@ class Translator:
             if live_hint else ""
         )
 
+        chinese_script_constraint = (
+            " Use Simplified Chinese characters only; never output Traditional Chinese."
+            if self.prompt_target_lang == "Simplified Chinese"
+            else ""
+        )
         output_constraint = (
             f"Return only the complete {self.prompt_target_lang} translation "
             "of CURRENT. Write every clearly stated mathematical variable, operator, "
             "and formula as inline LaTeX; never transliterate symbol names. Otherwise "
             "use plain text. No Markdown or explanations."
+            f"{chinese_script_constraint}"
         )
 
         # Qwen-MT is a purpose-built, single-turn translation API. It rejects

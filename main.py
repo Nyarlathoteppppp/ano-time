@@ -89,7 +89,7 @@ class Pipeline(QObject):
         self._last_partial_text = {}
         self._finalized_chunks = set()
         self._subtitle_event_count_lock = threading.Lock()
-        self._segment_store = SegmentStore()
+        self._segment_store = SegmentStore(settings.target_lang)
         self._fast_path = None
         self._preview_service = None
         self._pause_boundary_handler = None
@@ -300,7 +300,10 @@ class Pipeline(QObject):
     def _segment_state_store(self):
         store = self.__dict__.get("_segment_store")
         if store is None:
-            store = self._segment_store = SegmentStore()
+            target_lang = getattr(
+                getattr(self, "settings", None), "target_lang", "Chinese"
+            )
+            store = self._segment_store = SegmentStore(target_lang)
         return store
 
     def _publish_subtitle_event(self, event):

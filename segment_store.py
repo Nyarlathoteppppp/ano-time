@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import threading
 
+from chinese_text import force_simplified_chinese, is_simplified_chinese_target
 from subtitle_event import SubtitleEvent, SubtitleStage
 
 
@@ -35,9 +36,10 @@ class SegmentState:
 class SegmentStore:
     """Accept valid updates and reject stale partials or regressive drafts."""
 
-    def __init__(self):
+    def __init__(self, target_lang="Chinese"):
         self._lock = threading.RLock()
         self._segments = {}
+        self._force_simplified_chinese = is_simplified_chinese_target(target_lang)
 
     def _state(self, segment_id):
         segment_id = int(segment_id)
@@ -58,7 +60,11 @@ class SegmentStore:
         """Return a typed event when an update is current, otherwise ``None``."""
         stage = SubtitleStage(stage)
         original_text = str(original_text)
+        # Shared output boundary for Apple drafts, bridge, Preview and Final:
+        # force the requested Chinese script without delaying any request.
         translated_text = str(translated_text)
+        if self._force_simplified_chinese:
+            translated_text = force_simplified_chinese(translated_text)
         with self._lock:
             state = self._state(segment_id)
             preserve_current_source = False

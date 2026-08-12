@@ -850,11 +850,14 @@ class Dashboard(QWidget):
                     if self.fast_translation_backend.currentText() == "apple"
                     else "无本机草稿｜"
                 )
-                model = (
-                    f"{draft_text}Groq/Cerebras 桥接｜Gemini 主翻译｜GLM 兜底"
-                    if bridge == "groq"
-                    else f"{draft_text}Gemini 主翻译｜GLM 兜底"
+                final_pool = self.smart_hybrid_final_provider.currentData()
+                final_text = (
+                    "Groq/Cerebras 主翻译｜GLM 兜底"
+                    if final_pool == "groq_cerebras"
+                    else "Gemini 主翻译｜GLM 兜底"
                 )
+                bridge_text = "Groq/Cerebras 桥接｜" if bridge == "groq" else ""
+                model = f"{draft_text}{bridge_text}{final_text}"
             else:
                 bridge_text = "｜Groq/Cerebras 桥接" if bridge == "groq" else ""
                 draft_text = (
@@ -2265,11 +2268,10 @@ class Dashboard(QWidget):
         self.bridge_key_label.setVisible(bridge_key_visible)
         self.cerebras_api_key.setVisible(bridge_key_visible)
         self.cerebras_key_label.setVisible(bridge_key_visible)
-        for widget in (
-            self.gemini_api_key,
-            self.cloudflare_account_id,
-            self.cloudflare_api_token,
-        ):
+        self._set_translation_row_visible(
+            self.gemini_api_key, smart and not smart_final_pool
+        )
+        for widget in (self.cloudflare_account_id, self.cloudflare_api_token):
             self._set_translation_row_visible(widget, smart)
         # Smart Hint is an independent context helper. It can support either
         # portable Single Model or the developer-only Smart Hybrid workflow.

@@ -214,6 +214,10 @@ class CourseGlossaryTests(unittest.TestCase):
         self.assertIn("as inline LaTeX", system_prompt)
         self.assertIn("never transliterate symbol names", system_prompt)
         self.assertIn("No Markdown or explanations", system_prompt)
+        self.assertIn(
+            "Use Simplified Chinese characters only; never output Traditional Chinese.",
+            system_prompt,
+        )
 
     def test_context_prompt_forbids_notes_and_returns_current_translation_only(self):
         translator = Translator(

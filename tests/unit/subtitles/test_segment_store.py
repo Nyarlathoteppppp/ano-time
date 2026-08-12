@@ -6,7 +6,7 @@ from subtitle_event import SubtitleStage
 
 class SegmentStoreTests(unittest.TestCase):
     def test_prefix_compatible_apple_partial_survives_newer_hypothesis(self):
-        store = SegmentStore()
+        store = SegmentStore(target_lang="Chinese")
         first = store.publish(1, SubtitleStage.ASR_PARTIAL, "A heuristic")
         first_hypothesis = store.hypothesis_revision(1)
         second = store.publish(1, SubtitleStage.ASR_PARTIAL, "A heuristic is admissible")
@@ -265,6 +265,29 @@ class SegmentStoreTests(unittest.TestCase):
 
         self.assertEqual(corrected.committed_prefix_length, 0)
         self.assertEqual(store.snapshot(14).committed_prefix_length, 0)
+
+    def test_all_translation_lanes_are_normalized_to_simplified_chinese(self):
+        store = SegmentStore()
+        event = store.publish(
+            31,
+            SubtitleStage.AI_FINAL,
+            "the covariance matrix is useful",
+            "協方差矩陣對機器學習很有用。",
+            finalized=True,
+        )
+
+        self.assertEqual(event.translated_text, "协方差矩阵对机器学习很有用。")
+
+    def test_non_chinese_target_does_not_change_translated_script(self):
+        store = SegmentStore(target_lang="Japanese")
+        event = store.publish(
+            32,
+            SubtitleStage.AI_FINAL,
+            "traditional script should remain available for other targets",
+            "繁體中文",
+            finalized=True,
+        )
+        self.assertEqual(event.translated_text, "繁體中文")
 
     def test_newer_apple_hypothesis_can_temporarily_replace_older_ai_preview(self):
         store = SegmentStore()
