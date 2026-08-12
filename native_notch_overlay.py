@@ -6,7 +6,7 @@ import subprocess
 import threading
 import unicodedata
 
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from ui.qt import QObject, QTimer, Signal
 from display_fragment_plan import DisplayFragmentPlan
 from subtitle_record_store import SubtitleRecordStore
 
@@ -14,9 +14,9 @@ from subtitle_record_store import SubtitleRecordStore
 class NativeNotchOverlay(QObject):
     """Qt-compatible bridge to the native SwiftUI DynamicNotchKit helper."""
 
-    stop_requested = pyqtSignal()
-    pause_requested = pyqtSignal(bool)
-    _event_received = pyqtSignal(str)
+    stop_requested = Signal()
+    pause_requested = Signal(bool)
+    _event_received = Signal(str)
 
     def __init__(self, display_duration=None, window_width=800, window_height=120,
                  display_mode="notch"):

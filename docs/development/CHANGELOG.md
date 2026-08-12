@@ -12,6 +12,7 @@
 - `codex/pyside6-migration` M2：通用下拉控件、Audio、ASR 和快捷键设置控制器均接入 Qt 绑定边界。没有改动 Carbon 热键实现、权限流程、音频采集或实时翻译。
 - `codex/pyside6-migration` M3：单实例应用壳和完整 Dashboard 均改经 `ui/qt.py` 导入 Qt；M3 保持为两次独立提交，未改控制中心生命周期或业务逻辑。完整回归为 420/420。
 - `codex/pyside6-migration` M4：Pipeline 的 Qt 对象和信号改经 `ui/qt.py` 导入。此项只替换绑定 API，不修改音频、ASR、Apple 草稿、Preview、Final 或模型路由；PySide6 的完整运行烟测继续等待玻璃/刘海模块迁移，避免混用 Qt 绑定。
+- `codex/pyside6-migration` M5a：Swift 刘海 helper bridge 的 QObject、QTimer 和信号接入 Qt 绑定边界；IPC、三档刘海投影、短片段隐藏和自动收缩均未改动。玻璃窗口作为独立高耦合提交继续迁移。
 
 ## 运行不变式
 

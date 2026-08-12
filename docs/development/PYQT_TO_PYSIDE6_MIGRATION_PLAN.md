@@ -166,6 +166,10 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 迁移 `native_notch_overlay.py`、`overlay_window.py`。
 
+**实施拆分**：先迁移纯 Python 的 Swift helper bridge `native_notch_overlay.py`，只替换 QObject / Signal / QTimer 边界；其进程、IPC、三档显示投影和收缩语义不变。再单独迁移 `overlay_window.py`，因为它涉及 Qt 布局、macOS 窗口属性、置顶与滚动。两者各自独立提交和测试。
+
+**当前状态**：notch helper bridge 已接入 `ui/qt.py`；玻璃窗口待下一次迁移。
+
 **验收重点**：
 
 - 玻璃 ↔ 刘海双向切换不崩溃。
