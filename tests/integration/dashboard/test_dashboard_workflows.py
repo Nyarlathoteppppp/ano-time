@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QApplication, QLabel
 from dashboard import Dashboard
 from dashboard import DEFAULT_AUDIO_SETTINGS
 from dashboard import ModelListWorker
+from dashboard_support.workers import SmartHintTestWorker
 import dashboard as dashboard_module
 from keychain_store import store as keychain_store
 from shortcut_controller import ShortcutController
@@ -661,6 +662,31 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertEqual(failed, [])
         self.assertTrue(client_factory.call_args.kwargs["verify"])
         self.assertEqual(openai_factory.call_args.kwargs["max_retries"], 0)
+
+    def test_smart_hint_card_exposes_an_isolated_connection_test(self):
+        self.assertIn("测试连接", self.dashboard.smart_hint_test_btn.text())
+        self.assertIn("不会进入课堂字幕", self.dashboard.smart_hint_test_btn.toolTip())
+        self.dashboard.smart_hint_provider.setCurrentIndex(
+            self.dashboard.smart_hint_provider.findData("custom")
+        )
+        self.dashboard.smart_hint_api_key.clear()
+        self.dashboard.smart_hint_base_url.clear()
+        self.dashboard.smart_hint_model.clear()
+        self.dashboard._test_smart_hint()
+        self.assertIn("测试失败", self.dashboard.smart_hint_status.text())
+        self.assertIsNone(getattr(self.dashboard, "smart_hint_test_worker", None))
+
+    def test_smart_hint_test_worker_formats_a_success_without_subtitle_events(self):
+        worker = SmartHintTestWorker("key", "https://example.test/v1", "hint-model")
+        messages = []
+        worker.completed.connect(lambda success, detail: messages.append((success, detail)))
+        fake_hint = SimpleNamespace(topic="regularization", keywords=("bias", "variance"))
+        fake_client = MagicMock()
+        fake_client.summarize.return_value = fake_hint
+        with patch("smart_hint.SmartHintClient", return_value=fake_client):
+            worker.run()
+        self.assertEqual(messages, [(True, "连接成功：regularization\n关键词：bias、variance")])
+        fake_client.close.assert_called_once()
 
 
 if __name__ == "__main__":

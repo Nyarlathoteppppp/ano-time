@@ -24,6 +24,7 @@ from dashboard_support.style import STYLESHEET, dashboard_stylesheet
 from dashboard_support.widgets import ReadableComboBox
 from dashboard_support.workers import (
     ModelListWorker,
+    SmartHintTestWorker,
     StartupWorker,
     SystemAudioTestWorker,
 )
@@ -73,6 +74,10 @@ class Dashboard(QWidget):
         audio_test = getattr(self, "audio_test_worker", None)
         if audio_test and audio_test.isRunning():
             audio_test.wait(2500)
+        hint_test = getattr(self, "smart_hint_test_worker", None)
+        if hint_test and hint_test.isRunning():
+            hint_test.requestInterruption()
+            hint_test.wait(9000)
         api_test_controller = getattr(self, "api_test_controller", None)
         if api_test_controller:
             api_test_controller.stop()
@@ -1743,8 +1748,15 @@ class Dashboard(QWidget):
         self.smart_hint_model.setPlaceholderText("deepseek-ai/DeepSeek-V4-Flash")
         self.smart_hint_form.addRow("Model:", self.smart_hint_model)
         self.smart_hint_status = QLabel("关闭")
+        self.smart_hint_status.setWordWrap(True)
         self.smart_hint_status.setStyleSheet("font-size: 12px; color: #6c7086;")
         self.smart_hint_form.addRow("本次状态:", self.smart_hint_status)
+        self.smart_hint_test_btn = QPushButton("Test Smart Hint（测试连接）")
+        self.smart_hint_test_btn.setToolTip(
+            "用固定的机器学习英文测试 Key、Base URL 和 Model；不会进入课堂字幕。"
+        )
+        self.smart_hint_test_btn.clicked.connect(self._test_smart_hint)
+        self.smart_hint_form.addRow("连接测试:", self.smart_hint_test_btn)
         smart_hint_layout.addLayout(self.smart_hint_form)
         layout.addRow(self.smart_hint_card)
         self.smart_hint_provider.currentIndexChanged.connect(
@@ -2159,6 +2171,43 @@ class Dashboard(QWidget):
             self.smart_hint_base_url.setText(default_url)
         if self.smart_hint_model.text() != default_model:
             self.smart_hint_model.setText(default_model)
+
+    def _smart_hint_test_key(self):
+        key = self.smart_hint_api_key.text().strip()
+        if key:
+            return key
+        if self.smart_hint_provider.currentData() == "siliconflow":
+            return self.provider_keys.get("SiliconFlow", "").strip()
+        return ""
+
+    def _test_smart_hint(self):
+        if getattr(self, "smart_hint_test_worker", None) is not None:
+            return
+        api_key = self._smart_hint_test_key()
+        base_url = self.smart_hint_base_url.text().strip()
+        model = self.smart_hint_model.text().strip()
+        if not api_key or not base_url or not model:
+            self.smart_hint_status.setText("测试失败：请填写 API Key、Base URL 和 Model")
+            self.smart_hint_status.setStyleSheet("font-size: 12px; color: #f38ba8;")
+            return
+        self.smart_hint_test_btn.setEnabled(False)
+        self.smart_hint_status.setText("正在测试连接…")
+        self.smart_hint_status.setStyleSheet("font-size: 12px; color: #89b4fa;")
+        worker = SmartHintTestWorker(api_key, base_url, model)
+        self.smart_hint_test_worker = worker
+        worker.completed.connect(self._smart_hint_test_completed)
+        worker.finished.connect(self._smart_hint_test_finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _smart_hint_test_completed(self, success, detail):
+        color = "#a6e3a1" if success else "#f38ba8"
+        self.smart_hint_status.setText(detail)
+        self.smart_hint_status.setStyleSheet(f"font-size: 12px; color: {color};")
+
+    def _smart_hint_test_finished(self):
+        self.smart_hint_test_worker = None
+        self.smart_hint_test_btn.setEnabled(True)
 
     def _set_translation_row_visible(self, widget, visible):
         widget.setVisible(bool(visible))

@@ -68,6 +68,47 @@ class SystemAudioTestWorker(QThread):
         self.result.emit(success, message, peak)
 
 
+class SmartHintTestWorker(QThread):
+    """Test Smart Hint independently of an active translation session."""
+
+    completed = pyqtSignal(bool, str)
+
+    SAMPLE_FINALIZED_ENGLISH = (
+        "We compare the bias and variance of a regularized estimator.",
+        "The regularization parameter controls the complexity of the model.",
+        "Cross-validation estimates the expected generalization error.",
+        "We use the mean squared error to evaluate the prediction.",
+    )
+
+    def __init__(self, api_key, base_url, model):
+        super().__init__()
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model = model
+
+    def run(self):
+        client = None
+        try:
+            from smart_hint import SmartHintClient
+
+            client = SmartHintClient(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                model=self.model,
+            )
+            hint = client.summarize(self.SAMPLE_FINALIZED_ENGLISH)
+            keywords = "、".join(hint.keywords) or "无"
+            self.completed.emit(
+                True,
+                f"连接成功：{hint.topic or '已返回主题'}\n关键词：{keywords}",
+            )
+        except Exception as exc:
+            self.completed.emit(False, f"测试失败：{type(exc).__name__}: {exc}")
+        finally:
+            if client is not None:
+                client.close()
+
+
 class StartupWorker(QThread):
     ready = pyqtSignal(int, object)
 
