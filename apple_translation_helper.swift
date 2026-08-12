@@ -19,8 +19,22 @@ private func processLine(_ line: Data, session: TranslationSession) async {
         let response = try await session.translate(text)
         emit(["type": "result", "id": id, "text": response.targetText])
     } catch {
-        emit(["type": "error", "message": error.localizedDescription])
+        // A malformed or temporarily unavailable *request* must not poison the
+        // persistent session.  Python can reject only this id and keep using
+        // the already-ready Apple Translation helper for the next subtitle.
+        emit([
+            "type": "request_error",
+            "id": requestID(from: line) ?? -1,
+            "message": error.localizedDescription,
+        ])
     }
+}
+
+private func requestID(from line: Data) -> Int? {
+    guard let request = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
+        return nil
+    }
+    return request["id"] as? Int
 }
 
 @main

@@ -155,6 +155,7 @@ class NativeNotchOverlay(QObject):
             window_height=self.window_height,
             display_mode="glass",
             allow_notch_switch=True,
+            history_provider=self.record_store.sorted_items,
         )
         self.delegate.stop_requested.connect(
             lambda: QTimer.singleShot(0, self.stop_requested.emit)
@@ -162,7 +163,10 @@ class NativeNotchOverlay(QObject):
         self.delegate.notch_requested.connect(
             lambda: QTimer.singleShot(0, self._show_native_overlay)
         )
-        for chunk_id, item in self.record_store.sorted_items():
+        # Glass is a bounded live projection.  Replaying a full lecture here
+        # builds then immediately deletes thousands of Qt widgets and causes a
+        # visible pause when switching display modes.
+        for chunk_id, item in self.record_store.latest_items(40):
             self.delegate.update_text(
                 chunk_id,
                 item["original"],
@@ -226,12 +230,7 @@ class NativeNotchOverlay(QObject):
         self._track_short_segment(chunk_id, record)
 
         if self.delegate:
-            self.delegate.update_text(
-                chunk_id,
-                original_text,
-                translated_text,
-                "final" if record["finalized"] else "partial",
-            )
+            self._forward_current_glass_record(chunk_id, record)
             return
 
         latest_items = self._latest_items()
@@ -253,7 +252,7 @@ class NativeNotchOverlay(QObject):
             return
         self._track_short_segment(event.segment_id, record)
         if self.delegate:
-            self.delegate.update_event(event)
+            self._forward_current_glass_record(event.segment_id, record)
             return
         latest_items = self._latest_items()
         if latest_items != self._last_native_items:
@@ -284,11 +283,10 @@ class NativeNotchOverlay(QObject):
     def _latest_items(self):
         # Display fragments are an ephemeral projection. They never enter the
         # complete semantic record store or classroom export data.
-        visible_records = [
-            (chunk_id, item)
-            for chunk_id, item in self.record_store.sorted_items()
-            if chunk_id not in self._hidden_short_segments
-        ][-3:]
+        visible_records = self.record_store.latest_items_excluding(
+            3,
+            self._hidden_short_segments,
+        )
         cues = []
         for chunk_id, item in visible_records:
             translated_parts = self._split_display_text(item["translated"], 58)
@@ -333,6 +331,28 @@ class NativeNotchOverlay(QObject):
                 "fragments": fragments,
             })
         return cues
+
+    def _forward_current_glass_record(self, segment_id, record):
+        """Update glass only when this semantic record is still visible.
+
+        The complete record is already retained in ``record_store``.  A late
+        remote final for a scrolled-out segment must not recreate a Qt widget
+        just to have it trimmed again.
+        """
+        if not self.delegate:
+            return
+        visible_ids = {
+            chunk_id for chunk_id, _item in self.record_store.latest_items(40)
+        }
+        if int(segment_id) not in visible_ids:
+            return
+        self.delegate.update_text(
+            segment_id,
+            record["original"],
+            record["translated"],
+            "final" if record["finalized"] else "partial",
+            record.get("committed_prefix_length", 0),
+        )
 
     @staticmethod
     def _is_ephemeral_short_segment(record):

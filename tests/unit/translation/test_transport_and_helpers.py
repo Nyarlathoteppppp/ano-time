@@ -55,6 +55,29 @@ class TransportAndHelperTests(unittest.TestCase):
         self.assertTrue(translator.is_ready)
         self.assertEqual(statuses[-1][0], "ready")
 
+    def test_apple_request_error_does_not_disable_ready_translation_session(self):
+        translator = AppleTranslator.__new__(AppleTranslator)
+        translator.started = threading.Event()
+        translator.ready = threading.Event()
+        translator.ready.set()
+        translator.error = None
+        translator.status = "ready"
+        translator.status_callback = None
+        translator._lock = threading.Lock()
+        pending_event = threading.Event()
+        translator._pending = {
+            7: {"event": pending_event, "result": None, "error": None}
+        }
+
+        translator._handle_event(
+            {"type": "request_error", "id": 7, "message": "temporary failure"}
+        )
+
+        self.assertTrue(translator.is_ready)
+        self.assertIsNone(translator.error)
+        self.assertTrue(pending_event.is_set())
+        self.assertEqual(translator._pending[7]["error"], "temporary failure")
+
     def test_remote_translation_verifies_tls_certificates(self):
         http_client = object()
         with (

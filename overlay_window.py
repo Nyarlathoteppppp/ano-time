@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QTextEdit, QVBoxLayout,
-                             QSizeGrip, QHBoxLayout, QScrollArea, QLabel, QFrame,
+                             QHBoxLayout, QScrollArea, QLabel, QFrame,
                              QSizePolicy, QLayout, QMenu)
 from PyQt6.QtCore import Qt, QPoint, QRect, QSettings, QTimer, pyqtSignal
 
@@ -270,7 +270,6 @@ class DragHandle(QLabel):
             "color: rgba(255,255,255,150); font-size: 12px; "
             "padding: 5px 8px; background: transparent;"
         )
-        self.setCursor(Qt.CursorShape.SizeAllCursor)
         self.start_pos = None
         
     def mousePressEvent(self, event):
@@ -296,24 +295,12 @@ class DragHandle(QLabel):
 class ResizeBorder(QWidget):
     """Invisible resize target for one edge or corner of a frameless window."""
 
-    CURSORS = {
-        "left": Qt.CursorShape.SizeHorCursor,
-        "right": Qt.CursorShape.SizeHorCursor,
-        "top": Qt.CursorShape.SizeVerCursor,
-        "bottom": Qt.CursorShape.SizeVerCursor,
-        "top_left": Qt.CursorShape.SizeFDiagCursor,
-        "bottom_right": Qt.CursorShape.SizeFDiagCursor,
-        "top_right": Qt.CursorShape.SizeBDiagCursor,
-        "bottom_left": Qt.CursorShape.SizeBDiagCursor,
-    }
-
     def __init__(self, parent, edges):
         super().__init__(parent)
         self.parent_window = parent
         self.edges = edges
         self._start_global = None
         self._start_geometry = None
-        self.setCursor(self.CURSORS[edges])
         self.setMouseTracking(True)
 
     def mousePressEvent(self, event):
@@ -370,7 +357,7 @@ class OverlayWindow(QWidget):
 
     def __init__(self, display_duration=None, window_width=400, window_height=None,
                  display_mode="glass", allow_notch_switch=False,
-                 video_overlay=False):
+                 video_overlay=False, history_provider=None):
         super().__init__()
         # display_duration is not really used in log mode, but kept for compatibility
         self.window_width = window_width
@@ -382,6 +369,10 @@ class OverlayWindow(QWidget):
         # The physical notch is rendered exclusively by NativeNotchOverlay.
         self.display_mode = "glass"
         self.video_overlay = bool(video_overlay)
+        # NativeNotchOverlay owns the complete classroom record while this
+        # window owns only the latest visible widgets.  Direct glass mode keeps
+        # using its local history as before.
+        self._history_provider = history_provider
         self._glass_geometry = None
         self._settings = QSettings("RealtimeTon", "RealtimeTranslator")
         self._geometry_save_timer = QTimer(self)
@@ -523,7 +514,9 @@ class OverlayWindow(QWidget):
             self._set_all_spaces()
         self.setMinimumSize(320, 140)
 
-        # Frameless Qt windows otherwise expose only the bottom-right QSizeGrip.
+        # Resize borders preserve any-edge/corner resizing without assigning a
+        # custom QCursor.  Qt 6.11's custom cursor conversion can crash on
+        # macOS 26 when this window is entered after a mode switch.
         self.resize_borders = {
             name: ResizeBorder(self, name)
             for name in (
@@ -585,7 +578,6 @@ class OverlayWindow(QWidget):
         # Save Button
         from PyQt6.QtWidgets import QPushButton, QStyle 
         self.save_btn = QPushButton("💾 Save")
-        self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_btn.setFixedWidth(80)
         self.save_btn.setStyleSheet("""
             QPushButton {
@@ -606,7 +598,6 @@ class OverlayWindow(QWidget):
         # Stop Button
         self.stop_btn = QPushButton("⏹")
         self.stop_btn.setToolTip("退出翻译并返回控制中心")
-        self.stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.stop_btn.setFixedSize(30, 30)
         self.stop_btn.setStyleSheet("""
             QPushButton {
@@ -625,7 +616,6 @@ class OverlayWindow(QWidget):
 
         self.mode_btn = QPushButton()
         self.mode_btn.setToolTip("Switch between glass and notch subtitle modes")
-        self.mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.mode_btn.setFixedHeight(30)
         self.mode_btn.setStyleSheet("""
             QPushButton {
@@ -641,13 +631,6 @@ class OverlayWindow(QWidget):
         grip_layout.addWidget(self.mode_btn)
         
         grip_layout.addStretch()
-        
-        # Native corner grip works reliably with frameless Qt windows.
-        self.size_grip = QSizeGrip(self)
-        self.size_grip.setFixedSize(26, 26)
-        self.size_grip.setToolTip("Resize here, or drag any window edge/corner")
-        self.size_grip.setStyleSheet("background: rgba(255,255,255,35); border-radius: 6px;")
-        grip_layout.addWidget(self.size_grip)
         
         self.root_layout.addWidget(self.control_bar)
         
@@ -894,6 +877,15 @@ class OverlayWindow(QWidget):
                 self._schedule_content_reflow()
                 
         else:
+            # Do not resurrect an old delayed final after it was trimmed from
+            # the visible 40-row projection.  It remains in transcript_data
+            # (or the outer record store) for export.
+            if (
+                len(self.items) >= MAX_VISIBLE_TRANSCRIPT_ITEMS
+                and chunk_id < self.items[0][0]
+            ):
+                self._apply_item_visibility()
+                return
             # Insert new widget in order
             timestamp = self.transcript_data[chunk_id]['timestamp']
             new_widget = LogItem(
@@ -959,22 +951,30 @@ class OverlayWindow(QWidget):
     def _save_transcript(self):
         """Save history to file"""
         import os
-        if not self.transcript_data:
+        history_items = None
+        if self._history_provider is not None:
+            try:
+                history_items = list(self._history_provider())
+            except Exception as exc:
+                print(f"[Overlay] Could not read full transcript history: {exc}")
+                return
+        if history_items is None:
+            history_items = [
+                (chunk_id, self.transcript_data[chunk_id])
+                for chunk_id in sorted(self.transcript_data)
+            ]
+        if not history_items:
             print("[Overlay] Nothing to save.")
             return
 
         os.makedirs("transcripts", exist_ok=True)
         filename = f"transcripts/transcript_{time.strftime('%Y%m%d_%H%M%S')}.txt"
         
-        # Sort by chunk_id
-        sorted_ids = sorted(self.transcript_data.keys())
-        
         try:
             with open(filename, "w", encoding="utf-8") as f:
                 f.write(f"Transcript saved at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("="*50 + "\n\n")
-                for cid in sorted_ids:
-                    data = self.transcript_data[cid]
+                for cid, data in history_items:
                     f.write(f"[{data['timestamp']}] (ID: {cid})\nOriginal: {data['original']}\nTranslation: {data['translated']}\n{'-'*30}\n")
             
             print(f"[Overlay] Saved to {filename}")
@@ -995,9 +995,6 @@ class OverlayWindow(QWidget):
             self.oldPos = event.globalPosition().toPoint()
 
     def mouseMoveEvent(self, event):
-        # Update cursor shape based on position (reset to arrow)
-        self.setCursor(Qt.CursorShape.ArrowCursor)
-        
         # Handle dragging
         if self.is_moving:
             delta = event.globalPosition().toPoint() - self.oldPos
@@ -1006,7 +1003,6 @@ class OverlayWindow(QWidget):
             
     def mouseReleaseEvent(self, event):
         self.is_moving = False
-        self.setCursor(Qt.CursorShape.ArrowCursor)
 
 if __name__ == "__main__":
     import sys

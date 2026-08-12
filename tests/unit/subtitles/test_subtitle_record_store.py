@@ -40,6 +40,33 @@ class SubtitleRecordStoreTests(unittest.TestCase):
             [5, 6, 7],
         )
 
+    def test_latest_projection_keeps_order_without_resorting_full_history(self):
+        store = SubtitleRecordStore()
+        for segment_id in (4, 1, 3, 2, 5):
+            store.update(segment_id, f"source {segment_id}", "translation")
+
+        self.assertEqual(
+            [segment_id for segment_id, _record in store.sorted_items()],
+            [1, 2, 3, 4, 5],
+        )
+        self.assertEqual(
+            [segment_id for segment_id, _record in store.latest_items(2)],
+            [4, 5],
+        )
+
+    def test_latest_projection_can_skip_notch_only_hidden_fragments(self):
+        store = SubtitleRecordStore()
+        for segment_id in range(1, 7):
+            store.update(segment_id, f"source {segment_id}", "translation")
+
+        self.assertEqual(
+            [
+                segment_id
+                for segment_id, _record in store.latest_items_excluding(3, {5})
+            ],
+            [3, 4, 6],
+        )
+
     def test_committed_prefix_metadata_is_clamped_and_preserved(self):
         store = SubtitleRecordStore()
         store.update(9, "source", "稳定前缀变化尾部", "partial", 4)

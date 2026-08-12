@@ -95,6 +95,34 @@ class NativeNotchOverlayTest(unittest.TestCase):
         self.assertIsNone(overlay.process)
         thread.assert_called_once()
 
+    def test_glass_transition_replays_only_the_latest_forty_semantic_records(self):
+        overlay = NativeNotchOverlay()
+        for chunk_id in range(1, 46):
+            overlay.record_store.update(
+                chunk_id, f"source {chunk_id}", f"translation {chunk_id}"
+            )
+
+        with patch("overlay_window.OverlayWindow") as window_class:
+            delegate = window_class.return_value
+            overlay._show_glass_overlay()
+
+        replayed_ids = [call.args[0] for call in delegate.update_text.call_args_list]
+        self.assertEqual(replayed_ids, list(range(6, 46)))
+        self.assertEqual(len(replayed_ids), 40)
+
+    def test_late_glass_final_for_scrolled_record_is_saved_but_not_redrawn(self):
+        overlay = NativeNotchOverlay()
+        for chunk_id in range(1, 46):
+            overlay.record_store.update(
+                chunk_id, f"source {chunk_id}", f"translation {chunk_id}"
+            )
+        overlay.delegate = MagicMock()
+
+        overlay.update_text(1, "source 1", "late final", "final")
+
+        overlay.delegate.update_text.assert_not_called()
+        self.assertEqual(overlay.transcript_data[1]["translated"], "late final")
+
     def test_close_after_switching_to_glass_stops_native_writer(self):
         overlay = NativeNotchOverlay()
         overlay.delegate = MagicMock()

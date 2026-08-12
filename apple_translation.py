@@ -109,6 +109,22 @@ class AppleTranslator:
                 pending["result"] = event.get("text", "")
                 pending["event"].set()
             return
+        if event.get("type") == "request_error":
+            # Translation.framework can reject one particular request while
+            # the session and downloaded language pair remain usable.  Keep
+            # the helper ready and fail only the matching subtitle request.
+            message = event.get("message", "Apple Translation request failed")
+            request_id = event.get("id")
+            print(
+                "[Apple Translation] Request error"
+                f" (id={request_id}): {message}"
+            )
+            with self._lock:
+                pending = self._pending.get(request_id)
+            if pending:
+                pending["error"] = message
+                pending["event"].set()
+            return
         if event.get("type") == "error":
             message = event.get("message", "Unknown Apple Translation error")
             print(f"[Apple Translation] Error: {message}")

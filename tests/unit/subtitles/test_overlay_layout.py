@@ -170,6 +170,38 @@ class OverlayLayoutTests(unittest.TestCase):
             len(view.transcript_data), MAX_VISIBLE_TRANSCRIPT_ITEMS + 5
         )
 
+    def test_late_record_outside_visible_glass_projection_does_not_reappear(self):
+        with patch("overlay_window.HAS_APPKIT", False):
+            window = OverlayWindow(
+                window_width=480,
+                window_height=260,
+                display_mode="glass",
+            )
+        try:
+            for chunk_id in range(1, MAX_VISIBLE_TRANSCRIPT_ITEMS + 6):
+                window.update_text(
+                    chunk_id,
+                    f"source {chunk_id}",
+                    f"translation {chunk_id}",
+                )
+
+            window.update_text(1, "source 1", "late final", "final")
+
+            self.assertEqual(
+                [chunk_id for chunk_id, _widget in window.items],
+                list(range(6, MAX_VISIBLE_TRANSCRIPT_ITEMS + 6)),
+            )
+            self.assertEqual(window.transcript_data[1]["translated"], "late final")
+        finally:
+            window.close()
+
+    def test_glass_window_has_no_custom_cursor_or_qsizegrip_crash_path(self):
+        with open(__import__("overlay_window").__file__, encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertNotIn("setCursor(", source)
+        self.assertNotIn("QSizeGrip", source)
+
 
 if __name__ == "__main__":
     unittest.main()
