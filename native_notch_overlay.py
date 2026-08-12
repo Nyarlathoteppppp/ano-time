@@ -279,10 +279,10 @@ class NativeNotchOverlay(QObject):
             self._busy_stages.add(activity_stage)
         else:
             self._busy_stages.discard(activity_stage)
-        payload = {}
-        if self.record_store:
-            payload["items"] = self._latest_items()
-        self._send(payload)
+        # Runtime activity is independent from subtitles. Sending the current
+        # items again makes SwiftUI re-run presentation reconciliation and can
+        # repeatedly cancel the notch's deliberate shrink cooldown.
+        self._send({})
 
     def _latest_items(self):
         # Display fragments are an ephemeral projection. They never enter the

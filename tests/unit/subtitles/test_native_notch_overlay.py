@@ -322,6 +322,15 @@ class NativeNotchOverlayTest(unittest.TestCase):
         payload = json.loads(real._write_queue.get_nowait().decode("utf-8"))
         self.assertEqual(payload["busyStages"], ["Remote:Gemini"])
 
+    def test_runtime_status_does_not_replay_identical_subtitle_items(self):
+        overlay = RecordingNotchOverlay()
+        overlay.update_text(1, "A complete sentence", "完整句子", "final")
+        overlay.sent.clear()
+
+        overlay.update_runtime_status("Remote", "active", "Gemini · translating")
+
+        self.assertEqual(overlay.sent, [{}])
+
     def test_typed_event_projects_committed_target_prefix_to_native_frame(self):
         overlay = RecordingNotchOverlay()
         event = SubtitleEvent.create(

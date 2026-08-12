@@ -72,6 +72,7 @@ private final class SubtitleState: ObservableObject {
     private(set) var activityGeneration = 0
     private var busyStages = Set<String>()
     private var widthShrinkTask: Task<Void, Never>?
+    private var pendingWidthShrinkTarget: CGFloat?
     private var translationLineShrinkTask: Task<Void, Never>?
     private var pendingTranslationLineTarget: Int?
     private var finalLayoutTask: Task<Void, Never>?
@@ -333,8 +334,6 @@ private final class SubtitleState: ObservableObject {
             && !allowImmediateShrink {
             return
         }
-        widthShrinkTask?.cancel()
-
         let resizeIntent = SubtitlePresentationPlanner.resizeIntent(
             currentWidth: contentWidth,
             targetWidth: targetWidth,
@@ -344,12 +343,23 @@ private final class SubtitleState: ObservableObject {
             return
         }
         if resizeIntent == .growImmediately || resizeIntent == .replaceImmediately {
+            widthShrinkTask?.cancel()
+            widthShrinkTask = nil
+            pendingWidthShrinkTarget = nil
             setContentWidth(
                 targetWidth,
                 animated: animated && resizeIntent == .replaceImmediately
             )
             return
         }
+
+        if pendingWidthShrinkTarget == targetWidth, widthShrinkTask != nil {
+            // An identical subtitle/status frame must not postpone the same
+            // delayed shrink indefinitely.
+            return
+        }
+        widthShrinkTask?.cancel()
+        pendingWidthShrinkTarget = targetWidth
 
         // Growing text must never be clipped. Shrinking is intentionally
         // delayed so partial-ASR corrections do not make the notch breathe.
@@ -362,6 +372,8 @@ private final class SubtitleState: ObservableObject {
             if latestTarget < self.contentWidth {
                 self.setContentWidth(latestTarget, animated: true)
             }
+            self.pendingWidthShrinkTarget = nil
+            self.widthShrinkTask = nil
         }
     }
 

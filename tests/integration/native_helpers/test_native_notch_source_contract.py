@@ -138,6 +138,15 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         ]
         self.assertNotIn("minHeight:", streaming_source)
 
+    def test_runtime_status_does_not_replay_subtitle_items_or_restart_same_shrink(self):
+        bridge = project_path("native_notch_overlay.py").read_text(encoding="utf-8")
+        self.assertIn("self._send({})", bridge)
+        self.assertIn("pendingWidthShrinkTarget", self.source)
+        self.assertIn(
+            "if pendingWidthShrinkTarget == targetWidth, widthShrinkTask != nil",
+            self.source,
+        )
+
     def test_empty_translation_shows_english_without_a_placeholder_row(self):
         self.assertIn("guard !row.translated.isEmpty else", self.source)
         self.assertIn("if !fragment.translated.isEmpty", self.source)
