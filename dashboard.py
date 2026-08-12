@@ -1570,13 +1570,13 @@ class Dashboard(QWidget):
         self.groq_api_key = QLineEdit(config.groq_api_key)
         self.groq_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.groq_api_key.setPlaceholderText("gsk_...")
-        self.bridge_key_label = QLabel("Groq Key（桥接服务密钥）:")
+        self.bridge_key_label = QLabel("Groq Key（桥接/主翻译密钥）:")
         self.bridge_layout.addRow(self.bridge_key_label, self.groq_api_key)
 
         self.cerebras_api_key = QLineEdit(config.cerebras_api_key)
         self.cerebras_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.cerebras_api_key.setPlaceholderText("csk-...")
-        self.cerebras_key_label = QLabel("Cerebras Key（Groq 额度用完后接管）:")
+        self.cerebras_key_label = QLabel("Cerebras Key（桥接/主翻译密钥）:")
         self.bridge_layout.addRow(
             self.cerebras_key_label, self.cerebras_api_key
         )
@@ -1708,6 +1708,34 @@ class Dashboard(QWidget):
             )
         self.provider.currentTextChanged.connect(self._on_translation_provider_changed)
         self.main_model_layout.addRow("Final Provider（最终翻译服务）:", self.provider)
+
+        # Smart Hybrid has a deliberately narrow final selector.  It does not
+        # reuse Single Model's arbitrary endpoint selector, keeping the two
+        # workflows isolated while allowing the maintained fast pool to be
+        # evaluated against Gemini.
+        self.smart_hybrid_final_provider = ReadableComboBox()
+        self.smart_hybrid_final_provider.addItem(
+            "Gemini 3.5 Flash-Lite（默认主翻译）", "gemini"
+        )
+        self.smart_hybrid_final_provider.addItem(
+            "Groq → Cerebras（自动接管主翻译）", "groq_cerebras"
+        )
+        final_provider_index = self.smart_hybrid_final_provider.findData(
+            getattr(config, "smart_hybrid_final_provider", "gemini")
+        )
+        self.smart_hybrid_final_provider.setCurrentIndex(
+            max(0, final_provider_index)
+        )
+        self.smart_hybrid_final_provider.setToolTip(
+            "仅影响 Smart Hybrid。Groq 优先，限流、额度不足或失败时 Cerebras 接管；GLM 仍是最后兜底。"
+        )
+        self.smart_hybrid_final_provider.currentIndexChanged.connect(
+            self._on_translation_workflow_changed
+        )
+        self.main_model_layout.addRow(
+            "Hybrid Final Provider（主翻译模型）:",
+            self.smart_hybrid_final_provider,
+        )
         
         self.api_key = QLineEdit(
             self.provider_keys.get(self.provider.currentText(), config.api_key)
@@ -2211,6 +2239,10 @@ class Dashboard(QWidget):
         apple_only = workflow == "apple_only"
         single = workflow == "single_model"
         smart = workflow == "smart_hybrid"
+        smart_final_pool = (
+            smart
+            and self.smart_hybrid_final_provider.currentData() == "groq_cerebras"
+        )
         draft_enabled = self.fast_translation_backend.currentText() == "apple"
 
         self.bridge_card.setVisible(not apple_only)
@@ -2227,7 +2259,8 @@ class Dashboard(QWidget):
             self.input_price, self.output_price, self.pricing_hint,
         ):
             self._set_translation_row_visible(widget, single)
-        bridge_key_visible = not apple_only and bridge == "groq"
+        self._set_translation_row_visible(self.smart_hybrid_final_provider, smart)
+        bridge_key_visible = not apple_only and (bridge == "groq" or smart_final_pool)
         self.groq_api_key.setVisible(bridge_key_visible)
         self.bridge_key_label.setVisible(bridge_key_visible)
         self.cerebras_api_key.setVisible(bridge_key_visible)
@@ -2258,9 +2291,13 @@ class Dashboard(QWidget):
         elif smart:
             bridge_text = "Groq → Cerebras" if bridge == "groq" else "关闭"
             draft_text = "草稿：Apple" if draft_enabled else "草稿：关闭"
+            final_text = (
+                "Groq → Cerebras（自动接管）"
+                if smart_final_pool else "Gemini"
+            )
             preview = (
-                f"{draft_text}｜主翻译：Gemini（临时预览 + 最终稿）\n"
-                f"桥接：{bridge_text}｜Gemini 失败时由 GLM 接管\n"
+                f"{draft_text}｜主翻译：{final_text}（临时预览 + 最终稿）\n"
+                f"桥接：{bridge_text}｜主翻译失败时由 GLM 接管\n"
                 "开发者配置，暂不通用"
             )
         else:
@@ -2315,11 +2352,18 @@ class Dashboard(QWidget):
             missing.append("Groq 或 Cerebras Key")
         if smart:
             has_gemini = bool(self.gemini_api_key.text().strip())
+            has_fast_pool = bool(
+                self.groq_api_key.text().strip()
+                or self.cerebras_api_key.text().strip()
+            )
             has_glm = bool(
                 self.cloudflare_account_id.text().strip()
                 and self.cloudflare_api_token.text().strip()
             )
-            if not (has_gemini or has_glm):
+            if smart_final_pool:
+                if not (has_fast_pool or has_glm):
+                    missing.append("Groq/Cerebras 或 GLM")
+            elif not (has_gemini or has_glm):
                 missing.append("Gemini 或 GLM")
         elif single:
             if not (
@@ -2497,6 +2541,9 @@ class Dashboard(QWidget):
             translation=TranslationSettings(
                 workflow=workflow,
                 bridge_provider=bridge_provider,
+                smart_hybrid_final_provider=str(
+                    self.smart_hybrid_final_provider.currentData() or "gemini"
+                ),
                 single_provider=self.provider.currentText(),
                 api_key=self.api_key.text(),
                 base_url=self.base_url.text(),

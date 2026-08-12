@@ -136,18 +136,41 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.translation_workflow.currentData(), "smart_hybrid"
         )
         self.assertEqual(self.dashboard.bridge_provider.currentData(), "off")
-        self.assertIn("主翻译：Gemini", self.dashboard.workflow_preview.text())
+        self.assertIn("主翻译：", self.dashboard.workflow_preview.text())
         self.assertIn("GLM 接管", self.dashboard.workflow_preview.text())
         self.assertGreaterEqual(self.dashboard.workflow_preview.minimumHeight(), 48)
         self.assertTrue(self.dashboard.workflow_preview.wordWrap())
         self.assertTrue(self.dashboard.provider.isHidden())
+        self.assertFalse(self.dashboard.smart_hybrid_final_provider.isHidden())
+        self.assertIn(
+            self.dashboard.smart_hybrid_final_provider.currentData(),
+            {"gemini", "groq_cerebras"},
+        )
         self.assertFalse(self.dashboard.gemini_api_key.isHidden())
+        targets = [
+            self.dashboard.api_test_provider.itemData(index)
+            for index in range(self.dashboard.api_test_provider.count())
+        ]
+        self.assertIn("glm", targets)
+        self.assertTrue(
+            {"gemini"}.issubset(targets)
+            or {"groq", "cerebras"}.issubset(targets)
+        )
+
+    def test_hybrid_final_selector_exposes_combined_groq_cerebras_pool(self):
+        self._choose_workflow("smart_hybrid")
+        self.dashboard.smart_hybrid_final_provider.setCurrentIndex(
+            self.dashboard.smart_hybrid_final_provider.findData("groq_cerebras")
+        )
+        self.assertIn("Groq → Cerebras", self.dashboard.workflow_preview.text())
+        self.assertFalse(self.dashboard.groq_api_key.isHidden())
+        self.assertFalse(self.dashboard.cerebras_api_key.isHidden())
         self.assertEqual(
             [
                 self.dashboard.api_test_provider.itemData(index)
                 for index in range(self.dashboard.api_test_provider.count())
             ],
-            ["gemini", "glm"],
+            ["groq", "cerebras", "glm"],
         )
 
     def test_single_model_exposes_provider_and_optional_bridge(self):
@@ -345,8 +368,14 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.bridge_provider.setCurrentIndex(
                 self.dashboard.bridge_provider.findData("off")
             )
-        self.assertTrue(self.dashboard.groq_api_key.isHidden())
-        self.assertTrue(self.dashboard.cerebras_api_key.isHidden())
+        # The selected Smart Hybrid final pool may independently need these
+        # credentials even while the optional bridge itself is off.
+        smart_pool = (
+            self.dashboard.smart_hybrid_final_provider.currentData()
+            == "groq_cerebras"
+        )
+        self.assertEqual(self.dashboard.groq_api_key.isHidden(), not smart_pool)
+        self.assertEqual(self.dashboard.cerebras_api_key.isHidden(), not smart_pool)
 
     def test_bridge_toggle_and_provider_selector_stay_in_sync(self):
         self.assertGreater(
@@ -415,7 +444,7 @@ class DashboardWorkflowTests(unittest.TestCase):
         self._choose_workflow("smart_hybrid")
         self.assertIn("暂不通用", self.dashboard.workflow_preview.text())
         self.assertIn("桥接：关闭", self.dashboard.workflow_preview.text())
-        self.assertIn("主翻译：Gemini", self.dashboard.workflow_preview.text())
+        self.assertIn("主翻译：", self.dashboard.workflow_preview.text())
         self._choose_workflow("single_model")
         preview = self.dashboard.workflow_preview.text()
         self.assertIn("主翻译", preview)

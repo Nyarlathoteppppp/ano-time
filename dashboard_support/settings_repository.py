@@ -117,6 +117,11 @@ class DashboardSettingsRepository:
         parser.set("translation", "fast_backend", translation.fast_backend)
         parser.set("translation", "workflow", translation.workflow)
         parser.set("translation", "bridge_provider", translation.bridge_provider)
+        parser.set(
+            "translation",
+            "smart_hybrid_final_provider",
+            str(getattr(translation, "smart_hybrid_final_provider", "gemini")),
+        )
         parser.set("translation", "single_provider", translation.single_provider)
         parser.set(
             "translation", "single_streaming_mode", translation.streaming_mode

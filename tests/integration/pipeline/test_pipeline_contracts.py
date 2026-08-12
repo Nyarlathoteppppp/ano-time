@@ -249,6 +249,33 @@ class PipelineContractTests(unittest.TestCase):
         self.assertEqual(len(updates), 1)
         self.assertEqual(updates[0][0][2], "保留正确措辞后的最终翻译")
 
+    def test_final_revision_is_authoritative_after_preview_without_blocking_it(self):
+        """A Final may correct Preview text, but must carry a full commit marker."""
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.signals = WorkerSignals()
+        typed = []
+        pipeline.signals.subtitle_event.connect(typed.append)
+
+        pipeline._emit_subtitle(
+            19,
+            "the covariance matrix is singular",
+            "协方差矩阵是奇异的",
+            "partial",
+            SubtitleStage.AI_PREVIEW,
+            committed_prefix_length=5,
+        )
+        final = pipeline._emit_subtitle(
+            19,
+            "the covariance matrix is singular",
+            "协方差矩阵不可逆",
+            "final",
+            SubtitleStage.AI_FINAL,
+        )
+
+        self.assertTrue(final.finalized)
+        self.assertEqual(final.committed_prefix_length, len(final.translated_text))
+        self.assertEqual(typed[-1], final)
+
     def test_typed_subtitle_events_increment_revision_and_feed_legacy_signal(self):
         pipeline = Pipeline.__new__(Pipeline)
         pipeline.signals = WorkerSignals()

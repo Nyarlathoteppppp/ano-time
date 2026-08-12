@@ -18,6 +18,8 @@ fast_backend = apple
 provider = Alibaba Cloud Qwen-MT
 workflow = single_model
 bridge_provider = off
+# Smart Hybrid only: gemini, or the Groq → Cerebras final pool.
+smart_hybrid_final_provider = gemini
 single_provider = Alibaba Cloud Qwen-MT
 # auto: try live preview once, then remember if the endpoint only supports non-streaming.
 single_streaming_mode = auto

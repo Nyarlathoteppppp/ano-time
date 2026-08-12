@@ -80,10 +80,15 @@ class ApiTestController:
             if bridge == "groq":
                 targets.append(("Groq GPT-OSS 20B（桥接）", "groq"))
                 targets.append(("Cerebras GPT-OSS 120B（桥接兜底）", "cerebras"))
-            targets.extend((
-                ("Gemini 3.5 Flash-Lite Paid（主翻译）", "gemini"),
-                ("Cloudflare GLM-4.7-Flash", "glm"),
-            ))
+            final_pool = view.smart_hybrid_final_provider.currentData()
+            if final_pool == "groq_cerebras":
+                targets.extend((
+                    ("Groq GPT-OSS 20B（主翻译）", "groq"),
+                    ("Cerebras GPT-OSS 120B（主翻译兜底）", "cerebras"),
+                ))
+            else:
+                targets.append(("Gemini 3.5 Flash-Lite Paid（主翻译）", "gemini"))
+            targets.append(("Cloudflare GLM-4.7-Flash（最终兜底）", "glm"))
         elif workflow == "single_model":
             targets.append((
                 f"Current Final Model（当前最终模型） · {view.provider.currentText()}",

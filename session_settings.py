@@ -54,9 +54,17 @@ def translation_chain(settings):
     if workflow == "apple_only":
         route = "Apple 草稿（仅本机翻译）"
     elif workflow == "smart_hybrid":
-        route = f"{draft_prefix} → Gemini 主翻译 → GLM 兜底"
+        final_provider = str(
+            getattr(settings, "smart_hybrid_final_provider", "gemini")
+        )
+        final_label = (
+            "Groq → Cerebras 主翻译 → GLM 兜底"
+            if final_provider == "groq_cerebras"
+            else "Gemini 主翻译 → GLM 兜底"
+        )
+        route = f"{draft_prefix} → {final_label}"
         if settings.bridge_provider == "groq":
-            route = f"{draft_prefix} → Groq/Cerebras 桥接 → Gemini 主翻译 → GLM 兜底"
+            route = f"{draft_prefix} → Groq/Cerebras 桥接 → {final_label}"
     else:
         route = f"{draft_prefix} → {settings.single_provider or settings.model}"
         if settings.bridge_provider == "groq":

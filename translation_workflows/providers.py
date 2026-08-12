@@ -32,11 +32,11 @@ def translator_options(config, include_course_topic=False):
     }
 
 
-def groq_provider(config, options):
+def groq_provider(config, options, *, priority=3, name_suffix=""):
     if not config.groq_api_key:
         return None
     return {
-        "name": GROQ_NAME,
+        "name": f"{GROQ_NAME}{name_suffix}",
         "translator": Translator(
             base_url="https://api.groq.com/openai/v1",
             api_key=config.groq_api_key,
@@ -47,33 +47,37 @@ def groq_provider(config, options):
         "tpm_limit": 8000,
         "daily_limit": 1000,
         "daily_timezone": "UTC",
-        "priority": 3,
+        "priority": priority,
     }
 
 
-def cerebras_provider(config, options):
+def cerebras_provider(config, options, *, priority=4, name_suffix=""):
     if not config.cerebras_api_key:
         return None
     return {
-        "name": CEREBRAS_NAME,
+        "name": f"{CEREBRAS_NAME}{name_suffix}",
         "translator": Translator(
             base_url="https://api.cerebras.ai/v1",
             api_key=config.cerebras_api_key,
             model="gpt-oss-120b",
             **options,
         ),
-        # Paid bridge fallback. It is selected only after Groq is unavailable,
-        # quota-limited, or cooling down.
-        "priority": 4,
+        # Selected after Groq is unavailable, quota-limited, or cooling down.
+        "priority": priority,
         "failure_cooldown_seconds": 3.0,
     }
 
 
-def bridge_providers(config, options):
-    """Return the ordered bridge pool without coupling it to a workflow."""
+def bridge_providers(config, options, *, priority_start=3, name_suffix=""):
+    """Build one isolated Groq → Cerebras lane for bridge, preview, or final."""
     providers = []
-    for factory in (groq_provider, cerebras_provider):
-        provider = factory(config, options)
+    for index, factory in enumerate((groq_provider, cerebras_provider)):
+        provider = factory(
+            config,
+            options,
+            priority=priority_start + index,
+            name_suffix=name_suffix,
+        )
         if provider:
             providers.append(provider)
     return providers

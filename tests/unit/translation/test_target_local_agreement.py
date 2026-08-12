@@ -43,3 +43,24 @@ class TargetLocalAgreementTests(unittest.TestCase):
         self.assertEqual(agreement.displayed_candidate(8), "上一版预览")
         agreement.reset(8)
         self.assertEqual(agreement.displayed_candidate(8), "")
+
+    def test_never_commits_the_middle_of_an_english_word(self):
+        agreed = TargetLocalAgreement.agreed_prefix(
+            "the covariance matrix", "the covariate changed", 0
+        )
+        self.assertEqual(agreed, "the")
+
+    def test_keeps_a_complete_english_word_and_exposes_three_states(self):
+        agreement = TargetLocalAgreement(holdback_characters=0)
+        agreement.observe(1, "the covariance matrix")
+        projection = agreement.observe(1, "the covariance matrix is useful")
+        self.assertEqual(projection.stable_prefix, "the covariance matrix")
+        self.assertEqual(projection.mutable_tail, " is useful")
+
+    def test_does_not_commit_an_unclosed_latex_expression(self):
+        agreed = TargetLocalAgreement.agreed_prefix(
+            r"the value is $\\hat{\\alpha}",
+            r"the value is $\\hat{\\alpha}_i$",
+            0,
+        )
+        self.assertEqual(agreed, "the value is")

@@ -90,7 +90,12 @@ class TranslationWorkflowTests(unittest.TestCase):
         providers = {item["name"]: item for item in router.providers}
 
         self.assertEqual(workflow.name, "smart_hybrid")
-        self.assertIs(workflow.final_translator.router, workflow.bridge_translator.router)
+        # Bridge and Final deliberately use separate routers, so a disposable
+        # bridge cooldown/quota can never degrade final Gemini routing.
+        self.assertIsNot(
+            workflow.final_translator.router,
+            workflow.bridge_translator.router,
+        )
         gemini = providers["Gemini 3.5 Flash-Lite Paid"]
         glm = providers["Cloudflare GLM-4.7-Flash"]
         self.assertEqual(gemini["priority"], 1)
@@ -104,15 +109,9 @@ class TranslationWorkflowTests(unittest.TestCase):
         self.assertIsNone(gemini["rpm_limit"])
         self.assertIsNone(gemini["tpm_limit"])
         self.assertIsNone(gemini["daily_limit"])
-        self.assertEqual(providers["Groq GPT-OSS 20B"]["priority"], 3)
-        self.assertEqual(providers["Cerebras GPT-OSS 120B"]["priority"], 4)
         self.assertIn(
             "Current lecture topic: Regularisation and bias-variance trade-off",
             providers["Cloudflare GLM-4.7-Flash"]["translator"].domain_prompt,
-        )
-        self.assertIn(
-            "Current lecture topic: Regularisation and bias-variance trade-off",
-            providers["Groq GPT-OSS 20B"]["translator"].domain_prompt,
         )
         self.assertNotIn(
             "Computer Science–AI coursework",
@@ -125,9 +124,8 @@ class TranslationWorkflowTests(unittest.TestCase):
             gemini["translator"],
         )
         self.assertFalse(hasattr(workflow.preview_translator, "router"))
-        bridge_names = {"Groq GPT-OSS 20B", "Cerebras GPT-OSS 120B"}
-        self.assertEqual(workflow.final_translator.excluding, bridge_names)
-        self.assertEqual(workflow.bridge_translator.only, bridge_names)
+        self.assertFalse(workflow.final_translator.excluding)
+        self.assertFalse(workflow.bridge_translator.only)
 
     def test_smart_hybrid_can_disable_bridge_without_changing_final_pool(self):
         workflow = self._build(workflow_config(bridge_provider="off"))
@@ -136,6 +134,44 @@ class TranslationWorkflowTests(unittest.TestCase):
         self.assertIsNone(workflow.bridge_translator)
         self.assertIn("Gemini 3.5 Flash-Lite Paid", names)
         self.assertNotIn("Qwen-MT Flash fallback", names)
+
+    def test_smart_hybrid_can_use_isolated_groq_cerebras_final_pool(self):
+        workflow = self._build(workflow_config(
+            smart_hybrid_final_provider="groq_cerebras",
+            bridge_provider="groq",
+        ))
+        final_router = workflow.final_translator.router
+        bridge_router = workflow.bridge_translator.router
+        final_names = {item["name"] for item in final_router.providers}
+        bridge_names = {item["name"] for item in bridge_router.providers}
+
+        self.assertIsNot(final_router, bridge_router)
+        self.assertIn("Groq GPT-OSS 20B · Final", final_names)
+        self.assertIn("Cerebras GPT-OSS 120B · Final", final_names)
+        self.assertIn("Groq GPT-OSS 20B", bridge_names)
+        self.assertIn("Cerebras GPT-OSS 120B", bridge_names)
+        self.assertFalse(workflow.final_translator.only)
+        self.assertEqual(workflow.final_label, "Groq → Cerebras Final → GLM fallback")
+        self.assertIsNotNone(workflow.preview_translator)
+
+    def test_fast_final_pool_uses_cerebras_after_groq_failure(self):
+        workflow = self._build(workflow_config(
+            smart_hybrid_final_provider="groq_cerebras",
+            bridge_provider="off",
+            cloudflare_account_id="",
+            cloudflare_api_token="",
+        ))
+        providers = {
+            item["name"]: item
+            for item in workflow.final_translator.router.providers
+        }
+        groq = _FailingTranslator("groq")
+        cerebras = _NamedTranslator("cerebras")
+        providers["Groq GPT-OSS 20B · Final"]["translator"] = groq
+        providers["Cerebras GPT-OSS 120B · Final"]["translator"] = cerebras
+
+        self.assertEqual(workflow.final_translator.translate("final"), "cerebras")
+        self.assertEqual((groq.calls, cerebras.calls), (1, 1))
 
     def test_preview_never_falls_through_to_glm_but_final_does(self):
         workflow = self._build(workflow_config(bridge_provider="off"))

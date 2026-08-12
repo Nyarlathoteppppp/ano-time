@@ -78,6 +78,14 @@ class Config:
         if configured_bridge not in ("off", "groq"):
             configured_bridge = "off"
         self.bridge_provider = configured_bridge
+        configured_hybrid_final = self._get(
+            "translation", "smart_hybrid_final_provider", "gemini"
+        ).strip().lower()
+        self.smart_hybrid_final_provider = (
+            configured_hybrid_final
+            if configured_hybrid_final in ("gemini", "groq_cerebras")
+            else "gemini"
+        )
         self.single_provider = self._get(
             "translation", "single_provider", ""
         ).strip() or (
