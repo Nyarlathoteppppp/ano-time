@@ -20,6 +20,7 @@ class DashboardSettingsRepository:
         "diagnostics",
         "usage",
         "records",
+        "smart_hint",
     )
 
     def __init__(self, config_path, keychain=None):
@@ -107,7 +108,9 @@ class DashboardSettingsRepository:
             )
         parser.set("translation", "target_lang", translation.target_language)
         parser.set("translation", "domain", translation.domain)
-        parser.set("translation", "course_topic", translation.course_topic)
+        # Lecture topics belong to one active Launch only. SessionController
+        # injects the current UI value into an immutable session snapshot.
+        parser.set("translation", "course_topic", "")
         parser.set("translation", "fast_backend", translation.fast_backend)
         parser.set("translation", "workflow", translation.workflow)
         parser.set("translation", "bridge_provider", translation.bridge_provider)
@@ -144,6 +147,23 @@ class DashboardSettingsRepository:
         parser.set(
             "providers", "cloudflare_account_id", providers.cloudflare_account_id
         )
+
+        smart_hint = snapshot.smart_hint
+        parser.set("smart_hint", "enabled", str(smart_hint.enabled).lower())
+        parser.set("smart_hint", "provider", smart_hint.provider)
+        parser.set(
+            "smart_hint",
+            "api_key",
+            persist_secret(
+                "smart_hint",
+                "api_key",
+                SECRET_FIELDS[("smart_hint", "api_key")],
+                smart_hint.api_key,
+            ),
+        )
+        parser.set("smart_hint", "base_url", smart_hint.base_url)
+        parser.set("smart_hint", "model", smart_hint.model)
+        parser.set("smart_hint", "interval_seconds", "240")
         parser.set("display", "mode", snapshot.display_mode)
         parser.set(
             "display",

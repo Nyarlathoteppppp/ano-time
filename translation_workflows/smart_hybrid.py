@@ -6,12 +6,23 @@ from .contracts import HybridTranslatorView, TranslationWorkflow
 from .providers import bridge_providers, translator_options
 
 
+def _gemini_translator(config, options):
+    """Build one isolated Gemini client for one translation lane."""
+    return Translator(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=config.gemini_api_key,
+        model="gemini-3.5-flash-lite",
+        **options,
+    )
+
+
 def build_smart_hybrid(config, usage_path, status_callback=None):
     """Build the developer workflow with correctness-first final routing."""
     final_options = translator_options(config, include_course_topic=True)
     bridge_options = translator_options(config, include_course_topic=True)
     providers = []
-    gemini_warmup = None
+    gemini_final = None
+    gemini_preview = None
     bridge_enabled = config.bridge_provider == "groq"
     bridges = bridge_providers(config, bridge_options) if bridge_enabled else []
     providers.extend(bridges)
@@ -40,15 +51,14 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
             "pricing_known": True,
         })
     if config.gemini_api_key:
-        gemini_warmup = Translator(
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            api_key=config.gemini_api_key,
-            model="gemini-3.5-flash-lite",
-            **final_options,
-        )
+        # Final and Preview have independent clients.  A stalled Preview must
+        # not monopolize Final's connection pool or interfere with its
+        # Gemini → GLM recovery path.
+        gemini_final = _gemini_translator(config, final_options)
+        gemini_preview = _gemini_translator(config, final_options)
         providers.append({
             "name": "Gemini 3.5 Flash-Lite Paid",
-            "translator": gemini_warmup,
+            "translator": gemini_final,
             # Correctness-first primary final model. Billing is enabled, so do
             # not apply the former free-tier RPM/TPM/RPD caps.
             "priority": 1,
@@ -73,9 +83,21 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
         HybridTranslatorView(router, excluding=bridge_names)
         if final_names else None
     )
+    # Preview intentionally bypasses HybridTranslator.  It still uses the
+    # same Gemini transport and is metered like every other remote request,
+    # but its disposable timeout/failure can no longer mutate the final
+    # Gemini → GLM router's cooldown, provider status, or failover state.
+    # ProgressiveTranslationPreview already owns a separate one-active plus
+    # one-latest-pending coordinator, so this lane cannot occupy Final's
+    # executor workers.
     preview = (
-        HybridTranslatorView(router, only={"Gemini 3.5 Flash-Lite Paid"})
-        if gemini_warmup is not None else None
+        MeteredTranslator(
+            gemini_preview,
+            "Gemini 3.5 Flash-Lite Paid",
+            0.30,
+            2.50,
+        )
+        if gemini_preview is not None else None
     )
     bridge_view = (
         HybridTranslatorView(router, only=bridge_names) if bridge_names else None
@@ -92,11 +114,11 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
         final_status_managed=True,
         warmup_translator=(
             MeteredTranslator(
-                gemini_warmup,
+                gemini_final,
                 "Gemini 3.5 Flash-Lite Paid",
                 0.30,
                 2.50,
             )
-            if gemini_warmup is not None else None
+            if gemini_final is not None else None
         ),
     )

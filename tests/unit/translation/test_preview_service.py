@@ -98,6 +98,32 @@ class ProgressiveTranslationPreviewTests(unittest.TestCase):
         finally:
             service.shutdown()
 
+    def test_preview_failure_is_reported_without_final_router_side_effects(self):
+        class FailingPreview:
+            def translate(self, _text, **_kwargs):
+                raise TimeoutError("preview timeout")
+
+        statuses = []
+        store = SegmentStore()
+        service = ProgressiveTranslationPreview(
+            emit_subtitle=lambda *_args, **_kwargs: None,
+            segment_store=store,
+            bridge_client=lambda: None,
+            final_client=lambda: FailingPreview(),
+            bridge_gate=type("Gate", (), {"allow": lambda _self, _text: (True, "ok")})(),
+            context_snapshot=lambda: "",
+            is_active=lambda: True,
+            status_callback=lambda *args: statuses.append(args),
+        )
+        try:
+            source = "one two three four five"
+            store.publish(17, SubtitleStage.ASR_PARTIAL, source)
+            service.observe(17, store.hypothesis_revision(17), source)
+            time.sleep(0.05)
+            self.assertIn(("warning", "ON · preview timeout"), statuses)
+        finally:
+            service.shutdown()
+
     def test_client_returning_after_deadline_cannot_publish_preview(self):
         final = _SlowDeadlineIgnoringTranslator("late preview")
         service, store, emitted, _completed = self._service(final=final)

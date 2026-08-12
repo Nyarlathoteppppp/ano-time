@@ -33,6 +33,16 @@ gemini_api_key =
 cloudflare_account_id =
 cloudflare_api_token =
 
+[smart_hint]
+# Optional low-priority lecture context helper. It reads only finalized English
+# every four minutes and never waits for or changes the live translation route.
+enabled = false
+provider = siliconflow
+api_key =
+base_url = https://api.siliconflow.cn/v1
+model = deepseek-ai/DeepSeek-V4-Flash
+interval_seconds = 240
+
 [display]
 display_duration = 10
 window_width = 800

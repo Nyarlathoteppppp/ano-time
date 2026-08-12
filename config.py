@@ -106,6 +106,23 @@ class Config:
         self.gemini_api_key = self._secret("providers", "gemini_api_key")
         self.cloudflare_account_id = self._get("providers", "cloudflare_account_id", "")
         self.cloudflare_api_token = self._secret("providers", "cloudflare_api_token")
+
+        # Smart Hint is an optional, independent background context updater.
+        # It must not share translation workers or workflow routing state.
+        self.smart_hint_enabled = self._getbool("smart_hint", "enabled", False)
+        self.smart_hint_provider = self._get(
+            "smart_hint", "provider", "siliconflow"
+        ).strip().lower()
+        self.smart_hint_api_key = self._secret("smart_hint", "api_key")
+        self.smart_hint_base_url = self._get(
+            "smart_hint", "base_url", "https://api.siliconflow.cn/v1"
+        )
+        self.smart_hint_model = self._get(
+            "smart_hint", "model", "deepseek-ai/DeepSeek-V4-Flash"
+        )
+        self.smart_hint_interval_seconds = self._getfloat(
+            "smart_hint", "interval_seconds", 240.0
+        )
         
         # Transcription settings
         self.asr_backend = self._get("transcription", "backend", "apple").lower()

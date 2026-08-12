@@ -59,6 +59,40 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(view.start_btn.text, "▶ Launch Translator")
         self.assertIn("Keychain unavailable", view.status_label.text)
 
+    def test_launch_captures_course_topic_without_persisting_it(self):
+        created = []
+        worker = SimpleNamespace(
+            ready=SimpleNamespace(connect=lambda *_args: None),
+            finished=SimpleNamespace(connect=lambda *_args: None),
+            start=lambda: None,
+        )
+        view = SimpleNamespace(
+            _session_generation=0,
+            _session_state="idle",
+            overlay_window=None,
+            current_course_topic=SimpleNamespace(
+                text=lambda: "Regularisation and bias-variance trade-off"
+            ),
+            save_config=lambda **_kwargs: True,
+            status_label=FakeWidget(),
+            start_btn=FakeWidget(),
+            _startup_workers={},
+            on_pipeline_ready=lambda *_args: None,
+        )
+
+        def factory(generation, settings):
+            created.append((generation, settings))
+            return worker
+
+        SessionController(view, factory).start()
+
+        self.assertEqual(created[0][0], 1)
+        self.assertEqual(
+            created[0][1].current_course_topic,
+            "Regularisation and bias-variance trade-off",
+        )
+        self.assertEqual(view._active_session_settings, created[0][1])
+
     def test_stale_startup_result_is_disposed_without_creating_window(self):
         calls = []
         pipeline = SimpleNamespace(stop=lambda: calls.append("pipeline stopped"))

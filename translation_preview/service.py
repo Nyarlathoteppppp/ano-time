@@ -23,6 +23,7 @@ class ProgressiveTranslationPreview:
         bridge_gate,
         context_snapshot,
         is_active,
+        hint_snapshot=None,
         status_callback=None,
     ):
         self._emit_subtitle = emit_subtitle
@@ -31,6 +32,7 @@ class ProgressiveTranslationPreview:
         self._final_client = final_client
         self._bridge_gate = bridge_gate
         self._context_snapshot = context_snapshot
+        self._hint_snapshot = hint_snapshot or (lambda: "")
         self._is_active = is_active
         self._status_callback = status_callback or (lambda *_args: None)
         self._agreement = TargetLocalAgreement()
@@ -147,6 +149,7 @@ class ProgressiveTranslationPreview:
                 use_context=False,
                 remember_context=False,
                 deadline=request.deadline,
+                live_hint=self._hint_snapshot(),
             )
             if (
                 not translated
@@ -269,6 +272,7 @@ class ProgressiveTranslationPreview:
                 previous_preview=previous_preview or None,
                 prefer_preview_continuity=True,
                 context_text=self._context_snapshot(),
+                live_hint=self._hint_snapshot(),
                 deadline=request.deadline,
                 failure_scope="preview",
                 on_update=lambda candidate: publish(candidate, False),

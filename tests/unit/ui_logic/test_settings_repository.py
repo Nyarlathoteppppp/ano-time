@@ -9,6 +9,7 @@ from dashboard_support.settings_snapshot import (
     AudioSettings,
     DashboardSettingsSnapshot,
     ProviderSettings,
+    SmartHintSettings,
     TranscriptionSettings,
     TranslationSettings,
 )
@@ -51,6 +52,13 @@ def make_snapshot(groq_key="groq-secret"):
             "gemini-secret",
             "cloudflare-account",
             "cloudflare-secret",
+        ),
+        smart_hint=SmartHintSettings(
+            False,
+            "siliconflow",
+            "hint-secret",
+            "https://api.siliconflow.cn/v1",
+            "deepseek-ai/DeepSeek-V4-Flash",
         ),
         display_mode="notch",
         shortcut_enabled=True,
@@ -140,7 +148,7 @@ class DashboardSettingsRepositoryTests(unittest.TestCase):
             self.assertEqual(saved.get("transcription", "source_language"), "en")
             self.assertEqual(
                 saved.get("translation", "course_topic"),
-                "Regularisation and bias-variance trade-off",
+                "",
             )
             self.assertEqual(saved.get("display", "mode"), "notch")
             self.assertEqual(

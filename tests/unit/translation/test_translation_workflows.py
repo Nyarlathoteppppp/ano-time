@@ -95,14 +95,11 @@ class TranslationWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("Qwen-MT Flash fallback", providers)
         self.assertEqual(workflow.final_label, "Gemini Paid → GLM fallback")
-        self.assertEqual(
-            workflow.preview_translator.only,
-            {"Gemini 3.5 Flash-Lite Paid"},
+        self.assertIsNot(
+            workflow.preview_translator.translator,
+            gemini["translator"],
         )
-        self.assertIs(
-            workflow.preview_translator.router,
-            workflow.final_translator.router,
-        )
+        self.assertFalse(hasattr(workflow.preview_translator, "router"))
         bridge_names = {"Groq GPT-OSS 20B", "Cerebras GPT-OSS 120B"}
         self.assertEqual(workflow.final_translator.excluding, bridge_names)
         self.assertEqual(workflow.bridge_translator.only, bridge_names)
@@ -124,6 +121,7 @@ class TranslationWorkflowTests(unittest.TestCase):
         gemini = _FailingTranslator("gemini")
         glm = _NamedTranslator("glm")
         providers["Gemini 3.5 Flash-Lite Paid"]["translator"] = gemini
+        workflow.preview_translator.translator = gemini
         providers["Cloudflare GLM-4.7-Flash"]["translator"] = glm
 
         with self.assertRaises(TimeoutError):
@@ -135,6 +133,29 @@ class TranslationWorkflowTests(unittest.TestCase):
 
         self.assertEqual(workflow.final_translator.translate("final"), "glm")
         self.assertEqual((gemini.calls, glm.calls), (2, 1))
+
+    def test_preview_failure_cannot_cool_down_or_skip_final_gemini(self):
+        workflow = self._build(workflow_config(bridge_provider="off"))
+        providers = {
+            item["name"]: item
+            for item in workflow.final_translator.router.providers
+        }
+        preview_gemini = _FailingTranslator("preview failed")
+        workflow.preview_translator.translator = preview_gemini
+
+        with self.assertRaises(TimeoutError):
+            workflow.preview_translator.translate(
+                "partial", deadline=__import__("time").monotonic() + 1,
+                failure_scope="preview",
+            )
+
+        # A preview failure has no router state to cool down.  The next final
+        # request still starts with Gemini and only then falls back to GLM.
+        final_gemini = _NamedTranslator("gemini final")
+        providers["Gemini 3.5 Flash-Lite Paid"]["translator"] = final_gemini
+        self.assertEqual(workflow.final_translator.translate("final"), "gemini final")
+        self.assertEqual(preview_gemini.calls, 1)
+        self.assertEqual(final_gemini.calls, 1)
 
     def test_blank_current_course_topic_is_not_injected(self):
         workflow = self._build(workflow_config(current_course_topic=""))

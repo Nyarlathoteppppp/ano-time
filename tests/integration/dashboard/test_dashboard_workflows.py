@@ -587,10 +587,7 @@ class DashboardWorkflowTests(unittest.TestCase):
         )
 
         self.assertFalse(self.dashboard.pending_settings_label.isHidden())
-        self.assertIn(
-            "Stop and Launch again",
-            self.dashboard.pending_settings_label.text(),
-        )
+        self.assertIn("下次 Launch 生效", self.dashboard.pending_settings_label.text())
 
     def test_control_center_transparency_is_selectable_and_collected(self):
         self.dashboard.control_center_transparency_slider.setValue(45)

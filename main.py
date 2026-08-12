@@ -29,6 +29,8 @@ from segment_store import SegmentStore
 from fast_path import FastPath
 from translation_workflows import build_translation_workflow
 from translation_preview import ProgressiveTranslationPreview
+from session_settings import SessionSettingsSnapshot, describe_session
+from smart_hint import build_smart_hint_scheduler
 
 
 FINAL_CONTEXT_SEGMENTS = 4
@@ -71,8 +73,13 @@ class WorkerSignals(QObject):
         )
 
 class Pipeline(QObject):
-    def __init__(self):
+    def __init__(self, session_settings=None):
         super().__init__()
+        # The global Config can reload when the Dashboard is saved.  Freeze
+        # every runtime value before constructing audio, ASR, or translators.
+        self.settings = session_settings or SessionSettingsSnapshot.from_config(config)
+        settings = self.settings
+        self.session_description = describe_session(settings)
         self.signals = WorkerSignals()
         self.running = True
         self._paused = threading.Event()
@@ -89,11 +96,15 @@ class Pipeline(QObject):
         self._subtitle_events_since_sample = 0
         self._performance_sampler = (
             RuntimePerformanceSampler(self._take_subtitle_event_count)
-            if diagnostics_enabled()
+            if settings.diagnostics_enabled
             else None
         )
         self._context_lock = threading.Lock()
         self._finalized_context = deque(maxlen=FINAL_CONTEXT_SEGMENTS)
+        self._smart_hint_scheduler = build_smart_hint_scheduler(
+            settings,
+            status_callback=self._on_smart_hint_status,
+        )
         self._refine_queue_lock = threading.RLock()
         self._refine_futures = {}
         self._bridge_queue_lock = threading.RLock()
@@ -104,66 +115,66 @@ class Pipeline(QObject):
         )
         self._asr_corrections = ASRCorrections.from_files(
             correction_paths(
-                config.asr_corrections_path,
-                config.current_course_topic,
+                settings.asr_corrections_path,
+                settings.current_course_topic,
             )
         )
         
         # Print config for debugging
-        config.print_config()
+        print("[Pipeline] Session settings captured at Launch")
         
         # Initialize components
         audio_capture_class = (
-            SystemAudioCapture if config.device_index == "system" else AudioCapture
+            SystemAudioCapture if settings.device_index == "system" else AudioCapture
         )
         self.audio = audio_capture_class(
-            device_index=config.device_index,
-            sample_rate=config.sample_rate,
-            silence_threshold=config.silence_threshold,
-            silence_duration=config.silence_duration,
-            chunk_duration=config.chunk_duration,
-            max_phrase_duration=config.max_phrase_duration,
-            streaming_mode=config.streaming_mode,
-            streaming_interval=config.streaming_interval,
+            device_index=settings.device_index,
+            sample_rate=settings.sample_rate,
+            silence_threshold=settings.silence_threshold,
+            silence_duration=settings.silence_duration,
+            chunk_duration=settings.chunk_duration,
+            max_phrase_duration=settings.max_phrase_duration,
+            streaming_mode=settings.streaming_mode,
+            streaming_interval=settings.streaming_interval,
             streaming_step_size=effective_streaming_step_size(
-                config.asr_backend, config.streaming_step_size
+                settings.asr_backend, settings.streaming_step_size
             ),
-            streaming_overlap=config.streaming_overlap
+            streaming_overlap=settings.streaming_overlap
         )
         log_stage(
             "audio_backend",
             detail=(
                 f"class={audio_capture_class.__name__} "
-                f"configured_device={config.device_index}"
+                f"configured_device={settings.device_index}"
             ),
         )
         
         # Initialize Transcriber
-        print(f"[Pipeline] Initializing Transcriber with backend={config.asr_backend}, device={config.whisper_device}...")
+        print(f"[Pipeline] Initializing Transcriber with backend={settings.asr_backend}, device={settings.whisper_device}...")
         
         # Determine model size based on backend
-        if config.asr_backend == "funasr":
-            model_size = config.funasr_model
+        if settings.asr_backend == "funasr":
+            model_size = settings.funasr_model
         else:
-            model_size = config.whisper_model
+            model_size = settings.whisper_model
             
         self.transcriber = None
         self.apple_transcriber = None
-        if config.asr_backend != "apple":
+        if settings.asr_backend != "apple":
             self.transcriber = Transcriber(
-                backend=config.asr_backend,
+                backend=settings.asr_backend,
                 model_size=model_size,
-                device=config.whisper_device,
-                compute_type=config.whisper_compute_type,
-                language=config.source_language
+                device=settings.whisper_device,
+                compute_type=settings.whisper_compute_type,
+                language=settings.source_language
             )
         
         print(
             "[Pipeline] Initializing translation workflow "
-            f"({config.translation_workflow}, target={config.target_lang})..."
+            f"({settings.translation_workflow}, target={settings.target_lang})..."
         )
         self.translation_workflow = build_translation_workflow(
-            config,
+            settings,
             usage_path=os.path.join(
                 os.path.dirname(__file__), "logs", "provider_usage.json"
             ),
@@ -178,14 +189,14 @@ class Pipeline(QObject):
         self.fast_translator = None
         self._apple_translation_status = None
         if (
-            config.fast_translation_backend == "apple"
-            or config.translation_workflow == "apple_only"
+            settings.fast_translation_backend == "apple"
+            or settings.translation_workflow == "apple_only"
         ):
             try:
                 from apple_translation import AppleTranslator
                 self.fast_translator = AppleTranslator(
-                    source=config.source_language,
-                    target=config.target_lang,
+                    source=settings.source_language,
+                    target=settings.target_lang,
                     status_callback=self._on_apple_translation_status,
                 )
             except Exception as exc:
@@ -220,6 +231,15 @@ class Pipeline(QObject):
         self._apple_translation_status = (ui_status, message)
         self.signals.runtime_status.emit("Draft", ui_status, message)
 
+    def _on_smart_hint_status(self, status, detail):
+        """Publish independent hint health without affecting translation routing."""
+        log_stage("smart_hint", status=status, detail=detail)
+        self.signals.runtime_status.emit("Hint", status, detail)
+
+    def _smart_hint_text(self):
+        scheduler = self.__dict__.get("_smart_hint_scheduler")
+        return scheduler.snapshot() if scheduler is not None else ""
+
     def _fast_translation_ready(self):
         translator = self.fast_translator
         if not translator:
@@ -245,7 +265,11 @@ class Pipeline(QObject):
 
     def _final_translation_label(self):
         workflow = self.__dict__.get("translation_workflow")
-        return workflow.final_label if workflow else config.model
+        return workflow.final_label if workflow else self._session_settings().model
+
+    def _session_settings(self):
+        """Read the immutable launch snapshot, retaining legacy test support."""
+        return self.__dict__.get("settings", config)
 
     def _emit_ranked_translation(
         self, chunk_id, text, translated, state, rank, stage=None
@@ -350,9 +374,15 @@ class Pipeline(QObject):
         sampler = self.__dict__.get("_performance_sampler")
         if sampler:
             sampler.start()
+        signals = self.__dict__.get("signals")
         apple_status = self.__dict__.get("_apple_translation_status")
-        if apple_status:
-            self.signals.runtime_status.emit("Draft", *apple_status)
+        if signals is not None and apple_status:
+            signals.runtime_status.emit("Draft", *apple_status)
+        if signals is not None:
+            if self.__dict__.get("_smart_hint_scheduler") is not None:
+                signals.runtime_status.emit("Hint", "waiting", "ON · 4 分钟后开始总结")
+            else:
+                signals.runtime_status.emit("Hint", "off", "OFF")
         self.thread.start()
 
     def _start_remote_warmup(self):
@@ -399,6 +429,9 @@ class Pipeline(QObject):
         preview_service = self.__dict__.get("_preview_service")
         if preview_service:
             preview_service.reset()
+        smart_hint_scheduler = self.__dict__.get("_smart_hint_scheduler")
+        if smart_hint_scheduler:
+            smart_hint_scheduler.shutdown()
         self.audio.stop()
         if hasattr(self, "thread") and self.thread.is_alive():
             self.thread.join(timeout=2)
@@ -458,7 +491,8 @@ class Pipeline(QObject):
 
     def processing_loop(self):
         """Fully parallel pipeline: multiple concurrent transcription + translation"""
-        if config.asr_backend == "apple":
+        settings = self._session_settings()
+        if settings.asr_backend == "apple":
             self._processing_loop_apple()
             return
 
@@ -466,30 +500,30 @@ class Pipeline(QObject):
         
         # Create multiple transcribers for concurrent processing
         # CHECK: If using MLX, force 1 worker (MLX is not thread-safe for parallel inference in this way)
-        is_mlx = (config.asr_backend == "mlx")
+        is_mlx = (settings.asr_backend == "mlx")
         
         if is_mlx:
             print("[Pipeline] MLX backend detected - forcing single worker (MLX uses GPU parallelism internaly)")
             num_transcription_workers = 1
         else:
-            num_transcription_workers = config.transcription_workers
+            num_transcription_workers = settings.transcription_workers
             
         print(f"[Pipeline] Using {num_transcription_workers} transcription workers...")
         
         # Determine model size based on backend
-        if config.asr_backend == "funasr":
-            model_size = config.funasr_model
+        if settings.asr_backend == "funasr":
+            model_size = settings.funasr_model
         else:
-            model_size = config.whisper_model
+            model_size = settings.whisper_model
         
         transcribers = [self.transcriber]  # Reuse existing one
         for i in range(num_transcription_workers - 1):
             t = Transcriber(
-                backend=config.asr_backend,
+                backend=settings.asr_backend,
                 model_size=model_size,
-                device=config.whisper_device,
-                compute_type=config.whisper_compute_type,
-                language=config.source_language
+                device=settings.whisper_device,
+                compute_type=settings.whisper_compute_type,
+                language=settings.source_language
             )
             transcribers.append(t)
         """Accumulating Buffer Processing Loop (Word-by-Word Streaming)"""
@@ -529,7 +563,7 @@ class Pipeline(QObject):
                 # Check silence for finalization
                 # Use configured silence duration/threshold
                 is_silence = False
-                min_silence_dur = config.silence_duration # e.g. 1.0s
+                min_silence_dur = settings.silence_duration # e.g. 1.0s
                 
                 # Only check silence if we have enough buffer
                 if buffer_duration > min_silence_dur:
@@ -586,7 +620,7 @@ class Pipeline(QObject):
                     last_update_time = now
                     
                 # 2. Partial Update if: Interval passed AND not finalizing
-                elif now - last_update_time > config.update_interval and buffer_duration > 0.5:
+                elif now - last_update_time > settings.update_interval and buffer_duration > 0.5:
                     # PARTIAL UPDATE
                     partial_buffer = buffer.copy()
                     prompt = self.last_final_text
@@ -615,13 +649,14 @@ class Pipeline(QObject):
     def _processing_loop_apple(self):
         """Feed PCM audio to Apple's native streaming speech recognizer."""
         from apple_transcriber import AppleSpeechTranscriber
+        settings = self._session_settings()
 
         # Apple drafts are the latency-critical path. Never run network work on
         # this executor: a slow bridge request would otherwise delay every new
         # provisional subtitle behind it.
         fast_path = (
             FastPath(self._segment_state_store())
-            if config.split_fast_path
+            if settings.split_fast_path
             else None
         )
         self._fast_path = fast_path
@@ -636,6 +671,7 @@ class Pipeline(QObject):
             bridge_gate=self._groq_bridge_gate,
             context_snapshot=lambda: self._current_finalized_context(1),
             is_active=lambda: self.running and not self._paused.is_set(),
+            hint_snapshot=self._smart_hint_text,
             status_callback=lambda status, detail: self.signals.runtime_status.emit(
                 "Preview", status, detail
             ),
@@ -653,8 +689,8 @@ class Pipeline(QObject):
             "recent_audio_activity_at": None,
             "first_partial_at": None,
             "stable_tracker": StablePrefixTracker(
-                agreement_window=config.stable_prefix_window,
-                min_growth_words=config.stable_prefix_min_words,
+                agreement_window=settings.stable_prefix_window,
+                min_growth_words=settings.stable_prefix_min_words,
             ),
             "segmenter": IncrementalSegmenter(),
             "stream_ready_logged": False,
@@ -679,8 +715,8 @@ class Pipeline(QObject):
                 state["recent_audio_activity_at"] = None
                 state["first_partial_at"] = None
                 state["stable_tracker"] = StablePrefixTracker(
-                    agreement_window=config.stable_prefix_window,
-                    min_growth_words=config.stable_prefix_min_words,
+                    agreement_window=settings.stable_prefix_window,
+                    min_growth_words=settings.stable_prefix_min_words,
                 )
                 state["segmenter"] = IncrementalSegmenter()
                 state["latest_remainder"] = ""
@@ -838,8 +874,8 @@ class Pipeline(QObject):
                     state["audio_started_at"] = None
                     state["first_partial_at"] = None
                     state["stable_tracker"] = StablePrefixTracker(
-                        agreement_window=config.stable_prefix_window,
-                        min_growth_words=config.stable_prefix_min_words,
+                        agreement_window=settings.stable_prefix_window,
+                        min_growth_words=settings.stable_prefix_min_words,
                     )
                 elif finalized_segments:
                     state["audio_started_at"] = now
@@ -911,8 +947,8 @@ class Pipeline(QObject):
                 )
 
         self.apple_transcriber = AppleSpeechTranscriber(
-            language=config.source_language or "en",
-            sample_rate=config.sample_rate,
+            language=settings.source_language or "en",
+            sample_rate=settings.sample_rate,
             on_result=on_result,
         )
 
@@ -936,7 +972,7 @@ class Pipeline(QObject):
                     # threshold makes first-partial latency measurable without
                     # changing which audio is fed to ASR.
                     activity_threshold = diagnostic_audio_activity_threshold(
-                        config.silence_threshold
+                        settings.silence_threshold
                     )
                     if rms >= activity_threshold:
                         state["recent_audio_activity_at"] = time.monotonic()
@@ -1149,6 +1185,11 @@ class Pipeline(QObject):
                 if limit else ""
             )
             self._finalized_context.append(text)
+        scheduler = self.__dict__.get("_smart_hint_scheduler")
+        if scheduler is not None:
+            # The scheduler only copies finalized source into a bounded deque;
+            # its optional request is submitted on its own executor.
+            scheduler.observe_finalized(text)
         return context
 
     def _current_finalized_context(self, limit=1):
@@ -1199,7 +1240,7 @@ class Pipeline(QObject):
     ):
         """Keep two active AI jobs and at most one latest pending job."""
         submitted_at = time.monotonic()
-        deadline = submitted_at + config.ai_deadline_seconds
+        deadline = submitted_at + self._session_settings().ai_deadline_seconds
         with self._refine_queue_lock:
             finished = [future for future in self._refine_futures if future.done()]
             for future in finished:
@@ -1353,12 +1394,16 @@ class Pipeline(QObject):
         else:
             try:
                 started = time.perf_counter()
-                bridge_deadline = min(deadline, time.monotonic() + config.ai_deadline_seconds)
+                bridge_deadline = min(
+                    deadline,
+                    time.monotonic() + self._session_settings().ai_deadline_seconds,
+                )
                 translated = bridge_translator.translate(
                     text,
                     use_context=False,
                     remember_context=False,
                     draft_translation=draft,
+                    live_hint=self._smart_hint_text(),
                     deadline=bridge_deadline,
                 )
                 if translated and self.running and time.monotonic() < bridge_deadline:
@@ -1432,6 +1477,7 @@ class Pipeline(QObject):
                 text, use_context=False, remember_context=False,
                 context_text=context_text, deadline=deadline,
                 previous_preview=previous_preview or None,
+                live_hint=self._smart_hint_text(),
                 on_update=emit_before_deadline,
             )
             elapsed_ms = (time.perf_counter() - started) * 1000

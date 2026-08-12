@@ -34,6 +34,7 @@ from dashboard_support.settings_snapshot import (
     AudioSettings,
     DashboardSettingsSnapshot,
     ProviderSettings,
+    SmartHintSettings,
     TranscriptionSettings,
     TranslationSettings,
 )
@@ -235,6 +236,7 @@ class Dashboard(QWidget):
             "providers.cerebras": self.cerebras_api_key.text(),
             "providers.gemini": self.gemini_api_key.text(),
             "providers.cloudflare": self.cloudflare_api_token.text(),
+            "smart_hint.api_key": self.smart_hint_api_key.text(),
         }
         self._connect_settings_dirty_signals()
         self._settings_ready = True
@@ -243,7 +245,9 @@ class Dashboard(QWidget):
             self, lambda sample_rate: SystemAudioTestWorker(sample_rate)
         )
         self.session_controller = SessionController(
-            self, lambda generation: StartupWorker(generation)
+            self, lambda generation, session_settings: StartupWorker(
+                generation, session_settings
+            )
         )
         self.shortcut_controller = ShortcutController(self, STYLESHEET)
         # Compatibility for callers that inspect the underlying native object.
@@ -286,6 +290,14 @@ class Dashboard(QWidget):
         )
         self.pending_settings_label.hide()
         layout.addWidget(self.pending_settings_label)
+
+        self.active_session_label = QLabel("本次启动将使用：尚未启动")
+        self.active_session_label.setWordWrap(True)
+        self.active_session_label.setStyleSheet(
+            "font-size: 13px; color: #bac2de; padding: 6px 9px; "
+            "background: rgba(255,255,255,12); border-radius: 7px;"
+        )
+        layout.addWidget(self.active_session_label)
 
         topic_row = QHBoxLayout()
         topic_label = QLabel("Current Lecture Topic（本节课程主题）:")
@@ -358,7 +370,7 @@ class Dashboard(QWidget):
 
         runtime = QFrame()
         runtime.setObjectName("RuntimeStatus")
-        runtime.setMinimumHeight(248)
+        runtime.setMinimumHeight(278)
         runtime.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
         )
@@ -379,6 +391,7 @@ class Dashboard(QWidget):
             ("Preview", "AI Preview（边讲边翻）"),
             ("Remote", "Remote Model（远程模型）"),
             ("Network", "Network（网络）"),
+            ("Hint", "Smart Hint（智能提示）"),
             ("Usage", "API Usage（今日 / 本次）"),
         )):
             runtime_layout.setRowMinimumHeight(row, 68 if key == "Usage" else 30)
@@ -653,6 +666,11 @@ class Dashboard(QWidget):
         label.setStyleSheet(
             f"color: {colors.get(status, '#cdd6f4')}; font-weight: 600;"
         )
+        if stage == "Hint" and hasattr(self, "smart_hint_status"):
+            self.smart_hint_status.setText(detail)
+            self.smart_hint_status.setStyleSheet(
+                f"font-size: 12px; color: {colors.get(status, '#cdd6f4')};"
+            )
 
     def _refresh_usage_status(self):
         if "Usage" not in getattr(self, "runtime_labels", {}):
@@ -781,6 +799,9 @@ class Dashboard(QWidget):
             self.gemini_api_key,
             self.cloudflare_account_id,
             self.cloudflare_api_token,
+            self.smart_hint_api_key,
+            self.smart_hint_base_url,
+            self.smart_hint_model,
             self.qwen_fallback_key,
             self.qwen_fallback_url,
             self.translation_domain,
@@ -803,6 +824,8 @@ class Dashboard(QWidget):
         )
 
         self.diagnostics_checkbox.toggled.connect(self._mark_settings_dirty)
+        self.smart_hint_enabled.toggled.connect(self._mark_settings_dirty)
+        self.smart_hint_provider.currentTextChanged.connect(self._mark_settings_dirty)
         self.transcript_recording_checkbox.toggled.connect(
             self._mark_settings_dirty
         )
@@ -822,9 +845,9 @@ class Dashboard(QWidget):
         self._settings_dirty = True
         self.pending_settings_label.show()
         if self._session_state == "running":
-            message = "Settings changed · Stop and Launch again to apply"
+            message = "已修改设置；下次 Launch 生效。"
         else:
-            message = "Unsaved settings · Launch saves and applies automatically"
+            message = "有未保存设置；Launch 时会保存并作为本次设置使用。"
         self.pending_settings_label.setText(message)
 
     def _settings_saved(self):
@@ -832,13 +855,30 @@ class Dashboard(QWidget):
         if self._session_state == "running" and self._settings_dirty:
             self._settings_dirty = True
             self.pending_settings_label.setText(
-                "Settings saved · Stop and Launch again to apply"
+                "已保存设置；下次 Launch 生效。"
             )
             self.pending_settings_label.show()
             return
         self._settings_dirty = False
         self.pending_settings_label.clear()
         self.pending_settings_label.hide()
+
+    def set_active_session_description(self, description, state="idle"):
+        """Show the immutable route actually used by this Pipeline session."""
+        prefix = "本次启动将使用"
+        if state == "idle":
+            self.active_session_label.setText(f"{prefix}：{description}")
+            self.active_session_label.setStyleSheet(
+                "font-size: 13px; color: #bac2de; padding: 6px 9px; "
+                "background: rgba(255,255,255,12); border-radius: 7px;"
+            )
+            return
+        suffix = "（正在初始化）" if state == "starting" else "（运行中）"
+        self.active_session_label.setText(f"{prefix}：{description} {suffix}")
+        self.active_session_label.setStyleSheet(
+            "font-size: 13px; color: #a6e3a1; padding: 6px 9px; "
+            "background: rgba(255,255,255,12); border-radius: 7px;"
+        )
 
     def use_system_audio(self):
         index = self.device_combo.findData("system")
@@ -1658,6 +1698,59 @@ class Dashboard(QWidget):
         self.cloudflare_api_token.setPlaceholderText("Cloudflare API token")
         self.main_model_layout.addRow("Cloudflare Token（免费池访问令牌）:", self.cloudflare_api_token)
 
+        self.smart_hint_card = QFrame()
+        self.smart_hint_card.setObjectName("SmartHintCard")
+        self.smart_hint_card.setStyleSheet(
+            "QFrame#SmartHintCard { background: rgba(166,227,161,14); "
+            "border: 1px solid rgba(166,227,161,48); border-radius: 9px; }"
+            "QFrame#SmartHintCard QLabel { background: transparent; border: none; }"
+        )
+        smart_hint_layout = QVBoxLayout(self.smart_hint_card)
+        smart_hint_layout.setContentsMargins(12, 10, 12, 10)
+        smart_hint_layout.setSpacing(7)
+        smart_hint_title = QLabel("Smart Hint（智能提示 · 可选）")
+        smart_hint_title.setStyleSheet("font-weight: 700; color: #a6e3a1;")
+        smart_hint_description = QLabel(
+            "每 4 分钟读取最近 40 条已完成英文原文，独立总结当前主题和关键词。"
+            "只作为远程模型的补充背景；不会等待、阻塞或切换实时翻译。"
+        )
+        smart_hint_description.setWordWrap(True)
+        smart_hint_description.setStyleSheet("font-size: 12px; color: #bac2de;")
+        smart_hint_layout.addWidget(smart_hint_title)
+        smart_hint_layout.addWidget(smart_hint_description)
+        self.smart_hint_form = QFormLayout()
+        self.smart_hint_form.setContentsMargins(0, 0, 0, 0)
+        self.smart_hint_form.setVerticalSpacing(8)
+        self.smart_hint_enabled = QCheckBox("开启智能提示")
+        self.smart_hint_enabled.setChecked(config.smart_hint_enabled)
+        self.smart_hint_form.addRow("状态:", self.smart_hint_enabled)
+        self.smart_hint_provider = ReadableComboBox()
+        self.smart_hint_provider.addItem("SiliconFlow DeepSeek V4 Flash（推荐）", "siliconflow")
+        self.smart_hint_provider.addItem("Custom OpenAI-Compatible", "custom")
+        hint_provider_index = self.smart_hint_provider.findData(config.smart_hint_provider)
+        self.smart_hint_provider.setCurrentIndex(max(0, hint_provider_index))
+        self.smart_hint_form.addRow("服务:", self.smart_hint_provider)
+        self.smart_hint_api_key = QLineEdit(config.smart_hint_api_key)
+        self.smart_hint_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.smart_hint_api_key.setPlaceholderText(
+            "留空则复用 SiliconFlow 密钥；Custom 必填"
+        )
+        self.smart_hint_form.addRow("API Key:", self.smart_hint_api_key)
+        self.smart_hint_base_url = QLineEdit(config.smart_hint_base_url)
+        self.smart_hint_base_url.setPlaceholderText("https://api.siliconflow.cn/v1")
+        self.smart_hint_form.addRow("Base URL:", self.smart_hint_base_url)
+        self.smart_hint_model = QLineEdit(config.smart_hint_model)
+        self.smart_hint_model.setPlaceholderText("deepseek-ai/DeepSeek-V4-Flash")
+        self.smart_hint_form.addRow("Model:", self.smart_hint_model)
+        self.smart_hint_status = QLabel("关闭")
+        self.smart_hint_status.setStyleSheet("font-size: 12px; color: #6c7086;")
+        self.smart_hint_form.addRow("本次状态:", self.smart_hint_status)
+        smart_hint_layout.addLayout(self.smart_hint_form)
+        layout.addRow(self.smart_hint_card)
+        self.smart_hint_provider.currentIndexChanged.connect(
+            self._on_smart_hint_provider_changed
+        )
+
         self.qwen_fallback_key = QLineEdit(config.qwen_mt_api_key)
         self.qwen_fallback_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.qwen_fallback_key.setPlaceholderText("Alibaba Cloud Qwen-MT key")
@@ -1982,6 +2075,9 @@ class Dashboard(QWidget):
             self.cloudflare_api_token,
         ):
             self._set_translation_row_visible(widget, smart)
+        # Smart Hint is an independent context helper. It can support either
+        # portable Single Model or the developer-only Smart Hybrid workflow.
+        self._set_translation_row_visible(self.smart_hint_card, not apple_only)
         # Qwen-MT remains available through the portable Single Model fields,
         # but is no longer part of the developer Smart Hybrid chain.
         for widget in (self.qwen_fallback_key, self.qwen_fallback_url):
@@ -2052,6 +2148,17 @@ class Dashboard(QWidget):
         self.workflow_preview.setText(preview)
         self.api_test_controller.refresh_targets()
         self.update_home_summary()
+
+    def _on_smart_hint_provider_changed(self, *_):
+        """Apply the documented SiliconFlow defaults without touching custom input."""
+        if self.smart_hint_provider.currentData() != "siliconflow":
+            return
+        default_url = "https://api.siliconflow.cn/v1"
+        default_model = "deepseek-ai/DeepSeek-V4-Flash"
+        if self.smart_hint_base_url.text() != default_url:
+            self.smart_hint_base_url.setText(default_url)
+        if self.smart_hint_model.text() != default_model:
+            self.smart_hint_model.setText(default_model)
 
     def _set_translation_row_visible(self, widget, visible):
         widget.setVisible(bool(visible))
@@ -2189,6 +2296,13 @@ class Dashboard(QWidget):
                 gemini_api_key=self.gemini_api_key.text(),
                 cloudflare_account_id=self.cloudflare_account_id.text(),
                 cloudflare_api_token=self.cloudflare_api_token.text(),
+            ),
+            smart_hint=SmartHintSettings(
+                enabled=self.smart_hint_enabled.isChecked(),
+                provider=str(self.smart_hint_provider.currentData() or "siliconflow"),
+                api_key=self.smart_hint_api_key.text(),
+                base_url=self.smart_hint_base_url.text(),
+                model=self.smart_hint_model.text(),
             ),
             display_mode=self.display_mode.currentData(),
             shortcut_enabled=self.shortcut_enabled,

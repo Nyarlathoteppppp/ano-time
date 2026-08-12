@@ -193,6 +193,28 @@ class CourseGlossaryTests(unittest.TestCase):
         self.assertIn("PREVIOUS:\n这个人很喜欢吃西瓜。", messages[1]["content"])
         self.assertIn("CURRENT:\nThe small dog", messages[1]["content"])
 
+    def test_live_hint_is_supplemental_and_does_not_replace_course_topic(self):
+        translator = Translator(
+            api_key="test-key",
+            base_url="https://example.invalid/v1",
+            model="generic-fast-model",
+            domain_prompt="Current lecture topic: Bayesian inference.",
+        )
+        translator.client = _RecordingClient()
+        translator.translate(
+            "The posterior is proportional to the likelihood times the prior.",
+            use_context=False,
+            live_hint=(
+                "Inferred lecture topic: Bayesian inference. "
+                "Relevant terms: posterior, likelihood, prior."
+            ),
+        )
+
+        prompt = translator.client.chat.completions.options["messages"][0]["content"]
+        self.assertIn("Domain:", prompt)
+        self.assertIn("Supplemental live lecture hint", prompt)
+        self.assertIn("CURRENT is authoritative", prompt)
+
     def test_preview_continuity_preserves_exact_accurate_wording(self):
         translator = Translator(
             api_key="test-key",

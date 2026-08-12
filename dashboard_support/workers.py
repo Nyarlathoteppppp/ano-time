@@ -71,15 +71,16 @@ class SystemAudioTestWorker(QThread):
 class StartupWorker(QThread):
     ready = pyqtSignal(int, object)
 
-    def __init__(self, generation):
+    def __init__(self, generation, session_settings=None):
         super().__init__()
         self.generation = generation
+        self.session_settings = session_settings
 
     def run(self):
         try:
             from main import Pipeline
 
-            pipeline = Pipeline()
+            pipeline = Pipeline(session_settings=self.session_settings)
             self.ready.emit(self.generation, pipeline)
         except Exception as exc:
             print(f"Startup Error: {exc}")

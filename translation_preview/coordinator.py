@@ -8,7 +8,12 @@ from .request import PreviewRequest
 
 
 class ProgressivePreviewCoordinator:
-    """Keep one active request and replace only queued obsolete work."""
+    """Keep one active request and only the newest queued preview.
+
+    This coordinator is deliberately isolated from finalized remote work.
+    Preview can be frequent because older queued hypotheses are replaced, but
+    it never consumes a Final executor worker or creates an unbounded queue.
+    """
 
     def __init__(
         self,

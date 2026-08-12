@@ -3,6 +3,7 @@
 import time
 
 from runtime_log import log_stage
+from session_settings import SessionSettingsSnapshot, describe_session
 from overlay_factory import OverlaySpec, create_overlay
 from subtitle_display_scheduler import SubtitleDisplayScheduler
 from translation_usage import session_usage_meter
@@ -28,8 +29,16 @@ class SessionController:
         view._session_generation += 1
         generation = view._session_generation
         view._session_state = "starting"
+        topic_field = getattr(view, "current_course_topic", None)
+        session_topic = (
+            topic_field.text().strip()
+            if topic_field is not None and hasattr(topic_field, "text")
+            else ""
+        )
         try:
-            view.save_config(show_status=False)
+            saved = view.save_config(show_status=False)
+            if saved is False:
+                raise RuntimeError("settings were not saved")
         except Exception as exc:
             view._session_state = "idle"
             view.status_label.setText(f"Unable to save settings: {exc}")
@@ -41,14 +50,26 @@ class SessionController:
         # A Launch defines one billing session. Reset before Pipeline creation
         # so its optional warm-up request is included in the same totals.
         from config import config
-        session_usage_meter.set_enabled(config.usage_tracking_enabled)
+        session_settings = SessionSettingsSnapshot.from_config(config).with_overrides(
+            current_course_topic=session_topic
+        )
+        view._active_session_settings = session_settings
+        set_description = getattr(view, "set_active_session_description", None)
+        if set_description:
+            set_description(describe_session(session_settings), state="starting")
+        session_usage_meter.set_enabled(session_settings.usage_tracking_enabled)
         session_usage_meter.reset()
         view.status_label.setText("Initializing Pipeline... (This may take a moment)")
         view.status_label.setStyleSheet("font-size: 18px; color: #fab387;")
         view.start_btn.setEnabled(False)
         view.start_btn.setText("Loading...")
 
-        worker = self.startup_worker_factory(generation)
+        try:
+            worker = self.startup_worker_factory(generation, session_settings)
+        except TypeError:
+            # External test/launcher factories predating session snapshots may
+            # still take only a generation. The shipped worker receives both.
+            worker = self.startup_worker_factory(generation)
         view._startup_workers[generation] = worker
         worker.ready.connect(view.on_pipeline_ready)
         worker.finished.connect(
@@ -57,8 +78,6 @@ class SessionController:
         worker.start()
 
     def pipeline_ready(self, generation, pipeline):
-        from config import config
-
         view = self.view
         if generation != view._session_generation or view._session_state != "starting":
             if pipeline:
@@ -73,6 +92,23 @@ class SessionController:
             return
 
         view.pipeline = pipeline
+        set_description = getattr(view, "set_active_session_description", None)
+        if set_description:
+            active_settings = getattr(pipeline, "settings", None)
+            if active_settings is None:
+                active_settings = getattr(view, "_active_session_settings", None)
+            if active_settings is None:
+                from config import config
+                active_settings = config
+            description = getattr(pipeline, "session_description", None)
+            set_description(
+                description or describe_session(active_settings),
+                state="running",
+            )
+        settings = getattr(pipeline, "settings", None)
+        if settings is None:
+            from config import config
+            settings = config
         actual_audio = type(view.pipeline.audio).__name__
         if actual_audio == "SystemAudioCapture":
             view.audio_summary.setText("System Audio · ScreenCaptureKit active")
@@ -85,10 +121,10 @@ class SessionController:
             view.overlay_window.close()
             view.overlay_window = None
         view.overlay_window = create_overlay(OverlaySpec(
-            display_duration=config.display_duration,
-            window_width=config.window_width,
-            window_height=config.window_height,
-            display_mode=view.display_mode.currentData(),
+            display_duration=settings.display_duration,
+            window_width=settings.window_width,
+            window_height=settings.window_height,
+            display_mode=settings.display_mode,
             system_audio=actual_audio == "SystemAudioCapture",
         ))
         view.overlay_window.show()
@@ -111,7 +147,7 @@ class SessionController:
             previous_recorder.stop()
         view.transcript_recorder = None
         recording_status = getattr(view, "set_transcript_recording_status", None)
-        if config.auto_save_transcripts:
+        if settings.auto_save_transcripts:
             try:
                 view.transcript_recorder = self.transcript_recorder_factory()
                 view.pipeline.signals.subtitle_event.connect(
@@ -226,6 +262,10 @@ class SessionController:
         started = time.perf_counter()
         view._session_generation += 1
         view._session_state = "idle"
+        view._active_session_settings = None
+        set_description = getattr(view, "set_active_session_description", None)
+        if set_description:
+            set_description("尚未启动", state="idle")
         session_usage_meter.set_active(False)
         if view.overlay_window:
             view.overlay_window.close()

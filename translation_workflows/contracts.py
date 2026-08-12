@@ -14,7 +14,11 @@ class TranslationWorkflow:
 
 
 class HybridTranslatorView:
-    """Restricted view over one quota-aware router without duplicating state."""
+    """Restricted view over one quota-aware final/bridge router.
+
+    Preview deliberately does not use this view: preview failures are
+    disposable and must not affect final-model routing health.
+    """
 
     def __init__(self, router, *, only=None, excluding=None):
         self.router = router

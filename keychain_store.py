@@ -18,6 +18,7 @@ SECRET_FIELDS = {
     ("providers", "cerebras_api_key"): "providers.cerebras",
     ("providers", "gemini_api_key"): "providers.gemini",
     ("providers", "cloudflare_api_token"): "providers.cloudflare",
+    ("smart_hint", "api_key"): "smart_hint.api_key",
 }
 
 

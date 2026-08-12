@@ -175,10 +175,10 @@ class Translator:
         }
 
     def translate(self, text, use_context=True, on_update=None, remember_context=True,
-                  draft_translation=None, previous_preview=None,
-                  context_text=None, deadline=None,
-                  usage_callback=None, failure_scope="final",
-                  prefer_preview_continuity=False):
+                draft_translation=None, previous_preview=None,
+                context_text=None, deadline=None,
+                usage_callback=None, failure_scope="final",
+                prefer_preview_continuity=False, live_hint=None):
         """
         Translates the given text. Returns the translated string.
         Uses previous transcription as context for better continuity.
@@ -200,6 +200,12 @@ class Translator:
                 f"{term.source} = {term.target}" for term in matched_terms
             )
             terminology_prompt = f" Required terminology: {pairs}."
+        live_hint = " ".join(str(live_hint or "").split())
+        hint_prompt = (
+            " Supplemental live lecture hint: " + live_hint
+            + " Use it only when it agrees with CURRENT; CURRENT is authoritative."
+            if live_hint else ""
+        )
 
         output_constraint = (
             f"Return only the complete {self.prompt_target_lang} translation "
@@ -269,6 +275,7 @@ class Translator:
             user_message = f"CURRENT:\n{text}"
 
         if not is_qwen_mt:
+            system_prompt += hint_prompt
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
@@ -280,7 +287,10 @@ class Translator:
                 translation_options = {
                     "source_lang": "auto",
                     "target_lang": self.target_lang,
-                    "domains": f"{self.domain_prompt} {self.asr_correction_prompt}",
+                    "domains": (
+                        f"{self.domain_prompt} {self.asr_correction_prompt}"
+                        f"{hint_prompt}"
+                    ),
                 }
                 if matched_terms:
                     translation_options["terms"] = [

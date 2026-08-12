@@ -51,11 +51,21 @@ class ProviderSettings:
 
 
 @dataclass(frozen=True)
+class SmartHintSettings:
+    enabled: bool
+    provider: str
+    api_key: str
+    base_url: str
+    model: str
+
+
+@dataclass(frozen=True)
 class DashboardSettingsSnapshot:
     audio: AudioSettings
     transcription: TranscriptionSettings
     translation: TranslationSettings
     providers: ProviderSettings
+    smart_hint: SmartHintSettings
     display_mode: str
     shortcut_enabled: bool
     shortcut_interval: float
