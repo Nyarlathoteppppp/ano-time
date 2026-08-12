@@ -159,7 +159,6 @@ class NativeNotchOverlay(QObject):
             window_height=self.window_height,
             display_mode="glass",
             allow_notch_switch=True,
-            history_provider=self.record_store.sorted_items,
         )
         self.delegate.stop_requested.connect(
             lambda: QTimer.singleShot(0, self.stop_requested.emit)

@@ -357,7 +357,7 @@ class OverlayWindow(QWidget):
 
     def __init__(self, display_duration=None, window_width=400, window_height=None,
                  display_mode="glass", allow_notch_switch=False,
-                 video_overlay=False, history_provider=None):
+                 video_overlay=False):
         super().__init__()
         # display_duration is not really used in log mode, but kept for compatibility
         self.window_width = window_width
@@ -369,10 +369,6 @@ class OverlayWindow(QWidget):
         # The physical notch is rendered exclusively by NativeNotchOverlay.
         self.display_mode = "glass"
         self.video_overlay = bool(video_overlay)
-        # NativeNotchOverlay owns the complete classroom record while this
-        # window owns only the latest visible widgets.  Direct glass mode keeps
-        # using its local history as before.
-        self._history_provider = history_provider
         self._glass_geometry = None
         self._settings = QSettings("RealtimeTon", "RealtimeTranslator")
         self._geometry_save_timer = QTimer(self)
@@ -570,30 +566,13 @@ class OverlayWindow(QWidget):
         scrollbar.rangeChanged.connect(self._on_scroll_range_changed)
         self.root_layout.addWidget(self.scroll_area)
         
-        # Bottom Control Bar (Resize Grip + Save Button)
+        # Bottom control bar: stopping and resizing remain available.  Lecture
+        # transcripts are written automatically by SessionTranscriptRecorder,
+        # so a second manual Save action would only duplicate records.
         self.control_bar = QWidget()
         grip_layout = QHBoxLayout(self.control_bar)
         grip_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Save Button
-        from PyQt6.QtWidgets import QPushButton, QStyle 
-        self.save_btn = QPushButton("💾 Save")
-        self.save_btn.setFixedWidth(80)
-        self.save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 50);
-                color: white;
-                border-radius: 5px;
-                padding: 5px;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 100);
-            }
-        """)
-        self.save_btn.clicked.connect(self._save_transcript)
-        
-        grip_layout.addWidget(self.save_btn)
+        from PyQt6.QtWidgets import QPushButton
         
         # Stop Button
         self.stop_btn = QPushButton("⏹")
@@ -908,8 +887,8 @@ class OverlayWindow(QWidget):
             
             self.items.insert(insert_idx, (chunk_id, new_widget))
             self.container_layout.insertWidget(insert_idx, new_widget)
-            # Bound the live widget tree during multi-hour classes. Full history
-            # remains in transcript_data and is still exported by Save.
+            # Bound the live widget tree during multi-hour classes. Complete
+            # records are persisted independently by SessionTranscriptRecorder.
             self._trim_visible_items()
 
             # Scroll to bottom
@@ -947,46 +926,6 @@ class OverlayWindow(QWidget):
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
-
-    def _save_transcript(self):
-        """Save history to file"""
-        import os
-        history_items = None
-        if self._history_provider is not None:
-            try:
-                history_items = list(self._history_provider())
-            except Exception as exc:
-                print(f"[Overlay] Could not read full transcript history: {exc}")
-                return
-        if history_items is None:
-            history_items = [
-                (chunk_id, self.transcript_data[chunk_id])
-                for chunk_id in sorted(self.transcript_data)
-            ]
-        if not history_items:
-            print("[Overlay] Nothing to save.")
-            return
-
-        os.makedirs("transcripts", exist_ok=True)
-        filename = f"transcripts/transcript_{time.strftime('%Y%m%d_%H%M%S')}.txt"
-        
-        try:
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(f"Transcript saved at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write("="*50 + "\n\n")
-                for cid, data in history_items:
-                    f.write(f"[{data['timestamp']}] (ID: {cid})\nOriginal: {data['original']}\nTranslation: {data['translated']}\n{'-'*30}\n")
-            
-            print(f"[Overlay] Saved to {filename}")
-            # Visual feedback on button
-            original_text = self.save_btn.text()
-            self.save_btn.setText("Saved!")
-            QTimer.singleShot(2000, lambda: self.save_btn.setText(original_text))
-            
-        except Exception as e:
-            print(f"[Overlay] Error saving transcript: {e}")
-
-
 
     # Window Moving Logic (Resize is handled by ResizeHandle widget)
     def mousePressEvent(self, event):

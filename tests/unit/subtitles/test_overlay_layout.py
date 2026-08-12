@@ -106,6 +106,17 @@ class OverlayLayoutTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_glass_window_relies_on_automatic_recording_without_manual_save(self):
+        with patch("overlay_window.HAS_APPKIT", False):
+            window = OverlayWindow(window_width=480, window_height=260)
+        try:
+            self.assertFalse(hasattr(window, "save_btn"))
+            self.assertFalse(hasattr(window, "_save_transcript"))
+            self.assertIsNotNone(window.stop_btn)
+            self.assertIsNotNone(window.mode_btn)
+        finally:
+            window.close()
+
     def test_manual_scroll_disables_tail_follow_until_user_returns_to_bottom(self):
         scrollbar = QScrollBar()
         scrollbar.setRange(0, 100)
