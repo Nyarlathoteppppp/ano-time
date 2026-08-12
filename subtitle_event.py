@@ -28,6 +28,11 @@ class SubtitleEvent:
     finalized: bool
     committed_prefix_length: int
     timestamp: float
+    # The ASR source a translation was generated from.  ``original_text`` is
+    # deliberately the freshest ASR hypothesis, which may already be longer
+    # when a late Apple/AI result is emitted.  Presentation code needs both to
+    # distinguish a harmless append from an ASR correction.
+    translation_source_text: str = ""
 
     @classmethod
     def create(
@@ -39,6 +44,7 @@ class SubtitleEvent:
         translated_text="",
         finalized=False,
         committed_prefix_length=0,
+        translation_source_text="",
     ):
         return cls(
             segment_id=int(segment_id),
@@ -52,6 +58,7 @@ class SubtitleEvent:
                 min(int(committed_prefix_length), len(str(translated_text))),
             ),
             timestamp=time.time(),
+            translation_source_text=str(translation_source_text or ""),
         )
 
     @property

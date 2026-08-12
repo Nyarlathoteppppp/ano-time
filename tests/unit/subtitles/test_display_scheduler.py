@@ -55,6 +55,25 @@ class SubtitleDisplaySchedulerTests(unittest.TestCase):
         scheduler.submit(self.event(3, "第一版", SubtitleStage.AI_STREAM, True))
         self.assertEqual([event.revision for event in shown], [1])
 
+    def test_ai_owned_target_does_not_revert_on_a_newer_apple_partial(self):
+        shown = []
+        scheduler = SubtitleDisplayScheduler(shown.append, interval_ms=100)
+        short = "A heuristic estimates the cost"
+        longer = short + " to reach the goal"
+        scheduler.submit(SubtitleEvent.create(
+            1, 1, SubtitleStage.APPLE_PARTIAL, short, "苹果短草稿"
+        ))
+        scheduler.submit(SubtitleEvent.create(
+            1, 2, SubtitleStage.AI_PREVIEW, short, "Gemini预览"
+        ))
+        newer_apple = SubtitleEvent.create(
+            1, 3, SubtitleStage.APPLE_PARTIAL, longer, "苹果长草稿"
+        )
+        scheduler.submit(newer_apple)
+        self.assertEqual([event.translated_text for event in shown], [
+            "苹果短草稿", "Gemini预览"
+        ])
+
 
 if __name__ == "__main__":
     unittest.main()

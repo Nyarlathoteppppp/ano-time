@@ -5,14 +5,26 @@ import time
 from PyQt6.QtCore import QObject, QTimer
 
 from subtitle_event import SubtitleStage
+from subtitle_presentation_coordinator import SubtitlePresentationCoordinator
 
 
 class SubtitleDisplayScheduler(QObject):
     """Show the leading update immediately, then coalesce same-stage bursts."""
 
-    def __init__(self, consumer, interval_ms=110, parent=None):
+    def __init__(
+        self,
+        consumer,
+        interval_ms=110,
+        parent=None,
+        presentation_coordinator=None,
+    ):
         super().__init__(parent)
         self.consumer = consumer
+        # This layer only controls the visual projection.  The pipeline signal
+        # still goes directly to the transcript recorder and all model logic.
+        self.presentation_coordinator = (
+            presentation_coordinator or SubtitlePresentationCoordinator()
+        )
         self.interval_seconds = max(0.0, int(interval_ms) / 1000)
         self._last_emitted_at = {}
         self._last_stage = {}
@@ -22,6 +34,9 @@ class SubtitleDisplayScheduler(QObject):
         self._timer.timeout.connect(self._flush_due)
 
     def submit(self, event):
+        event = self.presentation_coordinator.present(event)
+        if event is None:
+            return
         segment_id = int(event.segment_id)
         now = time.monotonic()
         stage = event.stage

@@ -62,6 +62,7 @@ class SegmentStore:
         with self._lock:
             state = self._state(segment_id)
             preserve_current_source = False
+            event_translation_source = str(translation_source_text or "")
 
             if stage == SubtitleStage.ASR_PARTIAL:
                 if state.finalized:
@@ -144,6 +145,7 @@ class SegmentStore:
                 incoming_translation_source = str(
                     translation_source_text or original_text
                 )
+                event_translation_source = incoming_translation_source
                 current_translation_source = state.translation_source_text
                 incoming_is_newer_source = bool(
                     current_translation_source
@@ -214,6 +216,10 @@ class SegmentStore:
                 state.translated_text,
                 finalized=state.finalized,
                 committed_prefix_length=state.committed_prefix_length,
+                translation_source_text=(
+                    event_translation_source
+                    or state.translation_source_text
+                ),
             )
 
     def preview_is_compatible(self, segment_id, hypothesis_revision, stable_text):
