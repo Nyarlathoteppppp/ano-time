@@ -28,7 +28,7 @@ Anotime 已经不只是原项目的界面换皮，而是围绕 macOS 课堂使�
 - 将翻译拆为通用 Single Model、完全本地 Apple Only，以及维护者专用 Smart Hybrid；三条流程彼此隔离。
 - Single Model 支持常见 OpenAI-compatible 服务、自定义 Base URL/模型、流式兼容降级、五次测速和按服务保存的本地 Profile。
 - API Key 进入 macOS Keychain；服务档案和配置文件只保存 Keychain 引用。
-- 增加 stable/finalized 字幕状态、latest-wins、硬截止时间、长句显示切分、后台课堂记录与延迟诊断。
+- 增加 stable/finalized 字幕状态、分阶段上下文预算、latest-wins、硬截止时间、长句显示切分、后台课堂记录与延迟诊断。
 
 ### 界面预览
 
@@ -212,18 +212,16 @@ tail -f /tmp/realtime-ton-hotkey.log
 填写密钥后，选择 **Test Target** 并点击 **Test API · 5 Requests**。应用会在后台发送五条固定的计算机/AI 技术语句，逐条显示首字延迟、总耗时和译文，最后显示成功率与平均单次总耗时。测速会消耗对应 API 的五次真实请求，但不会进入课堂字幕或对话上下文。
 
 ```text
-音频
-  → Apple ASR 临时英文
-  → Apple 即时翻译草稿
-  → 可选 Groq → Cerebras 低延迟桥接池
-  → finalized 英文句段
-  → 当前 Single Model 最终稿 / 开发者 Smart Hybrid 限时精修
+音频 → Apple ASR 临时英文 → Apple 即时翻译草稿（独立直出）
+                              ├→ 可选 Groq → Cerebras 低延迟桥接
+                              └→ 稳定英文的 AI Preview → finalized 英文的限时最终稿
 ```
 
 实时策略：
 
 - 每个不同的 Apple partial 都可以更新本地草稿，优先保证视觉实时性。
-- 远程 AI 只处理 stable/finalized 句段，不处理不断增长的 ASR hypothesis。
+- 支持流式返回的远程模型会在稳定英文增长时持续预览；完整 final 到达后再做一次限时精修。Apple 草稿始终独立，不等待网络。
+- 上下文按阶段冻结并限额：首次 Preview 使用最近 1 句 finalized 英文；后续 Preview 使用最近 1 句、当前中文草稿和当前英文；Final 使用最近 3 句与当前草稿；桥接模型不带课堂历史。这样排队请求不会读到“未来”句子，也不会让长课的 Token 和延迟持续增长。
 - 纯标点 final 会被过滤；三个单词以内的短句保留 Apple 草稿但不消耗远程额度。
 - AI 默认硬截止时间为 3 秒，不执行阻塞式重试。
 - 同时允许两个精修任务，等待队列只保留最新任务。
@@ -309,6 +307,11 @@ MLX/Whisper 会在首次使用时下载模型；Apple Speech 也可能需要下�
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -q
 ```
 
+Before changing the live pipeline, read [AGENTS.md](./AGENTS.md) and
+[docs/AGENT_HANDOFF.md](./docs/AGENT_HANDOFF.md). They document the latency
+invariants, current context policy, and required automated and real-audio
+release checks.
+
 ### 平台支持
 
 | 功能 | macOS | Windows / Linux |
@@ -350,7 +353,7 @@ Anotime is no longer a cosmetic fork. Its runtime has been reorganized around la
 - Translation is separated into portable Single Model, local Apple Only, and the maintainer-specific Smart Hybrid API pool; their builders and credentials remain isolated.
 - Single Model supports common OpenAI-compatible providers, custom URLs/model IDs, automatic streaming fallback, five-request benchmarking, and per-provider local profiles.
 - API keys live in macOS Keychain; configuration and provider-profile files contain Keychain references instead of plaintext secrets.
-- Stable/finalized subtitle states, latest-wins queues, hard deadlines, display-aware segmentation, background transcripts, and latency diagnostics are built into the pipeline.
+- Stable/finalized subtitle states, stage-specific bounded context snapshots, latest-wins queues, hard deadlines, display-aware segmentation, background transcripts, and latency diagnostics are built into the pipeline.
 
 ## Screenshots
 
@@ -571,18 +574,16 @@ and consume the selected provider's quota, but never enter the live subtitle
 pipeline or its conversational context.
 
 ```text
-Audio
-  → provisional Apple ASR
-  → immediate Apple Translation draft
-  → optional low-latency Groq → Cerebras bridge pool
-  → finalized ASR segment
-  → selected Single Model final / developer Smart Hybrid refinement
+Audio → provisional Apple ASR → immediate Apple Translation draft (independent)
+                                      ├→ optional Groq → Cerebras low-latency bridge
+                                      └→ AI preview for stable English → deadline-limited final refinement
 ```
 
 Important real-time behavior:
 
 - Every distinct Apple partial may update the local draft for minimum latency.
-- Remote AI refinement runs on stable/finalized segments, not every growing ASR hypothesis.
+- When a provider supports streaming, its AI preview refines stable growing English while the lecturer is still speaking; a final request follows the finalized English. Apple drafts remain independent and never wait for remote work.
+- Context is frozen when each request is queued and bounded by stage: first preview uses one finalized English sentence, subsequent previews add the current Chinese draft, final refinement uses up to three finalized sentences, and the optional bridge keeps no lecture history. This prevents delayed work from seeing future sentences and caps long-class token growth.
 - Punctuation-only finals are discarded; finals of three words or fewer keep the Apple draft but do not spend remote-model quota.
 - Conservative finalized-text cleanup removes obvious streaming-ASR repetitions while preserving intentional emphasis.
 - AI requests have a configurable hard deadline (`3.0s` by default) and no retry chain.
