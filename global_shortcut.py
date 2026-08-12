@@ -2,7 +2,7 @@ import sys
 import time
 import ctypes
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from ui.qt import QObject, Signal
 
 
 def accessibility_trusted():
@@ -77,7 +77,7 @@ class DoubleModifierDetector:
 
 
 class MacDoubleOptionShortcut(QObject):
-    activated = pyqtSignal()
+    activated = Signal()
 
     def __init__(self, enabled=True, interval_seconds=0.32, parent=None):
         super().__init__(parent)
@@ -194,7 +194,7 @@ def _fourcc(value):
 class MacCarbonHotkeyShortcut(QObject):
     """Permission-free macOS global hotkey: Control + S."""
 
-    activated = pyqtSignal()
+    activated = Signal()
 
     _KEY_CODE_S = 1
     _CONTROL_KEY = 1 << 12

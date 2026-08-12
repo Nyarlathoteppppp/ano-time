@@ -1,6 +1,6 @@
 # PyQt6 → PySide6 迁移准备与实施计划
 
-> 状态：仅审计与规划，**尚未改任何 PyQt6 运行代码**。
+> 状态：M1 已在独立迁移分支完成；主分支仍保持 PyQt6 稳定运行。
 >
 > 目标：不购买 PyQt6 商业许可的前提下，保留现有 Python 实时翻译 Pipeline，完成可闭源分发的 macOS Beta 基础。
 
@@ -128,15 +128,17 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 **验收**：迁移后任何指标异常都能定位为迁移回归，而不是旧问题。
 
-### M1：第一批 Worker 与基础对象
+### M1：第一批 Worker 与基础对象（已完成于迁移分支）
 
 迁移 `api_test_controller.py`、`dashboard_support/workers.py`、`subtitle_display_scheduler.py`、`global_shortcut.py`、`app_identity.py`。
 
-**验收**：在迁移 worktree 的 PySide6 专用环境中，对应 unit tests 通过；API 测速不阻塞 UI；快捷键可用；关闭控制中心不遗留 Worker。
+实现方式：上述文件均只通过新增的 `ui/qt.py` 访问 Qt。迁移中该边界暂时映射 PyQt6，让每个小批次继续可被稳定测试；最终依赖闭包完成时，单次切换边界到 PySide6。没有任何运行进程混用 binding。
+
+**已验证**：416/416 完整 PyQt6 回归通过；M1 模块在 PySide6-only 环境导入烟测通过；新增静态回归测试禁止 M1 文件重新直接导入 PyQt6/PySide6。Dashboard 测试改为显式内存配置，不再依赖开发机忽略的 `config.ini`、Keychain 或个人 API 配置。
 
 > M1—M4 的“逐批”指代码与测试的交付粒度，不代表主目录可在半迁移状态运行。只有完整依赖闭包完成后才做集成启动。
 
-### M2：普通 Panel 与小控件
+### M2：普通 Panel 与小控件（下一批）
 
 迁移 `dashboard_support/widgets.py`、`dashboard_support/panels/asr.py`、`dashboard_support/panels/audio.py`、`shortcut_controller.py`。
 

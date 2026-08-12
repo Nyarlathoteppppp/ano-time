@@ -1,6 +1,6 @@
 # PySide6 目标架构
 
-> 状态：迁移前设计。不改变当前 PyQt6 运行版本。
+> 状态：目标设计。M1 已在独立迁移分支接入 `ui/qt.py`；主分支仍使用 PyQt6。
 
 ## 目标
 
@@ -27,7 +27,7 @@
 
 ## 1. 单一 Qt 绑定原则
 
-`ui/qt.py` 是唯一允许直接导入 `PySide6` 的生产模块。所有 UI 文件只导入它导出的 Qt namespace 或信号别名。
+最终 `ui/qt.py` 是唯一允许直接导入 `PySide6` 的生产模块。所有 UI 文件只导入它导出的 Qt namespace 或信号别名。
 
 ```python
 # ui/qt.py — target shape
@@ -44,6 +44,12 @@ Property = QtCore.Property
 - 同一 Python 进程导入 PyQt6 和 PySide6。
 - 将 `QWidget`、`QThread`、`QTimer` 放入翻译、术语、配额等非 UI 领域模块。
 - 让 Worker 直接读写 Dashboard 控件。
+
+### 1.1 渐进迁移的临时规则
+
+在活动依赖闭包尚未全部迁移前，`ui/qt.py` 暂时只映射 **PyQt6**。这使每个小批次可用稳定环境完整回归；它不是多 binding fallback。M1 已完成的模块只依赖这个边界。
+
+最后一个活动模块接入边界后，才在一个原子提交中将该文件改为 PySide6 并移除 PyQt6。此后 `rg 'PyQt6'` 必须在活动代码、requirements、启动脚本和测试中归零。
 
 ## 2. 稳定接口
 
@@ -82,7 +88,7 @@ realtime-ton-pyside6/          # codex/pyside6-migration：仅迁移实验
 
 迁移 worktree 必须做到：
 
-1. 单元测试的 Python 进程里只存在 PySide6。
+1. 迁移中的稳定完整回归只使用 PyQt6；PySide6 烟测使用隔离环境，二者绝不在同一进程出现。
 2. 每批只更改 Qt import / Signal 名称和对应测试，不顺便改业务。
 3. 最终运行前，静态测试禁止 `PyQt6` 留在活动路径。
 4. 最终集成回归通过后，才替换 `requirements.txt`、桌面启动器和生产 `.venv`。

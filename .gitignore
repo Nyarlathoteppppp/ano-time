@@ -3,6 +3,6 @@ transcripts
 .DS_Store
 config.ini
 provider_profiles.json
-.venv
+.venv*/
 .build/
 logs/

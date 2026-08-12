@@ -16,14 +16,26 @@ from dashboard_support.workers import SmartHintTestWorker
 import dashboard as dashboard_module
 from keychain_store import store as keychain_store
 from shortcut_controller import ShortcutController
+from tests.fixtures.dashboard_config import make_dashboard_config
 
 
 class DashboardWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+        cls._config_dir = tempfile.TemporaryDirectory()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._config_dir.cleanup()
 
     def setUp(self):
+        test_config = make_dashboard_config(
+            os.path.join(self._config_dir.name, "dashboard-test.ini")
+        )
+        config_patcher = patch.object(dashboard_module, "config", test_config)
+        config_patcher.start()
+        self.addCleanup(config_patcher.stop)
         patcher = patch.object(ShortcutController, "start", lambda _self: None)
         patcher.start()
         self.addCleanup(patcher.stop)

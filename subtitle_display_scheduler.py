@@ -2,7 +2,7 @@
 
 import time
 
-from PyQt6.QtCore import QObject, QTimer
+from ui.qt import QObject, QTimer
 
 from subtitle_event import SubtitleStage
 from subtitle_presentation_coordinator import SubtitlePresentationCoordinator

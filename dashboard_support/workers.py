@@ -1,9 +1,9 @@
-from PyQt6.QtCore import QThread, pyqtSignal
+from ui.qt import QThread, Signal
 
 
 class ModelListWorker(QThread):
-    loaded = pyqtSignal(object)
-    failed = pyqtSignal(str)
+    loaded = Signal(object)
+    failed = Signal(str)
 
     def __init__(self, api_key, base_url):
         super().__init__()
@@ -31,7 +31,7 @@ class ModelListWorker(QThread):
 
 
 class SystemAudioTestWorker(QThread):
-    result = pyqtSignal(bool, str, float)
+    result = Signal(bool, str, float)
 
     def __init__(self, sample_rate):
         super().__init__()
@@ -71,7 +71,7 @@ class SystemAudioTestWorker(QThread):
 class SmartHintTestWorker(QThread):
     """Test Smart Hint independently of an active translation session."""
 
-    completed = pyqtSignal(bool, str)
+    completed = Signal(bool, str)
 
     SAMPLE_FINALIZED_ENGLISH = (
         "We compare the bias and variance of a regularized estimator.",
@@ -110,7 +110,7 @@ class SmartHintTestWorker(QThread):
 
 
 class StartupWorker(QThread):
-    ready = pyqtSignal(int, object)
+    ready = Signal(int, object)
 
     def __init__(self, generation, session_settings=None):
         super().__init__()

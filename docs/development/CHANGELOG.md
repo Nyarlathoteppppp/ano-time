@@ -7,6 +7,8 @@
 - `93233d5`：修复 Pipeline contract 测试夹具兼容性。`_segment_state_store()` 只从实例字典读取启动设置，避免未初始化的 `QObject` 测试对象触发 Qt 父类异常。完整测试恢复为 414/414。
 - `6103c76`：产品路线改为 macOS 优先、iPhone/iPad 延期；明确不购买 PyQt6，近期方向是 PySide6。
 - `9a163be`：新增受邀体验者指南、产品发布路线和 `tools/release_audit.py`。发布扫描只检查 Git 跟踪文件，永不打印匹配到的密钥。
+- `codex/pyside6-migration` M1：新增唯一 Qt 绑定边界 `ui/qt.py`；`api_test_controller`、后台 workers、字幕显示调度器、全局快捷键和应用图标模块改为只经该边界导入 Qt。主分支运行行为未改。
+- M1 测试安全网：Dashboard 工作流测试改为显式无密钥配置，不再读取开发者的 `config.ini` / Keychain；新增绑定边界静态测试。完整回归为 416/416，PySide6-only 导入烟测通过。
 
 ## 运行不变式
 

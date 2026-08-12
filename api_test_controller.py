@@ -1,14 +1,14 @@
 """Non-blocking API benchmark orchestration for the control center."""
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from ui.qt import QThread, Signal
 
 from config import config
 from course_profiles import do_not_translate_paths, glossary_paths, profile_domain
 
 
 class ApiSpeedTestWorker(QThread):
-    sample_ready = pyqtSignal(int, float, float, str, str)
-    completed = pyqtSignal(int, float, float, int, bool)
+    sample_ready = Signal(int, float, float, str, str)
+    completed = Signal(int, float, float, int, bool)
 
     def __init__(self, spec):
         super().__init__()

@@ -2,7 +2,7 @@
 
 import os
 
-from PyQt6.QtGui import QIcon
+from ui.qt import QIcon
 
 
 APP_NAME = "Anotime"
@@ -28,4 +28,3 @@ def apply_app_identity(app):
     except (ImportError, AttributeError):
         # Qt's application icon remains the cross-platform fallback.
         pass
-
