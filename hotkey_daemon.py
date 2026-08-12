@@ -5,9 +5,11 @@ import os
 import subprocess
 import sys
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtNetwork import QLocalSocket
-from PyQt6.QtWidgets import QApplication
+from ui.qt import QtCore, QtNetwork, QtWidgets
+
+QTimer = QtCore.QTimer
+QLocalSocket = QtNetwork.QLocalSocket
+QApplication = QtWidgets.QApplication
 
 from global_shortcut import MacCarbonHotkeyShortcut
 

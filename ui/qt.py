@@ -1,19 +1,17 @@
-"""The only Qt binding import boundary during the PySide6 migration.
+"""The sole Qt binding boundary for AnoTime's PySide6 runtime.
 
-This migration worktree deliberately still maps to PyQt6 so it can exercise
-small source batches against the stable application.  It never imports both
-bindings.  Once every active UI dependency has crossed this boundary, this
-file is switched atomically to PySide6 and PyQt6 is removed from that release.
+All application and test code imports Qt through this module. Do not add a
+PyQt6 fallback: loading both bindings in one macOS interpreter is unsafe.
 """
 
-from PyQt6 import QtCore, QtGui, QtNetwork, QtWidgets
+from PySide6 import QtCore, QtGui, QtNetwork, QtWidgets
 
 
-QT_BINDING = "PyQt6"
+QT_BINDING = "PySide6"
 
-Signal = QtCore.pyqtSignal
-Slot = QtCore.pyqtSlot
-Property = QtCore.pyqtProperty
+Signal = QtCore.Signal
+Slot = QtCore.Slot
+Property = QtCore.Property
 
 QObject = QtCore.QObject
 QThread = QtCore.QThread

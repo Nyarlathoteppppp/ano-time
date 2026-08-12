@@ -2,13 +2,23 @@ import sys
 import os
 import subprocess
 import configparser
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QLabel, QProgressBar, QMessageBox, QPushButton)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from ui.qt import QtCore, QtWidgets, Signal
+
+QApplication = QtWidgets.QApplication
+QMainWindow = QtWidgets.QMainWindow
+QWidget = QtWidgets.QWidget
+QVBoxLayout = QtWidgets.QVBoxLayout
+QLabel = QtWidgets.QLabel
+QProgressBar = QtWidgets.QProgressBar
+QMessageBox = QtWidgets.QMessageBox
+QPushButton = QtWidgets.QPushButton
+Qt = QtCore.Qt
+QThread = QtCore.QThread
+QTimer = QtCore.QTimer
 
 class DependencyInstaller(QThread):
-    progress = pyqtSignal(str) # Log message
-    finished = pyqtSignal(bool) # Success/Fail
+    progress = Signal(str) # Log message
+    finished = Signal(bool) # Success/Fail
 
     def run(self):
         self.progress.emit("Checking dependencies...")

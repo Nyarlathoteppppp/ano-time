@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication
+from ui.qt import QtWidgets
+
+QApplication = QtWidgets.QApplication
 
 from native_notch_overlay import NativeNotchOverlay
 from subtitle_event import SubtitleEvent, SubtitleStage

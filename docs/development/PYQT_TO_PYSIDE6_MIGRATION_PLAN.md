@@ -181,6 +181,22 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 明确 `launcher.py`、`settings_window.py`、`hotkey_daemon.py` 是删除、归档还是迁移。它们不进入可安装 Beta 前，必须有清晰的主入口说明。
 
+**审计结论**：当前用户路径是 `Anotime.app` → `launch_desktop.sh` → `dashboard.py`；三者均不在日常上课主路径。为完成单一绑定闭环，三个旧入口只完成机械 Qt 导入迁移，不新增启动入口、不启用旧依赖安装 UI，也不变更既有 Control+S 逻辑。之后的 Beta 清理再决定归档或删除。
+
+### M7：原子切换与全环境验收
+
+在所有生产模块和测试均只经 `ui/qt.py` 导入 Qt 后，才允许单个提交执行：
+
+1. `ui/qt.py` 从 PyQt6 映射切换为 PySide6 映射；
+2. `requirements.txt` 将 `PyQt6` 替换为 `PySide6`；
+3. 在 PySide6-only 环境运行完整测试、离屏玻璃 smoke、Pipeline import smoke；
+4. 检查仓库中没有任何 PyQt6 运行时 import；
+5. 保持主分支 PyQt6 未合并，等待独立实机验收后才考虑合并。
+
+禁止在此阶段保留 `try: PySide6 except: PyQt6`；那会重新允许单进程混用并把问题隐藏到用户机器上。
+
+**当前状态**：已完成原子切换：`ui/qt.py` 只映射 PySide6，`requirements.txt` 只声明 PySide6。主分支仍未合并，必须完成 PySide6-only 全量测试和真实 macOS 会话验收后才允许合并。
+
 ## 5. 每批提交规则
 
 ```text

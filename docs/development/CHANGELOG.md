@@ -14,6 +14,9 @@
 - `codex/pyside6-migration` M4：Pipeline 的 Qt 对象和信号改经 `ui/qt.py` 导入。此项只替换绑定 API，不修改音频、ASR、Apple 草稿、Preview、Final 或模型路由；PySide6 的完整运行烟测继续等待玻璃/刘海模块迁移，避免混用 Qt 绑定。
 - `codex/pyside6-migration` M5a：Swift 刘海 helper bridge 的 QObject、QTimer 和信号接入 Qt 绑定边界；IPC、三档刘海投影、短片段隐藏和自动收缩均未改动。玻璃窗口作为独立高耦合提交继续迁移。
 - `codex/pyside6-migration` M5b：玻璃字幕窗口的 widgets、布局、几何、设置、计时器和信号接入 Qt 绑定边界；字幕布局、滚动跟随、40 条可见投影、全屏置顶与 macOS 原生处理均未改动。
+- `codex/pyside6-migration` M6：审计确认桌面主路径直接使用 `dashboard.py`；旧 Launcher、旧 Settings Window 和旧 Hotkey Agent 不在上课启动路径。三者只完成机械 Qt 导入迁移，以保持单一绑定闭环；不启用、不删除、不改 Control+S 行为。
+- `codex/pyside6-migration` M7 准备：测试也不再直接导入 Qt binding；在所有生产/测试代码均经边界后，才允许切换依赖声明与 `ui/qt.py` 的单次原子提交。
+- `codex/pyside6-migration` M7：绑定边界和 requirements 已原子切换为 PySide6；没有添加 PyQt6 fallback。主分支继续保持用户正在使用的 PyQt6 稳定版，待独立实机验收后再决定是否合并。
 
 ## 运行不变式
 

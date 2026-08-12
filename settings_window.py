@@ -1,6 +1,17 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QLineEdit, QHBoxLayout,
-                             QFormLayout, QPushButton, QComboBox, QDoubleSpinBox, QMessageBox, QSpinBox)
-from PyQt6.QtCore import Qt
+from ui.qt import QtCore, QtWidgets
+
+QWidget = QtWidgets.QWidget
+QVBoxLayout = QtWidgets.QVBoxLayout
+QLabel = QtWidgets.QLabel
+QLineEdit = QtWidgets.QLineEdit
+QHBoxLayout = QtWidgets.QHBoxLayout
+QFormLayout = QtWidgets.QFormLayout
+QPushButton = QtWidgets.QPushButton
+QComboBox = QtWidgets.QComboBox
+QDoubleSpinBox = QtWidgets.QDoubleSpinBox
+QMessageBox = QtWidgets.QMessageBox
+QSpinBox = QtWidgets.QSpinBox
+Qt = QtCore.Qt
 import configparser
 import os
 from config import config

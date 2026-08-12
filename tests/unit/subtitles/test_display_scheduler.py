@@ -4,7 +4,9 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication
+from ui.qt import QtWidgets
+
+QApplication = QtWidgets.QApplication
 
 from subtitle_display_scheduler import SubtitleDisplayScheduler
 from subtitle_event import SubtitleEvent, SubtitleStage

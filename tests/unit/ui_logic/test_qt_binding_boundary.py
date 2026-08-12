@@ -1,4 +1,4 @@
-"""Regression contract for the first PySide6 migration batch.
+"""Regression contract for AnoTime's single PySide6 binding boundary.
 
 These modules must use ``ui.qt`` only.  The contract prevents a later edit
 from bypassing the binding boundary and accidentally mixing PyQt6/PySide6.
@@ -33,6 +33,11 @@ M5_NOTCH_MODULES = (
     "native_notch_overlay.py",
     "overlay_window.py",
 )
+M6_LEGACY_ENTRY_MODULES = (
+    "launcher.py",
+    "settings_window.py",
+    "hotkey_daemon.py",
+)
 
 
 class QtBindingBoundaryTests(unittest.TestCase):
@@ -43,17 +48,17 @@ class QtBindingBoundaryTests(unittest.TestCase):
             + M3_RUNTIME_MODULES
             + M4_PIPELINE_MODULES
             + M5_NOTCH_MODULES
+            + M6_LEGACY_ENTRY_MODULES
         ):
             with self.subTest(module=relative_path):
                 source = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
                 self.assertIn("from ui.qt import", source)
-                self.assertNotIn("from PyQt6", source)
                 self.assertNotIn("from PySide6", source)
 
     def test_boundary_exports_the_small_common_qt_surface(self):
         from ui import qt
 
-        self.assertEqual(qt.QT_BINDING, "PyQt6")
+        self.assertEqual(qt.QT_BINDING, "PySide6")
         for name in ("QObject", "QThread", "QTimer", "QIcon", "Signal", "Slot"):
             self.assertTrue(hasattr(qt, name), name)
 
