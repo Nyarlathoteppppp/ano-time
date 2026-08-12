@@ -8,6 +8,23 @@
 
 当前实际有 **17 个生产 Python 文件**直接导入 PyQt6，而不是之前估计的 14 个。迁移目标是 PySide6：两者都映射 Qt 6，绝大多数 Widget、signal、layout 和 QThread 代码可以机械替换。
 
+其中有 14 个属于当前主运行依赖闭包，3 个属于旧入口/辅助进程。**不能在当前可运行应用中混用两套 binding。**本机验证已确认：同一进程导入 PyQt6 与 PySide6 会触发 macOS Objective-C 重复类警告，存在不确定的崩溃风险。
+
+所以迁移架构是：
+
+```text
+稳定主目录 / master：继续使用 PyQt6，供日常上课
+        │
+        ├─ 不改其 Qt runtime
+        ▼
+独立 PySide6 migration worktree：逐批转换、单模块测试、静态审计
+        │
+        ▼
+完整活动依赖闭包都变为 PySide6 后：原子切换 + 完整实机回归
+```
+
+绝不做 `try: import PySide6 except: import PyQt6` 的永久兼容层，也不通过环境变量在同一份生产安装中来回切换 binding。它会让测试与真实运行不一致，长期必然变成隐性技术债。
+
 本计划只迁移 Python Qt binding，**不重写 UI**，也不改变：
 
 - Apple ASR、Apple Translation、音频采集。
@@ -57,6 +74,20 @@
 
 ## 3. 已知 API 差异
 
+### 3.0 目标 Qt 边界
+
+最终只保留一个很薄的 `ui/qt.py`：它**只**导出 PySide6 的 `QtCore`、`QtGui`、`QtWidgets`、`QtNetwork` 和 `Signal` / `Slot` / `Property` 别名；不含 fallback、动态选择或业务逻辑。
+
+```text
+dashboard / panels / workers / overlays / Pipeline
+                  ↓
+              ui/qt.py
+                  ↓
+               PySide6
+```
+
+用途是让“应用只有一个 Qt binding”成为可审计规则，而不是把大量 `from PySide6...` 随意散落。`ui/qt.py` 不承担设置、线程、窗口或模型逻辑。
+
 ### 3.1 机械替换（预期低风险）
 
 ```python
@@ -101,7 +132,9 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 迁移 `api_test_controller.py`、`dashboard_support/workers.py`、`subtitle_display_scheduler.py`、`global_shortcut.py`、`app_identity.py`。
 
-**验收**：对应 unit tests 通过；API 测速不阻塞 UI；快捷键可用；关闭控制中心不遗留 Worker。
+**验收**：在迁移 worktree 的 PySide6 专用环境中，对应 unit tests 通过；API 测速不阻塞 UI；快捷键可用；关闭控制中心不遗留 Worker。
+
+> M1—M4 的“逐批”指代码与测试的交付粒度，不代表主目录可在半迁移状态运行。只有完整依赖闭包完成后才做集成启动。
 
 ### M2：普通 Panel 与小控件
 
@@ -146,6 +179,14 @@ from PySide6.QtCore import QObject, Signal, Slot
   + 一项对应实机验收
   + 单独 Git 提交
 ```
+
+### 5.1 Worktree 与环境规则
+
+- `master` 始终保留当前可上课的 PyQt6 版本，迁移期间不作为 PySide6 试验场。
+- 建立 `codex/pyside6-migration` 分支和独立 worktree；其虚拟环境只安装 PySide6，不与当前 `.venv` 共用。
+- 每个迁移提交必须可以静态审计；完全可运行只在“活动依赖闭包全部迁移”后要求。
+- 切换前必须执行 `rg 'PyQt6'` 审计：主运行路径、`requirements.txt`、启动脚本和测试不得残留 PyQt6。
+- 老旧 `launcher.py`、`settings_window.py`、`hotkey_daemon.py` 不允许悄悄进主路径；先完成 M6 的删除/归档决策。
 
 禁止：
 

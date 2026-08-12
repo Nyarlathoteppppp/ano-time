@@ -19,6 +19,7 @@
 | 文档 | 用途 | 状态 |
 | --- | --- | --- |
 | [PYQT_TO_PYSIDE6_MIGRATION_PLAN.md](./PYQT_TO_PYSIDE6_MIGRATION_PLAN.md) | PyQt6 → PySide6 许可与迁移计划 | 规划完成，未开始改代码 |
+| [PYSIDE6_TARGET_ARCHITECTURE.md](./PYSIDE6_TARGET_ARCHITECTURE.md) | 单一 Qt binding、UI / Pipeline 边界和迁移 worktree 规则 | 规划完成，未开始改代码 |
 | [DECISIONS.md](./DECISIONS.md) | 需要长期遵守的技术与产品决策 | 持续维护 |
 | [CHANGELOG.md](./CHANGELOG.md) | 面向后续开发 Agent 的近期变更摘要 | 持续维护 |
 
