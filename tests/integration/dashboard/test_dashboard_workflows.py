@@ -592,6 +592,18 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.pending_settings_label.text(),
         )
 
+    def test_control_center_transparency_is_selectable_and_collected(self):
+        self.dashboard.control_center_transparency_slider.setValue(45)
+
+        self.assertIn("45%", self.dashboard.control_center_transparency_value.text())
+        self.assertEqual(
+            self.dashboard.collect_settings().control_center_transparency,
+            45,
+        )
+
+        self.dashboard.control_center_transparency_slider.setValue(0)
+        self.assertIn("不透明", self.dashboard.control_center_transparency_value.text())
+
     def test_unchanged_secrets_are_not_rewritten_to_keychain(self):
         with tempfile.TemporaryDirectory() as directory:
             fake_module = os.path.join(directory, "dashboard.py")

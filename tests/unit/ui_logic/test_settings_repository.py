@@ -143,6 +143,9 @@ class DashboardSettingsRepositoryTests(unittest.TestCase):
                 "Regularisation and bias-variance trade-off",
             )
             self.assertEqual(saved.get("display", "mode"), "notch")
+            self.assertEqual(
+                saved.getint("display", "control_center_transparency"), 30
+            )
             self.assertTrue(saved.getboolean("records", "auto_save_transcripts"))
             self.assertEqual(
                 saved.get("translation", "single_streaming_mode"), "auto"

@@ -1,3 +1,5 @@
+_ROOT_BACKGROUND = "background-color: rgb(28, 30, 39);"
+
 STYLESHEET = """
 QWidget {
     background: transparent;
@@ -79,3 +81,10 @@ QGroupBox::title {
     color: #fab387;
 }
 """
+
+
+def dashboard_stylesheet(transparency_percent):
+    """Return QSS for an opaque or explicitly painted translucent window."""
+    if int(transparency_percent or 0) <= 0:
+        return STYLESHEET
+    return STYLESHEET.replace(_ROOT_BACKGROUND, "background: transparent;")

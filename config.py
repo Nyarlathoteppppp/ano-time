@@ -162,9 +162,13 @@ class Config:
         self.window_width = self._getint("display", "window_width", 800)
         self.window_height = self._getint("display", "window_height", 120)
         self.display_mode = self._get("display", "mode", "notch").lower()
+        self.control_center_transparency = max(
+            0,
+            min(70, self._getint("display", "control_center_transparency", 30)),
+        )
 
         # Session transcripts are written by a background worker and retained
-        # for three days. The UI can disable the recorder entirely.
+        # permanently. The UI can disable the recorder entirely.
         self.auto_save_transcripts = self._getbool(
             "records", "auto_save_transcripts", True
         )

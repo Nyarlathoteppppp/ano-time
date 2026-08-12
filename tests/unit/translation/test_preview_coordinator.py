@@ -6,7 +6,10 @@ from translation_preview import ProgressivePreviewCoordinator
 
 class ProgressivePreviewCoordinatorTests(unittest.TestCase):
     def test_active_survives_while_only_latest_pending_request_runs(self):
-        coordinator = ProgressivePreviewCoordinator(5, "test-preview")
+        events = []
+        coordinator = ProgressivePreviewCoordinator(
+            5, "test-preview", event_callback=lambda *args: events.append(args)
+        )
         started = threading.Event()
         release = threading.Event()
         latest_finished = threading.Event()
@@ -32,6 +35,8 @@ class ProgressivePreviewCoordinatorTests(unittest.TestCase):
             release.set()
             self.assertTrue(latest_finished.wait(timeout=0.5))
             self.assertNotIn("obsolete pending", seen)
+            self.assertEqual(events[0][0], "superseded")
+            self.assertEqual(events[0][1].source_text, "obsolete pending")
         finally:
             release.set()
             coordinator.shutdown()

@@ -170,6 +170,7 @@ class Pipeline(QObject):
             status_callback=self._on_provider_status,
         )
         self.final_translator = self.translation_workflow.final_translator
+        self.preview_translator = self.translation_workflow.preview_translator
         self.bridge_translator = self.translation_workflow.bridge_translator
         # Compatibility for tests and third-party code using Pipeline.translator.
         self.translator = self.final_translator
@@ -232,6 +233,11 @@ class Pipeline(QObject):
 
     def _bridge_translation_client(self):
         return self.__dict__.get("bridge_translator")
+
+    def _preview_translation_client(self):
+        return self.__dict__.get(
+            "preview_translator", self._final_translation_client()
+        )
 
     def _final_status_managed(self):
         workflow = self.__dict__.get("translation_workflow")
@@ -626,7 +632,7 @@ class Pipeline(QObject):
             emit_subtitle=self._emit_subtitle,
             segment_store=self._segment_state_store(),
             bridge_client=self._bridge_translation_client,
-            final_client=self._final_translation_client,
+            final_client=self._preview_translation_client,
             bridge_gate=self._groq_bridge_gate,
             context_snapshot=lambda: self._current_finalized_context(1),
             is_active=lambda: self.running and not self._paused.is_set(),
@@ -1192,7 +1198,8 @@ class Pipeline(QObject):
         previous_preview="",
     ):
         """Keep two active AI jobs and at most one latest pending job."""
-        deadline = time.monotonic() + config.ai_deadline_seconds
+        submitted_at = time.monotonic()
+        deadline = submitted_at + config.ai_deadline_seconds
         with self._refine_queue_lock:
             finished = [future for future in self._refine_futures if future.done()]
             for future in finished:
@@ -1219,10 +1226,12 @@ class Pipeline(QObject):
                 future = executor.submit(
                     worker, text, chunk_id, context_text, deadline,
                     previous_preview=previous_preview,
+                    submitted_at=submitted_at,
                 )
             else:
                 future = executor.submit(
-                    worker, text, chunk_id, context_text, deadline
+                    worker, text, chunk_id, context_text, deadline,
+                    submitted_at=submitted_at,
                 )
             self._refine_futures[future] = {
                 "chunk_id": chunk_id,
@@ -1367,9 +1376,24 @@ class Pipeline(QObject):
                 log_stage("groq_bridge", chunk_id=chunk_id, status="skipped", detail=str(exc))
 
     def _run_refinement(
-        self, text, chunk_id, context_text, deadline, previous_preview=""
+        self,
+        text,
+        chunk_id,
+        context_text,
+        deadline,
+        previous_preview="",
+        submitted_at=None,
     ):
         try:
+            queue_wait_ms = (
+                (time.monotonic() - submitted_at) * 1000
+                if submitted_at is not None else 0.0
+            )
+            log_stage(
+                "final_queue_wait",
+                chunk_id=chunk_id,
+                elapsed_ms=queue_wait_ms,
+            )
             paused = self.__dict__.get("_paused")
             if (
                 not self.running

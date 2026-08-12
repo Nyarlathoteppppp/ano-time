@@ -10,7 +10,12 @@ from .request import PreviewRequest
 class ProgressivePreviewCoordinator:
     """Keep one active request and replace only queued obsolete work."""
 
-    def __init__(self, deadline_seconds, thread_name="translation-preview"):
+    def __init__(
+        self,
+        deadline_seconds,
+        thread_name="translation-preview",
+        event_callback=None,
+    ):
         self.deadline_seconds = max(0.1, float(deadline_seconds))
         self._executor = ThreadPoolExecutor(
             max_workers=1,
@@ -21,6 +26,7 @@ class ProgressivePreviewCoordinator:
         self._invalidated_generation = 0
         self._futures = {}
         self._closed = False
+        self._event_callback = event_callback or (lambda *_args: None)
 
     def submit(self, segment_id, hypothesis_revision, source_text, worker):
         with self._lock:
@@ -29,8 +35,13 @@ class ProgressivePreviewCoordinator:
             self._generation += 1
             generation = self._generation
             for future in list(self._futures):
+                superseded = self._futures.get(future)
                 if not future.running() and future.cancel():
+                    # cancel() may synchronously run _forget(), so retain the
+                    # request before cancelling it for diagnostics.
                     self._futures.pop(future, None)
+                    if superseded is not None:
+                        self._event_callback("superseded", superseded)
             submitted_at = time.monotonic()
             request = PreviewRequest(
                 segment_id=int(segment_id),
@@ -62,8 +73,11 @@ class ProgressivePreviewCoordinator:
             self._generation += 1
             self._invalidated_generation = self._generation
             for future in list(self._futures):
+                cancelled = self._futures.get(future)
                 if not future.running() and future.cancel():
                     self._futures.pop(future, None)
+                    if cancelled is not None:
+                        self._event_callback("invalidated", cancelled)
 
     def shutdown(self):
         with self._lock:

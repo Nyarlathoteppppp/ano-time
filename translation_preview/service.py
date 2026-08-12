@@ -49,9 +49,21 @@ class ProgressiveTranslationPreview:
             "bridge-preview",
         )
         self._final_coordinator = ProgressivePreviewCoordinator(
-            2.5,
+            1.25,
             "final-model-preview",
+            event_callback=self._on_final_coordinator_event,
         )
+
+    @staticmethod
+    def _on_final_coordinator_event(event, request):
+        if event == "superseded":
+            log_stage(
+                "preview_superseded",
+                chunk_id=request.segment_id,
+                status="dropped",
+                words=len(request.source_text.split()),
+                hypothesis_revision=request.hypothesis_revision,
+            )
 
     def observe(
         self,
@@ -180,7 +192,20 @@ class ProgressiveTranslationPreview:
             elapsed_ms=queue_wait_ms,
             words=len(request.source_text.split()),
         )
-        if not self._final_coordinator.is_valid(request) or not self._compatible(request):
+        def request_is_current():
+            return (
+                time.monotonic() < request.deadline
+                and self._final_coordinator.is_valid(request)
+                and self._compatible(request)
+            )
+
+        if not request_is_current():
+            log_stage(
+                "preview_stale_result",
+                chunk_id=request.segment_id,
+                status="dropped",
+                hypothesis_revision=request.hypothesis_revision,
+            )
             return
         translator = self._final_client()
         if translator is None:
@@ -196,8 +221,7 @@ class ProgressiveTranslationPreview:
             nonlocal first_display_logged
             if (
                 not candidate
-                or not self._final_coordinator.is_valid(request)
-                or not self._compatible(request)
+                or not request_is_current()
             ):
                 return False
             projection = (
@@ -249,7 +273,22 @@ class ProgressiveTranslationPreview:
                 failure_scope="preview",
                 on_update=lambda candidate: publish(candidate, False),
             )
+            if time.monotonic() >= request.deadline:
+                log_stage(
+                    "preview_deadline",
+                    chunk_id=request.segment_id,
+                    status="returned_late",
+                    elapsed_ms=(time.perf_counter() - started) * 1000,
+                )
+                return
             shown = publish(translated, True)
+            if not shown and not request_is_current():
+                log_stage(
+                    "preview_stale_result",
+                    chunk_id=request.segment_id,
+                    status="dropped",
+                    hypothesis_revision=request.hypothesis_revision,
+                )
             log_stage(
                 "ai_preview",
                 chunk_id=request.segment_id,
@@ -265,6 +304,12 @@ class ProgressiveTranslationPreview:
                 chunk_id=request.segment_id,
                 status="timeout",
                 detail=str(exc),
+            )
+            log_stage(
+                "preview_deadline",
+                chunk_id=request.segment_id,
+                status="dropped",
+                elapsed_ms=(time.perf_counter() - started) * 1000,
             )
         except Exception as exc:
             self._status_callback("error", "ON · preview failed")

@@ -1,4 +1,5 @@
 import threading
+import time
 import unittest
 
 from segment_store import SegmentStore
@@ -16,6 +17,13 @@ class _Translator:
         callback = kwargs.get("on_update")
         if callback:
             callback(self.result[: max(1, len(self.result) // 2)])
+        return self.result
+
+
+class _SlowDeadlineIgnoringTranslator(_Translator):
+    def translate(self, text, **kwargs):
+        self.calls.append((text, kwargs))
+        time.sleep(0.03)
         return self.result
 
 
@@ -78,6 +86,32 @@ class ProgressiveTranslationPreviewTests(unittest.TestCase):
             service.observe(10, store.hypothesis_revision(10), source)
             self.assertTrue(completed.wait(0.5))
             self.assertEqual(final.calls[0][0], source)
+        finally:
+            service.shutdown()
+
+    def test_preview_lane_has_short_disposable_deadline(self):
+        service, _store, _emitted, _completed = self._service(
+            final=_Translator("preview")
+        )
+        try:
+            self.assertEqual(service._final_coordinator.deadline_seconds, 1.25)
+        finally:
+            service.shutdown()
+
+    def test_client_returning_after_deadline_cannot_publish_preview(self):
+        final = _SlowDeadlineIgnoringTranslator("late preview")
+        service, store, emitted, _completed = self._service(final=final)
+        source = "one two three four five"
+        try:
+            service._final_coordinator.deadline_seconds = 0.01
+            store.publish(12, SubtitleStage.ASR_PARTIAL, source)
+            service.observe(12, store.hypothesis_revision(12), source)
+            time.sleep(0.08)
+            self.assertEqual(emitted, [])
+            self.assertNotEqual(
+                store.snapshot(12).translation_stage,
+                SubtitleStage.AI_PREVIEW,
+            )
         finally:
             service.shutdown()
 

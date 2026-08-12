@@ -68,6 +68,10 @@ def build_single_model(config, usage_path, status_callback=None):
         final_translator=final,
         bridge_translator=bridge_view,
         final_label=label or config.single_provider,
+        # A portable single endpoint has no secondary preview fallback. The
+        # preview deadline may discard slow work; finalization still uses the
+        # same endpoint with its full correctness budget.
+        preview_translator=final,
         bridge_label="Groq → Cerebras" if bridge_view else "Off",
         final_status_managed=False,
         warmup_translator=(

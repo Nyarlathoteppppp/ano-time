@@ -7,4 +7,5 @@ def build_apple_only(_config, _usage_path, status_callback=None):
         final_translator=None,
         bridge_translator=None,
         final_label="Apple on-device only",
+        preview_translator=None,
     )

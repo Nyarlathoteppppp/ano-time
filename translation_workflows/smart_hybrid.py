@@ -65,12 +65,17 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
             final_translator=None,
             bridge_translator=None,
             final_label="Smart Hybrid · unavailable",
+            preview_translator=None,
         )
     router = HybridTranslator(providers, usage_path=usage_path)
     router.status_callback = status_callback
     final = (
         HybridTranslatorView(router, excluding=bridge_names)
         if final_names else None
+    )
+    preview = (
+        HybridTranslatorView(router, only={"Gemini 3.5 Flash-Lite Paid"})
+        if gemini_warmup is not None else None
     )
     bridge_view = (
         HybridTranslatorView(router, only=bridge_names) if bridge_names else None
@@ -80,6 +85,9 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
         final_translator=final,
         bridge_translator=bridge_view,
         final_label="Gemini Paid → GLM fallback",
+        # Preview is disposable: never wait for GLM after a Gemini miss. The
+        # final route below remains Gemini -> GLM for correctness.
+        preview_translator=preview,
         bridge_label="Groq → Cerebras" if bridge_view else "Off",
         final_status_managed=True,
         warmup_translator=(

@@ -145,6 +145,11 @@ class DashboardSettingsRepository:
             "providers", "cloudflare_account_id", providers.cloudflare_account_id
         )
         parser.set("display", "mode", snapshot.display_mode)
+        parser.set(
+            "display",
+            "control_center_transparency",
+            str(max(0, min(70, int(snapshot.control_center_transparency)))),
+        )
         parser.set("shortcut", "enabled", str(snapshot.shortcut_enabled).lower())
         parser.set("shortcut", "double_tap_interval", str(snapshot.shortcut_interval))
         parser.set("diagnostics", "enabled", str(snapshot.diagnostics_enabled).lower())

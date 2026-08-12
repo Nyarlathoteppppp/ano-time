@@ -38,6 +38,9 @@ display_duration = 10
 window_width = 800
 window_height = 120
 mode = notch
+# Control-center background transparency. 0 is fully opaque; maximum is 70.
+# Restart the app after changing this value.
+control_center_transparency = 30
 
 [shortcut]
 enabled = true

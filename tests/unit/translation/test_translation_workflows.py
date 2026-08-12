@@ -16,6 +16,12 @@ class _NamedTranslator:
         return self.name
 
 
+class _FailingTranslator(_NamedTranslator):
+    def translate(self, *_args, **_kwargs):
+        self.calls += 1
+        raise TimeoutError(f"{self.name} timed out")
+
+
 def workflow_config(**overrides):
     values = {
         "translation_workflow": "smart_hybrid",
@@ -89,6 +95,14 @@ class TranslationWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("Qwen-MT Flash fallback", providers)
         self.assertEqual(workflow.final_label, "Gemini Paid → GLM fallback")
+        self.assertEqual(
+            workflow.preview_translator.only,
+            {"Gemini 3.5 Flash-Lite Paid"},
+        )
+        self.assertIs(
+            workflow.preview_translator.router,
+            workflow.final_translator.router,
+        )
         bridge_names = {"Groq GPT-OSS 20B", "Cerebras GPT-OSS 120B"}
         self.assertEqual(workflow.final_translator.excluding, bridge_names)
         self.assertEqual(workflow.bridge_translator.only, bridge_names)
@@ -100,6 +114,27 @@ class TranslationWorkflowTests(unittest.TestCase):
         self.assertIsNone(workflow.bridge_translator)
         self.assertIn("Gemini 3.5 Flash-Lite Paid", names)
         self.assertNotIn("Qwen-MT Flash fallback", names)
+
+    def test_preview_never_falls_through_to_glm_but_final_does(self):
+        workflow = self._build(workflow_config(bridge_provider="off"))
+        providers = {
+            item["name"]: item
+            for item in workflow.final_translator.router.providers
+        }
+        gemini = _FailingTranslator("gemini")
+        glm = _NamedTranslator("glm")
+        providers["Gemini 3.5 Flash-Lite Paid"]["translator"] = gemini
+        providers["Cloudflare GLM-4.7-Flash"]["translator"] = glm
+
+        with self.assertRaises(TimeoutError):
+            workflow.preview_translator.translate(
+                "partial",
+                failure_scope="preview",
+            )
+        self.assertEqual((gemini.calls, glm.calls), (1, 0))
+
+        self.assertEqual(workflow.final_translator.translate("final"), "glm")
+        self.assertEqual((gemini.calls, glm.calls), (2, 1))
 
     def test_blank_current_course_topic_is_not_injected(self):
         workflow = self._build(workflow_config(current_course_topic=""))
@@ -152,6 +187,7 @@ class TranslationWorkflowTests(unittest.TestCase):
             {"Groq GPT-OSS 20B", "Cerebras GPT-OSS 120B"},
         )
         self.assertFalse(workflow.final_status_managed)
+        self.assertIs(workflow.preview_translator, workflow.final_translator)
 
     def test_single_qwen_uses_the_model_selected_in_control_center(self):
         workflow = self._build(

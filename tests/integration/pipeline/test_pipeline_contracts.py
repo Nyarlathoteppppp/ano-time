@@ -174,7 +174,7 @@ class PipelineContractTests(unittest.TestCase):
         release = threading.Event()
         completed = []
 
-        def worker(self, text, chunk_id, context, deadline):
+        def worker(self, text, chunk_id, context, deadline, **_kwargs):
             started.append(chunk_id)
             if len(started) == 2:
                 both_started.set()

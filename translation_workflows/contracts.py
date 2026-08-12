@@ -7,6 +7,7 @@ class TranslationWorkflow:
     final_translator: object | None
     bridge_translator: object | None
     final_label: str
+    preview_translator: object | None = None
     bridge_label: str = "Off"
     final_status_managed: bool = False
     warmup_translator: object | None = None

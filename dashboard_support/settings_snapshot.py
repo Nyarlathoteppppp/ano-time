@@ -61,4 +61,5 @@ class DashboardSettingsSnapshot:
     shortcut_interval: float
     diagnostics_enabled: bool
     auto_save_transcripts: bool
+    control_center_transparency: int = 30
     usage_tracking_enabled: bool = True

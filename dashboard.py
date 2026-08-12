@@ -3,9 +3,9 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTabWidget, QGridLayout,
                              QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
                              QMessageBox, QTextEdit, QDialog, QLayout, QInputDialog)
-from PyQt6.QtWidgets import QCheckBox, QDoubleSpinBox
+from PyQt6.QtWidgets import QCheckBox, QDoubleSpinBox, QSlider
 from PyQt6.QtCore import QEvent, Qt, QSize, QUrl, pyqtSignal, QTimer
-from PyQt6.QtGui import QDesktopServices, QFont, QIcon, QPixmap
+from PyQt6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap
 import sys
 import os
 import sounddevice as sd
@@ -19,7 +19,8 @@ from dashboard_support.app_runtime import (
     notify_existing_instance,
     start_instance_server,
 )
-from dashboard_support.style import STYLESHEET
+from dashboard_support.native_window_appearance import apply_window_backing
+from dashboard_support.style import STYLESHEET, dashboard_stylesheet
 from dashboard_support.widgets import ReadableComboBox
 from dashboard_support.workers import (
     ModelListWorker,
@@ -42,6 +43,16 @@ from translation_usage import session_usage_meter
 class Dashboard(QWidget):
     start_requested = pyqtSignal()
     stop_requested = pyqtSignal()
+
+    def paintEvent(self, event):
+        if self.control_center_transparency > 0:
+            opacity = 1.0 - (self.control_center_transparency / 100.0)
+            painter = QPainter(self)
+            painter.fillRect(
+                self.rect(), QColor(28, 30, 39, round(255 * opacity))
+            )
+            painter.end()
+        super().paintEvent(event)
 
     def _should_quit_for_close_event(self, event):
         return bool(getattr(self, "_force_quit", False) or event.spontaneous())
@@ -83,6 +94,14 @@ class Dashboard(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        apply_window_backing(self, self.control_center_transparency)
+        # QNSWindow may attach one event-loop turn after Qt's show event.
+        QTimer.singleShot(
+            0,
+            lambda: apply_window_backing(
+                self, self.control_center_transparency
+            ),
+        )
         self._set_ui_timers_active(not self.isMinimized())
 
     def changeEvent(self, event):
@@ -109,6 +128,10 @@ class Dashboard(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.control_center_transparency = config.control_center_transparency
+        if self.control_center_transparency > 0:
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            self.setAutoFillBackground(False)
         self.setObjectName("DashboardRoot")
         self._session_generation = 0
         self._session_state = "idle"
@@ -133,7 +156,9 @@ class Dashboard(QWidget):
         session_usage_meter.reset()
         self.setWindowTitle("Anotime - Control Center")
         self.setMinimumSize(900, 600)
-        self.setStyleSheet(STYLESHEET)
+        self.setStyleSheet(
+            dashboard_stylesheet(self.control_center_transparency)
+        )
         
         # Main Layout
         self.layout = QVBoxLayout()
@@ -392,6 +417,35 @@ class Dashboard(QWidget):
         display_apply_hint = QLabel("保存后重新 Launch 生效")
         display_apply_hint.setStyleSheet("font-size: 11px; color: #f9e2af;")
         layout.addWidget(display_apply_hint)
+
+        transparency_row = QHBoxLayout()
+        transparency_row.addWidget(QLabel("Control Center Transparency（控制中心透明度）:"))
+        self.control_center_transparency_slider = QSlider(
+            Qt.Orientation.Horizontal
+        )
+        self.control_center_transparency_slider.setRange(0, 70)
+        self.control_center_transparency_slider.setSingleStep(5)
+        self.control_center_transparency_slider.setPageStep(10)
+        self.control_center_transparency_slider.setValue(
+            self.control_center_transparency
+        )
+        self.control_center_transparency_value = QLabel()
+        self.control_center_transparency_value.setMinimumWidth(105)
+        self.control_center_transparency_slider.valueChanged.connect(
+            self._update_control_center_transparency_label
+        )
+        self._update_control_center_transparency_label(
+            self.control_center_transparency
+        )
+        transparency_row.addWidget(self.control_center_transparency_slider, 1)
+        transparency_row.addWidget(self.control_center_transparency_value)
+        layout.addLayout(transparency_row)
+        transparency_hint = QLabel(
+            "0% = 不透明、性能最好；数值越高背景越透明。保存后重启 App 生效。"
+        )
+        transparency_hint.setWordWrap(True)
+        transparency_hint.setStyleSheet("font-size: 11px; color: #f9e2af;")
+        layout.addWidget(transparency_hint)
 
         self.notch_help = QLabel(
             "刘海操作：点击刘海可按 小 → 中 → 大 循环切换；"
@@ -753,6 +807,14 @@ class Dashboard(QWidget):
             self._mark_settings_dirty
         )
         self.usage_tracking_checkbox.toggled.connect(self._mark_settings_dirty)
+        self.control_center_transparency_slider.valueChanged.connect(
+            self._mark_settings_dirty
+        )
+
+    def _update_control_center_transparency_label(self, value):
+        value = int(value)
+        suffix = "（不透明）" if value == 0 else ""
+        self.control_center_transparency_value.setText(f"{value}% {suffix}")
 
     def _mark_settings_dirty(self, *_):
         if not self._settings_ready:
@@ -2133,6 +2195,9 @@ class Dashboard(QWidget):
             shortcut_interval=self.shortcut_interval,
             diagnostics_enabled=self.diagnostics_checkbox.isChecked(),
             auto_save_transcripts=self.transcript_recording_checkbox.isChecked(),
+            control_center_transparency=(
+                self.control_center_transparency_slider.value()
+            ),
             usage_tracking_enabled=self.usage_tracking_checkbox.isChecked(),
         )
 
