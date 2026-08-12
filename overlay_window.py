@@ -1,7 +1,21 @@
-from PyQt6.QtWidgets import (QApplication, QWidget, QTextEdit, QVBoxLayout,
-                             QHBoxLayout, QScrollArea, QLabel, QFrame,
-                             QSizePolicy, QLayout, QMenu)
-from PyQt6.QtCore import Qt, QPoint, QRect, QSettings, QTimer, pyqtSignal
+from ui.qt import QtCore, QtWidgets, Signal
+
+QApplication = QtWidgets.QApplication
+QWidget = QtWidgets.QWidget
+QVBoxLayout = QtWidgets.QVBoxLayout
+QHBoxLayout = QtWidgets.QHBoxLayout
+QScrollArea = QtWidgets.QScrollArea
+QLabel = QtWidgets.QLabel
+QFrame = QtWidgets.QFrame
+QSizePolicy = QtWidgets.QSizePolicy
+QLayout = QtWidgets.QLayout
+QMenu = QtWidgets.QMenu
+QPushButton = QtWidgets.QPushButton
+Qt = QtCore.Qt
+QPoint = QtCore.QPoint
+QRect = QtCore.QRect
+QSettings = QtCore.QSettings
+QTimer = QtCore.QTimer
 
 from ctypes import CDLL, c_int32, c_void_p
 import html
@@ -342,7 +356,7 @@ class ResizeBorder(QWidget):
 
 class GlassSurface(QFrame):
     """Glass subtitle surface; double-click can request the native notch."""
-    mode_switch_requested = pyqtSignal()
+    mode_switch_requested = Signal()
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -352,8 +366,8 @@ class GlassSurface(QFrame):
         super().mouseDoubleClickEvent(event)
 
 class OverlayWindow(QWidget):
-    stop_requested = pyqtSignal()
-    notch_requested = pyqtSignal()
+    stop_requested = Signal()
+    notch_requested = Signal()
 
     def __init__(self, display_duration=None, window_width=400, window_height=None,
                  display_mode="glass", allow_notch_switch=False,
@@ -572,8 +586,7 @@ class OverlayWindow(QWidget):
         self.control_bar = QWidget()
         grip_layout = QHBoxLayout(self.control_bar)
         grip_layout.setContentsMargins(0, 0, 0, 0)
-        from PyQt6.QtWidgets import QPushButton
-        
+
         # Stop Button
         self.stop_btn = QPushButton("⏹")
         self.stop_btn.setToolTip("退出翻译并返回控制中心")

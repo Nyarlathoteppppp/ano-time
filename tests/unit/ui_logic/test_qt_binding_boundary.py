@@ -31,6 +31,7 @@ M4_PIPELINE_MODULES = (
 )
 M5_NOTCH_MODULES = (
     "native_notch_overlay.py",
+    "overlay_window.py",
 )
 
 

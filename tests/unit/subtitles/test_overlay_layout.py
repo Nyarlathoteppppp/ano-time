@@ -5,8 +5,11 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QRect
-from PyQt6.QtWidgets import QApplication, QScrollBar
+from ui.qt import QtCore, QtWidgets
+
+QRect = QtCore.QRect
+QApplication = QtWidgets.QApplication
+QScrollBar = QtWidgets.QScrollBar
 
 from overlay_window import (
     GLASS_PANEL_BACKGROUND,
