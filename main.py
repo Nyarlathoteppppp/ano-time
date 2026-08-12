@@ -300,9 +300,11 @@ class Pipeline(QObject):
     def _segment_state_store(self):
         store = self.__dict__.get("_segment_store")
         if store is None:
-            target_lang = getattr(
-                getattr(self, "settings", None), "target_lang", "Chinese"
-            )
+            # Read the launch snapshot directly.  Besides avoiding Qt's
+            # dynamic attribute lookup, this keeps lightweight Pipeline
+            # contract tests independent from QObject initialisation.
+            settings = self.__dict__.get("settings")
+            target_lang = getattr(settings, "target_lang", "Chinese")
             store = self._segment_store = SegmentStore(target_lang)
         return store
 
