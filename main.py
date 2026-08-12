@@ -31,6 +31,7 @@ from translation_workflows import build_translation_workflow
 from translation_preview import ProgressiveTranslationPreview
 from session_settings import SessionSettingsSnapshot, describe_session
 from smart_hint import build_smart_hint_scheduler
+from translation_context import ContextPolicy
 
 
 FINAL_CONTEXT_SEGMENTS = 4
@@ -101,6 +102,7 @@ class Pipeline(QObject):
         )
         self._context_lock = threading.Lock()
         self._finalized_context = deque(maxlen=FINAL_CONTEXT_SEGMENTS)
+        self._context_policy = ContextPolicy()
         self._smart_hint_scheduler = build_smart_hint_scheduler(
             settings,
             status_callback=self._on_smart_hint_status,
@@ -669,7 +671,7 @@ class Pipeline(QObject):
             bridge_client=self._bridge_translation_client,
             final_client=self._preview_translation_client,
             bridge_gate=self._groq_bridge_gate,
-            context_snapshot=lambda: self._current_finalized_context(1),
+            context_snapshot=self._preview_context_policy_snapshot,
             is_active=lambda: self.running and not self._paused.is_set(),
             hint_snapshot=self._smart_hint_text,
             status_callback=lambda status, detail: self.signals.runtime_status.emit(
@@ -772,8 +774,19 @@ class Pipeline(QObject):
                 "ASR", "ok", f"Apple · {elapsed_ms / 1000:.1f}s"
             )
             self.last_final_text = text
-            context_text = self._snapshot_finalized_context(text, limit=3)
             previous_preview = preview_service.displayed_candidate(chunk_id)
+            final_context = self._snapshot_finalized_context(
+                text,
+                limit=3,
+                previous_preview=previous_preview,
+            )
+            log_stage(
+                "translation_context",
+                chunk_id=chunk_id,
+                stage_name="final",
+                context_tokens=final_context.estimated_tokens,
+                truncated=final_context.truncated,
+            )
             self._emit_subtitle(
                 chunk_id, text, "", "final", SubtitleStage.ASR_FINAL
             )
@@ -783,8 +796,7 @@ class Pipeline(QObject):
                 chunk_id,
                 bridge_executor,
                 refine_executor,
-                context_text,
-                previous_preview,
+                final_context,
             )
             final_args = (
                 text, chunk_id, segment_started_at, first_partial_at,
@@ -1066,7 +1078,7 @@ class Pipeline(QObject):
                     )
                     return
                 print(f"[Final {chunk_id}] Transcribed: {text}")
-                context_text = self._snapshot_finalized_context(text)
+                context = self._snapshot_finalized_context(text)
                 # Save for context (only if meaningful)
                 if len(text.split()) > 2:
                     self.last_final_text = text
@@ -1087,7 +1099,7 @@ class Pipeline(QObject):
                         self._run_translation,
                         text,
                         chunk_id,
-                        context_text,
+                        context,
                     )
             else:
                 pass
@@ -1176,21 +1188,24 @@ class Pipeline(QObject):
             print(f"[Partial Translation {chunk_id}] Failed: {e}")
             log_stage("partial_translation", chunk_id=chunk_id, status="error", detail=str(e))
 
-    def _snapshot_finalized_context(self, text, limit=3):
-        """Snapshot recent finalized segments, then append the current one."""
+    def _snapshot_finalized_context(self, text, limit=3, previous_preview=""):
+        """Freeze bounded prior finalized context, then append current text."""
         limit = max(0, int(limit))
         with self._context_lock:
-            context = (
-                "\n".join(list(self._finalized_context)[-limit:])
-                if limit else ""
-            )
+            history = tuple(self._finalized_context)
             self._finalized_context.append(text)
         scheduler = self.__dict__.get("_smart_hint_scheduler")
         if scheduler is not None:
             # The scheduler only copies finalized source into a bounded deque;
             # its optional request is submitted on its own executor.
             scheduler.observe_finalized(text)
-        return context
+        policy = self.__dict__.get("_context_policy") or ContextPolicy()
+        return policy.final(
+            history,
+            previous_preview=previous_preview,
+            live_hint=self._smart_hint_text(),
+            history_limit=limit,
+        )
 
     def _current_finalized_context(self, limit=1):
         """Read prior finalized context without appending a provisional prefix."""
@@ -1201,6 +1216,52 @@ class Pipeline(QObject):
                 if limit else ""
             )
 
+    def _preview_context_policy_snapshot(self):
+        """Return a frozen history snapshot for a Preview trigger."""
+        with self._context_lock:
+            history = tuple(self._finalized_context)
+        policy = self.__dict__.get("_context_policy") or ContextPolicy()
+
+        class PreviewContextFactory:
+            def first_preview(_self):
+                context = policy.first_preview(
+                    history,
+                    live_hint=self._smart_hint_text(),
+                )
+                log_stage(
+                    "translation_context",
+                    stage_name="preview_first",
+                    context_tokens=context.estimated_tokens,
+                    truncated=context.truncated,
+                )
+                return context
+
+            def continuing_preview(_self, *, previous_preview=""):
+                context = policy.continuing_preview(
+                    history,
+                    previous_preview=previous_preview,
+                    live_hint=self._smart_hint_text(),
+                )
+                log_stage(
+                    "translation_context",
+                    stage_name="preview",
+                    context_tokens=context.estimated_tokens,
+                    truncated=context.truncated,
+                )
+                return context
+
+            def bridge(_self):
+                context = policy.bridge(live_hint=self._smart_hint_text())
+                log_stage(
+                    "translation_context",
+                    stage_name="bridge",
+                    context_tokens=context.estimated_tokens,
+                    truncated=context.truncated,
+                )
+                return context
+
+        return PreviewContextFactory()
+
     def _forget_refinement(self, future):
         with self._refine_queue_lock:
             self._refine_futures.pop(future, None)
@@ -1209,7 +1270,7 @@ class Pipeline(QObject):
         with self._bridge_queue_lock:
             self._bridge_futures.pop(future, None)
 
-    def _submit_latest_bridge(self, executor, text, chunk_id, draft):
+    def _submit_latest_bridge(self, executor, text, chunk_id, draft, context=None):
         """Run one Groq bridge request and retain only the latest pending one."""
         deadline = time.monotonic() + 1.0
         with self._bridge_queue_lock:
@@ -1225,9 +1286,10 @@ class Pipeline(QObject):
                         status="dropped",
                         detail="replaced by newer finalized segment",
                     )
-            future = executor.submit(
-                self._run_groq_bridge, text, chunk_id, draft, deadline
-            )
+            args = (text, chunk_id, draft, deadline)
+            if context is not None:
+                args += (context,)
+            future = executor.submit(self._run_groq_bridge, *args)
             self._bridge_futures[future] = {
                 "chunk_id": chunk_id,
                 "deadline": deadline,
@@ -1235,7 +1297,7 @@ class Pipeline(QObject):
         future.add_done_callback(self._forget_bridge)
 
     def _submit_latest_ai(
-        self, executor, worker, text, chunk_id, context_text,
+        self, executor, worker, text, chunk_id, context,
         previous_preview="",
     ):
         """Keep two active AI jobs and at most one latest pending job."""
@@ -1263,17 +1325,10 @@ class Pipeline(QObject):
                         detail="replaced by newer finalized segment",
                     )
 
+            kwargs = {"submitted_at": submitted_at}
             if previous_preview:
-                future = executor.submit(
-                    worker, text, chunk_id, context_text, deadline,
-                    previous_preview=previous_preview,
-                    submitted_at=submitted_at,
-                )
-            else:
-                future = executor.submit(
-                    worker, text, chunk_id, context_text, deadline,
-                    submitted_at=submitted_at,
-                )
+                kwargs["previous_preview"] = previous_preview
+            future = executor.submit(worker, text, chunk_id, context, deadline, **kwargs)
             self._refine_futures[future] = {
                 "chunk_id": chunk_id,
                 "deadline": deadline,
@@ -1286,8 +1341,7 @@ class Pipeline(QObject):
         chunk_id,
         bridge_executor,
         refine_executor,
-        context_text,
-        previous_preview="",
+        context,
     ):
         """Submit network finalization without entering the Apple work queue."""
         paused = self.__dict__.get("_paused")
@@ -1308,8 +1362,7 @@ class Pipeline(QObject):
                 self._run_refinement,
                 text,
                 chunk_id,
-                context_text,
-                previous_preview,
+                context,
             )
         except RuntimeError as exc:
             log_stage("llm_refine", chunk_id=chunk_id, status="skipped", detail=str(exc))
@@ -1317,7 +1370,11 @@ class Pipeline(QObject):
         try:
             if self._bridge_translation_client() is None:
                 raise RuntimeError("bridge is off")
-            self._submit_latest_bridge(bridge_executor, text, chunk_id, None)
+            policy = self.__dict__.get("_context_policy") or ContextPolicy()
+            bridge_context = policy.bridge(live_hint=self._smart_hint_text())
+            self._submit_latest_bridge(
+                bridge_executor, text, chunk_id, None, bridge_context
+            )
         except RuntimeError as exc:
             log_stage("groq_bridge", chunk_id=chunk_id, status="skipped", detail=str(exc))
 
@@ -1370,7 +1427,7 @@ class Pipeline(QObject):
         if paused is not None and paused.is_set():
             return
 
-    def _run_groq_bridge(self, text, chunk_id, draft, deadline):
+    def _run_groq_bridge(self, text, chunk_id, draft, deadline, context=None):
         """Best-effort bridge isolated from Apple drafts and final refinement."""
         if not self.running or time.monotonic() >= deadline:
             log_stage("groq_bridge", chunk_id=chunk_id, status="expired")
@@ -1403,7 +1460,7 @@ class Pipeline(QObject):
                     use_context=False,
                     remember_context=False,
                     draft_translation=draft,
-                    live_hint=self._smart_hint_text(),
+                    live_hint=(context.live_hint if context else self._smart_hint_text()),
                     deadline=bridge_deadline,
                 )
                 if translated and self.running and time.monotonic() < bridge_deadline:
@@ -1424,7 +1481,7 @@ class Pipeline(QObject):
         self,
         text,
         chunk_id,
-        context_text,
+        context,
         deadline,
         previous_preview="",
         submitted_at=None,
@@ -1449,9 +1506,13 @@ class Pipeline(QObject):
                 return
             started = time.perf_counter()
 
+            context = self._normalise_translation_context(
+                context, previous_preview=previous_preview
+            )
+
             def emit_before_deadline(partial):
                 if (
-                    not previous_preview
+                    not context.previous_preview
                     and self.running
                     and (paused is None or not paused.is_set())
                     and time.monotonic() < deadline
@@ -1475,9 +1536,9 @@ class Pipeline(QObject):
                 self._on_provider_status("active", final_label)
             translated = final_translator.translate(
                 text, use_context=False, remember_context=False,
-                context_text=context_text, deadline=deadline,
-                previous_preview=previous_preview or None,
-                live_hint=self._smart_hint_text(),
+                context_text=context.context_text, deadline=deadline,
+                previous_preview=context.previous_preview or None,
+                live_hint=context.live_hint,
                 on_update=emit_before_deadline,
             )
             elapsed_ms = (time.perf_counter() - started) * 1000
@@ -1507,7 +1568,7 @@ class Pipeline(QObject):
             print(f"[LLM Refinement {chunk_id}] Failed: {exc}")
             log_stage("llm_refine", chunk_id=chunk_id, status="error", detail=str(exc))
 
-    def _run_translation(self, text, chunk_id, context_text, deadline):
+    def _run_translation(self, text, chunk_id, context, deadline):
         """Run translation in background and emit result"""
         draft = None
         try:
@@ -1547,9 +1608,12 @@ class Pipeline(QObject):
             final_translator = self._final_translation_client()
             if final_translator is None:
                 return
+            context = self._normalise_translation_context(context)
             translated = final_translator.translate(
                 text, use_context=False, remember_context=False,
-                context_text=context_text, deadline=deadline,
+                context_text=context.context_text, deadline=deadline,
+                previous_preview=context.previous_preview or None,
+                live_hint=context.live_hint,
                 on_update=emit_before_deadline,
             )
             print(f"[Final {chunk_id}] Translated: {translated}")
@@ -1575,6 +1639,17 @@ class Pipeline(QObject):
                     "final",
                     SubtitleStage.ERROR,
                 )
+
+    @staticmethod
+    def _normalise_translation_context(context, previous_preview=""):
+        """Accept legacy context strings while all new paths use snapshots."""
+        if hasattr(context, "context_text"):
+            return context
+        return ContextPolicy().final(
+            (str(context or ""),) if context else (),
+            previous_preview=previous_preview,
+            history_limit=1,
+        )
     
     def _transcribe_chunk(self, transcriber, audio_chunk, chunk_id):
         """Transcribe a single chunk and log timing"""

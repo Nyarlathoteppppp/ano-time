@@ -45,7 +45,7 @@ class RealtimePriorityTests(unittest.TestCase):
         bridge_started = threading.Event()
         release_bridge = threading.Event()
 
-        def blocking_bridge(self, text, chunk_id, draft, deadline):
+        def blocking_bridge(self, text, chunk_id, draft, deadline, context=None):
             bridge_started.set()
             release_bridge.wait(timeout=1)
 
@@ -118,7 +118,7 @@ class RealtimePriorityTests(unittest.TestCase):
         release = threading.Event()
         completed = []
 
-        def bridge(self, text, chunk_id, draft, deadline):
+        def bridge(self, text, chunk_id, draft, deadline, context=None):
             completed.append(chunk_id)
             if chunk_id == 1:
                 started.set()

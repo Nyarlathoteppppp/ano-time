@@ -6,6 +6,7 @@ import time
 
 from glossary import CourseGlossary
 from math_subtitles import safe_normalize_math_subtitles
+from translation_context import estimate_tokens
 
 class Translator:
     def __init__(self, api_key=None, base_url=None, model="MBZUAI-IFM/K2-Think-nothink",
@@ -153,12 +154,7 @@ class Translator:
     @staticmethod
     def _estimate_token_count(text):
         """Cheap provider-neutral fallback; never presented as exact usage."""
-        text = str(text or "")
-        if not text:
-            return 0
-        ascii_count = sum(1 for character in text if ord(character) < 128)
-        non_ascii_count = len(text) - ascii_count
-        return max(1, (ascii_count + 3) // 4 + non_ascii_count)
+        return estimate_tokens(text)
 
     @classmethod
     def _estimated_usage(cls, messages, completion):

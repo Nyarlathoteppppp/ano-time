@@ -166,6 +166,79 @@ class ProgressiveTranslationPreviewTests(unittest.TestCase):
         finally:
             service.shutdown()
 
+    def test_preview_context_is_frozen_when_request_is_submitted(self):
+        first_context = "context at trigger time"
+        seen = []
+
+        def snapshot():
+            seen.append(True)
+            return first_context if len(seen) == 1 else "future context"
+
+        final = _Translator("预览")
+        store = SegmentStore()
+        service = ProgressiveTranslationPreview(
+            emit_subtitle=lambda *_args, **_kwargs: True,
+            segment_store=store,
+            bridge_client=lambda: None,
+            final_client=lambda: final,
+            bridge_gate=type("Gate", (), {"allow": lambda _self, _text: (True, "ok")})(),
+            context_snapshot=snapshot,
+            is_active=lambda: True,
+        )
+        try:
+            source = "one two three four five"
+            store.publish(31, SubtitleStage.ASR_PARTIAL, source)
+            service.observe(31, store.hypothesis_revision(31), source)
+            deadline = time.monotonic() + 0.5
+            while not final.calls and time.monotonic() < deadline:
+                time.sleep(0.005)
+            self.assertEqual(final.calls[0][1]["context_text"], first_context)
+            self.assertEqual(len(seen), 1)
+        finally:
+            service.shutdown()
+
+    def test_first_preview_uses_first_preview_context_factory_method(self):
+        class Factory:
+            def __init__(self):
+                self.calls = []
+
+            def first_preview(self):
+                self.calls.append("first")
+                from translation_context import TranslationContext
+                return TranslationContext(context_text="first context")
+
+            def continuing_preview(self, *, previous_preview=""):
+                self.calls.append("continuing")
+                from translation_context import TranslationContext
+                return TranslationContext(
+                    context_text="continuing context",
+                    previous_preview=previous_preview,
+                )
+
+        factory = Factory()
+        final = _Translator("预览")
+        store = SegmentStore()
+        service = ProgressiveTranslationPreview(
+            emit_subtitle=lambda *_args, **_kwargs: True,
+            segment_store=store,
+            bridge_client=lambda: None,
+            final_client=lambda: final,
+            bridge_gate=type("Gate", (), {"allow": lambda _self, _text: (True, "ok")})(),
+            context_snapshot=lambda: factory,
+            is_active=lambda: True,
+        )
+        try:
+            source = "one two three four five"
+            store.publish(41, SubtitleStage.ASR_PARTIAL, source)
+            service.observe(41, store.hypothesis_revision(41), source)
+            deadline = time.monotonic() + 0.5
+            while not final.calls and time.monotonic() < deadline:
+                time.sleep(0.005)
+            self.assertEqual(factory.calls, ["first"])
+            self.assertEqual(final.calls[0][1]["context_text"], "first context")
+        finally:
+            service.shutdown()
+
     def test_optional_bridge_uses_stable_source_without_final_client(self):
         bridge = _Translator("桥接译文")
         service, store, _emitted, completed = self._service(bridge=bridge)

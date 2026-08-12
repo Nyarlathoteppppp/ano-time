@@ -30,6 +30,11 @@ class DashboardWorkflowTests(unittest.TestCase):
         bridge_default = patch.object(dashboard_module.config, "bridge_provider", "off")
         bridge_default.start()
         self.addCleanup(bridge_default.stop)
+        pacing_default = patch.object(
+            dashboard_module.config, "subtitle_update_pacing", "fluent"
+        )
+        pacing_default.start()
+        self.addCleanup(pacing_default.stop)
         self.dashboard = Dashboard()
         self.addCleanup(self.dashboard.close)
 

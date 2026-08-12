@@ -4,6 +4,7 @@ import time
 
 from runtime_log import log_stage
 from subtitle_event import SubtitleStage
+from translation_context import TranslationContext
 
 from .agreement import TargetLocalAgreement
 from .coordinator import ProgressivePreviewCoordinator
@@ -86,11 +87,13 @@ class ProgressiveTranslationPreview:
                 stable_source_text,
             )
         ):
+            bridge_context = self._bridge_context()
             self._bridge_coordinator.submit(
                 segment_id,
                 hypothesis_revision,
                 stable_source_text,
                 self._run_bridge,
+                context=bridge_context,
             )
             log_stage(
                 "bridge_preview_trigger",
@@ -102,11 +105,17 @@ class ProgressiveTranslationPreview:
             self._final_client() is not None
             and self._final_policy.should_request(segment_id, source_text)
         ):
+            # Capture immutable context here, rather than on the preview
+            # worker.  A queued request must never learn about later lecture
+            # segments before it starts.
+            previous_preview = self._agreement.displayed_candidate(segment_id)
+            context = self._preview_context(previous_preview)
             self._final_coordinator.submit(
                 segment_id,
                 hypothesis_revision,
                 source_text,
                 self._run_final_model,
+                context=context,
             )
             log_stage(
                 "ai_preview_trigger",
@@ -127,6 +136,28 @@ class ProgressiveTranslationPreview:
             )
         )
 
+    def _preview_context(self, previous_preview):
+        snapshot = self._context_snapshot()
+        # The pipeline supplies a ContextPolicy.  The fallback keeps custom
+        # third-party callers compatible with the former string callback.
+        if not previous_preview and hasattr(snapshot, "first_preview"):
+            return snapshot.first_preview()
+        if hasattr(snapshot, "continuing_preview"):
+            return snapshot.continuing_preview(previous_preview=previous_preview)
+        if hasattr(snapshot, "context_text"):
+            return snapshot
+        return TranslationContext(
+            context_text=str(snapshot or ""),
+            previous_preview=str(previous_preview or ""),
+            live_hint=self._hint_snapshot(),
+        )
+
+    def _bridge_context(self):
+        snapshot = self._context_snapshot()
+        if hasattr(snapshot, "bridge"):
+            return snapshot.bridge()
+        return TranslationContext(live_hint=self._hint_snapshot())
+
     def _run_bridge(self, request):
         if not self._bridge_coordinator.is_valid(request) or not self._compatible(request):
             return
@@ -142,6 +173,7 @@ class ProgressiveTranslationPreview:
                 detail=reason,
             )
             return
+        context = request.context or TranslationContext()
         try:
             started = time.perf_counter()
             translated = translator.translate(
@@ -149,7 +181,7 @@ class ProgressiveTranslationPreview:
                 use_context=False,
                 remember_context=False,
                 deadline=request.deadline,
-                live_hint=self._hint_snapshot(),
+                live_hint=context.live_hint,
             )
             if (
                 not translated
@@ -213,9 +245,8 @@ class ProgressiveTranslationPreview:
         translator = self._final_client()
         if translator is None:
             return
-        previous_preview = self._agreement.displayed_candidate(
-            request.segment_id
-        )
+        context = request.context or TranslationContext()
+        previous_preview = context.previous_preview
 
         started = time.perf_counter()
         first_display_logged = False
@@ -271,8 +302,8 @@ class ProgressiveTranslationPreview:
                 remember_context=False,
                 previous_preview=previous_preview or None,
                 prefer_preview_continuity=True,
-                context_text=self._context_snapshot(),
-                live_hint=self._hint_snapshot(),
+                context_text=context.context_text,
+                live_hint=context.live_hint,
                 deadline=request.deadline,
                 failure_scope="preview",
                 on_update=lambda candidate: publish(candidate, False),

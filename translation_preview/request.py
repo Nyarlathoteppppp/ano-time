@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from translation_context import TranslationContext
+
 
 @dataclass(frozen=True, slots=True)
 class PreviewRequest:
@@ -11,3 +13,4 @@ class PreviewRequest:
     generation: int
     submitted_at: float
     deadline: float
+    context: TranslationContext | None = None

@@ -33,7 +33,7 @@ class ProgressivePreviewCoordinator:
         self._closed = False
         self._event_callback = event_callback or (lambda *_args: None)
 
-    def submit(self, segment_id, hypothesis_revision, source_text, worker):
+    def submit(self, segment_id, hypothesis_revision, source_text, worker, *, context=None):
         with self._lock:
             if self._closed:
                 return None
@@ -55,6 +55,7 @@ class ProgressivePreviewCoordinator:
                 generation=generation,
                 submitted_at=submitted_at,
                 deadline=submitted_at + self.deadline_seconds,
+                context=context,
             )
             future = self._executor.submit(worker, request)
             self._futures[future] = request

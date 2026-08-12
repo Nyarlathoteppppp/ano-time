@@ -111,13 +111,13 @@ class PipelineContractTests(unittest.TestCase):
             for index in range(1, 7)
         ]
 
-        self.assertEqual(snapshots[0], "")
+        self.assertEqual(snapshots[0].context_text, "")
         self.assertEqual(
-            snapshots[4],
+            snapshots[4].context_text,
             "sentence 2\nsentence 3\nsentence 4",
         )
         self.assertEqual(
-            snapshots[5],
+            snapshots[5].context_text,
             "sentence 3\nsentence 4\nsentence 5",
         )
 
