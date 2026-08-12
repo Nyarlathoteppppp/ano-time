@@ -782,14 +782,24 @@ class Dashboard(QWidget):
             if workflow == "apple_only":
                 model = "Apple 本机识别与翻译"
             elif workflow == "smart_hybrid":
+                draft_text = (
+                    "Apple 草稿｜"
+                    if self.fast_translation_backend.currentText() == "apple"
+                    else "无本机草稿｜"
+                )
                 model = (
-                    "Apple 草稿｜Groq/Cerebras 桥接｜Gemini 主翻译｜GLM 兜底"
+                    f"{draft_text}Groq/Cerebras 桥接｜Gemini 主翻译｜GLM 兜底"
                     if bridge == "groq"
-                    else "Apple 草稿｜Gemini 主翻译｜GLM 兜底"
+                    else f"{draft_text}Gemini 主翻译｜GLM 兜底"
                 )
             else:
                 bridge_text = "｜Groq/Cerebras 桥接" if bridge == "groq" else ""
-                model = f"Apple 草稿{bridge_text}｜{self.model.currentText()} 主翻译"
+                draft_text = (
+                    "Apple 草稿"
+                    if self.fast_translation_backend.currentText() == "apple"
+                    else "无本机草稿"
+                )
+                model = f"{draft_text}{bridge_text}｜{self.model.currentText()} 主翻译"
         else:
             model = config.model
         self.translation_summary.setText(model)
@@ -1519,14 +1529,14 @@ class Dashboard(QWidget):
         main_card_layout.setSpacing(7)
         main_title = QLabel("Main Translation（主模型 · 最终翻译）")
         main_title.setStyleSheet("font-weight: 700; color: #89b4fa;")
-        main_explanation = QLabel(
+        self.main_model_explanation = QLabel(
             "老师说话时先给临时译文，句子结束后再给最终译文。"
             "远程请求失败时保留 Apple 草稿。"
         )
-        main_explanation.setWordWrap(True)
-        main_explanation.setStyleSheet("font-size: 12px; color: #bac2de;")
+        self.main_model_explanation.setWordWrap(True)
+        self.main_model_explanation.setStyleSheet("font-size: 12px; color: #bac2de;")
         main_card_layout.addWidget(main_title)
-        main_card_layout.addWidget(main_explanation)
+        main_card_layout.addWidget(self.main_model_explanation)
         self.main_model_layout = QFormLayout()
         self.main_model_layout.setContentsMargins(0, 0, 0, 0)
         self.main_model_layout.setVerticalSpacing(8)
@@ -1724,6 +1734,12 @@ class Dashboard(QWidget):
         self.gemini_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.gemini_api_key.setPlaceholderText("Google AI Studio key")
         self.main_model_layout.addRow("Gemini Key（付费主翻译密钥）:", self.gemini_api_key)
+        # Google Gemini is available in both workflows.  Keep the ordinary
+        # provider profile and Smart Hybrid's dedicated field as two views of
+        # the same saved Keychain secret, without coupling either runtime.
+        self._gemini_key_syncing = False
+        self.api_key.textChanged.connect(self._sync_single_gemini_key)
+        self.gemini_api_key.textChanged.connect(self._sync_hybrid_gemini_key)
 
         self.cloudflare_account_id = QLineEdit(config.cloudflare_account_id)
         self.cloudflare_account_id.setPlaceholderText("Cloudflare account ID")
@@ -1868,6 +1884,9 @@ class Dashboard(QWidget):
             "apple: show an immediate on-device draft, then replace it with the LLM-refined translation"
         )
         layout.addRow("Instant Draft（即时草稿翻译）:", self.fast_translation_backend)
+        self.fast_translation_backend.currentTextChanged.connect(
+            self._on_translation_workflow_changed
+        )
 
         self.translation_workflow.currentIndexChanged.connect(
             self._on_translation_workflow_changed
@@ -1942,6 +1961,36 @@ class Dashboard(QWidget):
         finally:
             self._switching_provider = False
         self._on_translation_workflow_changed()
+
+    def _sync_single_gemini_key(self, value):
+        """Mirror the shared Gemini secret while editing the Single Model form."""
+        if (
+            self._gemini_key_syncing
+            or not hasattr(self, "provider")
+            or self.provider.currentText() != "Google Gemini"
+            or not hasattr(self, "gemini_api_key")
+        ):
+            return
+        self._gemini_key_syncing = True
+        try:
+            if self.gemini_api_key.text() != value:
+                self.gemini_api_key.setText(value)
+        finally:
+            self._gemini_key_syncing = False
+
+    def _sync_hybrid_gemini_key(self, value):
+        """Mirror a Hybrid key back into the Google Gemini provider profile."""
+        if self._gemini_key_syncing or not hasattr(self, "provider"):
+            return
+        self.provider_keys["Google Gemini"] = value
+        if self.provider.currentText() != "Google Gemini" or not hasattr(self, "api_key"):
+            return
+        self._gemini_key_syncing = True
+        try:
+            if self.api_key.text() != value:
+                self.api_key.setText(value)
+        finally:
+            self._gemini_key_syncing = False
 
     def _remember_provider_form(self, provider):
         """Snapshot one visible profile before the selector changes it."""
@@ -2096,6 +2145,7 @@ class Dashboard(QWidget):
         apple_only = workflow == "apple_only"
         single = workflow == "single_model"
         smart = workflow == "smart_hybrid"
+        draft_enabled = self.fast_translation_backend.currentText() == "apple"
 
         self.bridge_card.setVisible(not apple_only)
         self.main_model_card.setVisible(not apple_only)
@@ -2141,22 +2191,51 @@ class Dashboard(QWidget):
             preview = "语音识别：Apple｜翻译：Apple（完全本地）"
         elif smart:
             bridge_text = "Groq → Cerebras" if bridge == "groq" else "关闭"
+            draft_text = "草稿：Apple" if draft_enabled else "草稿：关闭"
             preview = (
-                "草稿：Apple｜主翻译：Gemini（临时预览 + 最终稿）\n"
+                f"{draft_text}｜主翻译：Gemini（临时预览 + 最终稿）\n"
                 f"桥接：{bridge_text}｜Gemini 失败时由 GLM 接管\n"
                 "开发者配置，暂不通用"
             )
         else:
             bridge_text = "Groq → Cerebras" if bridge == "groq" else "关闭"
+            draft_text = "草稿：Apple" if draft_enabled else "草稿：关闭"
             streaming_text = {
                 "auto": "自动",
                 "on": "开启",
                 "off": "关闭",
             }.get(self.single_streaming_mode.currentData(), "自动")
             preview = (
-                f"草稿：Apple｜主翻译：{self.provider.currentText()}（临时预览 + 最终稿）\n"
+                f"{draft_text}｜主翻译：{self.provider.currentText()}（临时预览 + 最终稿）\n"
                 f"桥接：{bridge_text}｜实时返回：{streaming_text}｜"
-                "远程失败时保留 Apple 草稿"
+                + (
+                    "远程失败时保留 Apple 草稿"
+                    if draft_enabled else "远程失败时不显示本机草稿"
+                )
+            )
+        if apple_only:
+            self.progressive_preview_hint.setText(
+                "完全本地模式：不使用远程模型，字幕由 Apple 翻译直接给出。"
+            )
+            self.main_model_explanation.setText("完全本地模式不需要主模型配置。")
+        elif draft_enabled:
+            self.progressive_preview_hint.setText(
+                "老师没说完时，主模型先给临时译文；句子结束后再更新最终译文。\n"
+                "如果自定义模型不能实时返回内容，只会少掉临时预览；"
+                "Apple 草稿和最终译文仍可正常使用。"
+            )
+            self.main_model_explanation.setText(
+                "老师说话时先给临时译文，句子结束后再给最终译文。"
+                "远程请求失败时保留 Apple 草稿。"
+            )
+        else:
+            self.progressive_preview_hint.setText(
+                "已关闭 Apple 即时草稿。老师说话时仅显示模型临时译文；"
+                "若模型不支持实时返回，会等待完整译文。"
+            )
+            self.main_model_explanation.setText(
+                "老师说话时主模型可先给临时译文，句子结束后再给最终译文。"
+                "远程请求失败时不会显示本机草稿。"
             )
         missing = []
         if (

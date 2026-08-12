@@ -44,16 +44,21 @@ class SessionSettingsSnapshot:
 def translation_chain(settings):
     """Human-readable immutable route shown for the active session."""
     workflow = str(settings.translation_workflow or "single_model")
+    draft_prefix = (
+        "Apple 草稿"
+        if str(getattr(settings, "fast_translation_backend", "apple")).lower() == "apple"
+        else "无本机草稿"
+    )
     if workflow == "apple_only":
         route = "Apple 草稿（仅本机翻译）"
     elif workflow == "smart_hybrid":
-        route = "Apple 草稿 → Gemini 主翻译 → GLM 兜底"
+        route = f"{draft_prefix} → Gemini 主翻译 → GLM 兜底"
         if settings.bridge_provider == "groq":
-            route = "Apple 草稿 → Groq/Cerebras 桥接 → Gemini 主翻译 → GLM 兜底"
+            route = f"{draft_prefix} → Groq/Cerebras 桥接 → Gemini 主翻译 → GLM 兜底"
     else:
-        route = f"Apple 草稿 → {settings.single_provider or settings.model}"
+        route = f"{draft_prefix} → {settings.single_provider or settings.model}"
         if settings.bridge_provider == "groq":
-            route = f"Apple 草稿 → Groq/Cerebras 桥接 → {settings.single_provider or settings.model}"
+            route = f"{draft_prefix} → Groq/Cerebras 桥接 → {settings.single_provider or settings.model}"
     return route
 
 

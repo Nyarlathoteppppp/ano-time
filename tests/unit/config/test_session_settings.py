@@ -40,6 +40,21 @@ class SessionSettingsSnapshotTests(unittest.TestCase):
             "Apple 草稿 → OpenAI\nPreview：OpenAI 实时预览",
         )
 
+    def test_single_model_description_reflects_disabled_apple_draft(self):
+        settings = SessionSettingsSnapshot({
+            "translation_workflow": "single_model",
+            "bridge_provider": "off",
+            "single_provider": "OpenAI",
+            "model": "gpt-test",
+            "current_course_topic": "",
+            "fast_translation_backend": "off",
+        })
+
+        self.assertEqual(
+            describe_session(settings),
+            "无本机草稿 → OpenAI\nPreview：OpenAI 实时预览",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

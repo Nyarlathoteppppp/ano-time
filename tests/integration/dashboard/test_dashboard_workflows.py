@@ -164,6 +164,32 @@ class DashboardWorkflowTests(unittest.TestCase):
             ],
         )
 
+    def test_disabled_apple_draft_is_reflected_in_single_model_descriptions(self):
+        self._choose_workflow("single_model")
+        self.dashboard.fast_translation_backend.setCurrentText("off")
+
+        self.assertIn("草稿：关闭", self.dashboard.workflow_preview.text())
+        self.assertIn("不显示本机草稿", self.dashboard.workflow_preview.text())
+        self.assertIn("无本机草稿", self.dashboard.translation_summary.text())
+        self.assertIn("已关闭 Apple", self.dashboard.progressive_preview_hint.text())
+
+    def test_google_gemini_key_is_shared_with_smart_hybrid_field(self):
+        self._choose_workflow("single_model")
+        self.dashboard.provider.setCurrentText("Google Gemini")
+        self.dashboard.api_key.setText("single-gemini-key")
+        self.assertEqual(
+            self.dashboard.gemini_api_key.text(), "single-gemini-key"
+        )
+
+        self._choose_workflow("smart_hybrid")
+        self.assertEqual(
+            self.dashboard.gemini_api_key.text(), "single-gemini-key"
+        )
+        self.dashboard.gemini_api_key.setText("hybrid-gemini-key")
+        self.assertEqual(
+            self.dashboard.provider_keys["Google Gemini"], "hybrid-gemini-key"
+        )
+
     def test_single_model_empty_model_is_reported_as_incomplete(self):
         self._choose_workflow("single_model")
         self.dashboard.api_key.setText("test-key")
