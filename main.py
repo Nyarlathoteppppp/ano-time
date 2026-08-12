@@ -8,8 +8,9 @@ import queue
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QObject, pyqtSignal, QTimer
+from ui.qt import QtWidgets, QObject, QTimer, Signal
+
+QApplication = QtWidgets.QApplication
 
 from audio_capture import AudioCapture
 from system_audio_capture import SystemAudioCapture
@@ -54,11 +55,11 @@ def effective_streaming_step_size(asr_backend, configured_step):
     return min(step, 0.05) if str(asr_backend).lower() == "apple" else step
 
 class WorkerSignals(QObject):
-    subtitle_event = pyqtSignal(object)
+    subtitle_event = Signal(object)
     # (chunk_id, original, translated, ASR state: "partial" | "final")
-    update_text = pyqtSignal(int, str, str, str)
-    pipeline_error = pyqtSignal(str)
-    runtime_status = pyqtSignal(str, str, str)
+    update_text = Signal(int, str, str, str)
+    pipeline_error = Signal(str)
+    runtime_status = Signal(str, str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)

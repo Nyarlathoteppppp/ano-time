@@ -152,9 +152,13 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 实施拆分：先迁移 `app_runtime.py`，并对 single-instance socket 的 stale-server 恢复和 activate/quit/toggle 分发新增纯单元测试；随后单独迁移 `dashboard.py` 的 Qt import。二者不在同一提交修改。
 
+**实现状态**：`app_runtime.py` 与 `dashboard.py` 已在独立提交中接入 `ui/qt.py`。这一步只移动 Qt import / Signal 适配，保留控制中心生命周期、原生磨砂、线程和业务逻辑不变。完整 PySide6 启动仍等待 M5 消除玻璃与刘海的直接 PyQt6 依赖。
+
 ### M4：实时运行核心
 
 迁移 `main.py`，只替换 binding import / signal 名称。
+
+**实现状态**：`main.py` 的 `QObject`、`QTimer`、`QApplication` 与 `WorkerSignals` 已接入绑定边界；音频采集、ASR、Apple 草稿、Preview、Final、模型路由和停止边界没有改动。因为 OverlayFactory 尚会加载 M5 的原生窗口模块，本阶段不单独运行 PySide6 的完整 Pipeline，避免在同一解释器中混装两套 Qt。
 
 **验收**：现有 Pipeline 测试保持通过；Apple first partial、Apple draft、Preview、Final 基准不下降；停止后不接受迟到远程结果。
 
