@@ -66,6 +66,11 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn(
             "SubtitlePresentationPlanner.finalLayoutHoldSeconds", self.source
         )
+        self.assertIn("translationLineShrinkTask?.cancel()", self.source)
+        self.assertIn("refreshTranslationLineReservation()", self.source)
+        self.assertIn(
+            "if holdsFinalLayout && !allowImmediateShrink", self.source
+        )
 
     def test_streaming_text_updates_immediately_without_text_motion_animation(self):
         self.assertIn("private struct StableStreamingText", self.source)

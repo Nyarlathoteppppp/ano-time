@@ -133,6 +133,24 @@ class SubtitlePresentationCoordinatorTests(unittest.TestCase):
         self.assertIs(self.coordinator.present(apple_final), apple_final)
         self.assertIs(self.coordinator.present(ai_final), ai_final)
 
+    def test_long_session_keeps_only_a_bounded_display_ownership_cache(self):
+        coordinator = SubtitlePresentationCoordinator(
+            retained_segment_count=4,
+        )
+        for segment_id in range(1, 12):
+            coordinator.present(SubtitleEvent.create(
+                segment_id,
+                1,
+                SubtitleStage.APPLE_FINAL,
+                f"source {segment_id}",
+                f"译文 {segment_id}",
+                finalized=True,
+            ))
+
+        self.assertLessEqual(len(coordinator._segments), 4)
+        self.assertNotIn(1, coordinator._segments)
+        self.assertIn(11, coordinator._segments)
+
 
 if __name__ == "__main__":
     unittest.main()

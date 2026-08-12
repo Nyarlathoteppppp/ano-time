@@ -53,15 +53,16 @@ class SubtitlePresentationCoordinator:
         clock=None,
         ai_grace_seconds=0.90,
         max_ai_source_lag_words=8,
+        retained_segment_count=64,
     ):
         self._clock = clock or time.monotonic
         self.ai_grace_seconds = max(0.0, float(ai_grace_seconds))
         self.max_ai_source_lag_words = max(1, int(max_ai_source_lag_words))
+        self.retained_segment_count = max(4, int(retained_segment_count))
         self._segments: dict[int, _PresentedSegment] = {}
 
     def present(self, event: SubtitleEvent) -> SubtitleEvent | None:
         """Return a display event, or ``None`` when the frame is redundant."""
-        event = event
         segment_id = int(event.segment_id)
         now = self._clock()
         current = self._segments.get(segment_id)
@@ -72,6 +73,7 @@ class SubtitlePresentationCoordinator:
                 owner=self._owner_for(event),
                 owner_updated_at=now,
             )
+            self._trim_completed_segments(segment_id)
             return event
 
         if event.stage in _PRIMARY_AI_STAGES:
@@ -172,7 +174,17 @@ class SubtitlePresentationCoordinator:
             owner=owner,
             owner_updated_at=updated_at,
         )
+        self._trim_completed_segments(segment_id)
         return event
+
+    def _trim_completed_segments(self, newest_segment_id):
+        """Bound display-only ownership state during long classroom sessions."""
+        if len(self._segments) <= self.retained_segment_count:
+            return
+        cutoff = int(newest_segment_id) - self.retained_segment_count
+        for segment_id in tuple(self._segments):
+            if segment_id <= cutoff:
+                self._segments.pop(segment_id, None)
 
     @staticmethod
     def _with_display_target(event, current):

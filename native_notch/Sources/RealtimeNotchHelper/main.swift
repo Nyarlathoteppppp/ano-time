@@ -100,6 +100,14 @@ private final class SubtitleState: ObservableObject {
             }
         if authoritativeFinalRevision {
             finalLayoutTask?.cancel()
+            // A previously scheduled partial-draft shrink must not bypass the
+            // final-layout hold and make the final line snap a second time.
+            widthShrinkTask?.cancel()
+            widthShrinkTask = nil
+            pendingWidthShrinkTarget = nil
+            translationLineShrinkTask?.cancel()
+            translationLineShrinkTask = nil
+            pendingTranslationLineTarget = nil
             holdsFinalLayout = true
         }
         let nextPresentation = NotchRollupPlanner.reconcile(
@@ -127,6 +135,7 @@ private final class SubtitleState: ObservableObject {
                 guard let self, !Task.isCancelled else { return }
                 self.holdsFinalLayout = false
                 self.refreshContentWidth(animated: true)
+                self.refreshTranslationLineReservation()
             }
         }
     }
@@ -272,6 +281,14 @@ private final class SubtitleState: ObservableObject {
     private func refreshTranslationLineReservation(
         allowImmediateShrink: Bool = false
     ) {
+        if holdsFinalLayout && !allowImmediateShrink {
+            let required = measuredTranslationLineCount()
+            // Never clip a final correction. Only defer line-count reductions;
+            // the hold expires shortly and applies the normal shrink policy.
+            if required <= reservedTranslationLineCount {
+                return
+            }
+        }
         let required = measuredTranslationLineCount()
         let intent = SubtitlePresentationPlanner.lineReservationIntent(
             required: required,
