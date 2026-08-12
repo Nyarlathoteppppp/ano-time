@@ -85,6 +85,8 @@ Apple Speech/Translation 不可用时可以选择 Whisper/MLX 与远程翻译。
 
 ### 安装
 
+> **受邀体验者**：请先阅读 [macOS 受邀体验指南](./docs/BETA_TESTER_GUIDE.md)。当前公开仓库仍是开发者安装路径；不要向任何人索取或填写维护者的共享模型 API Key。
+
 ```bash
 git clone https://github.com/Nyarlathoteppppp/ano-time.git
 cd ano-time
@@ -129,6 +131,16 @@ chmod +x install_desktop_app.sh install_hotkey_agent.sh
 5. 点击 **Launch Translator**。
 
 API Key 会保存在 macOS Keychain。被 Git 忽略的 `config.ini` 只保存 `keychain://...` 引用；旧的明文密钥会在成功写入 Keychain 后自动迁移。不要把真实密钥放进 Issue、日志、截图或 README；已经公开的密钥应立即轮换。
+
+### 发布前安全检查
+
+在创建 GitHub Release、DMG 或发送体验包前运行：
+
+```bash
+python3 tools/release_audit.py .
+```
+
+该检查只扫描 Git 已跟踪的文本文件，不读取 Keychain 或本机 `config.ini`；若发现 Key 形态文本或私人配置/记录被加入版本库，会失败且不会打印密钥值。完整产品与 App Store 路线见 [发布路线文档](./docs/PRODUCT_RELEASE_AND_APP_STORE_ROADMAP.md)。
 
 ### macOS 权限
 
