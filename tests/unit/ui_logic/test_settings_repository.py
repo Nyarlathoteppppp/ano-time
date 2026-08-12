@@ -41,6 +41,7 @@ def make_snapshot(groq_key="groq-secret"):
             "Computer Science–AI",
             "Regularisation and bias-variance trade-off",
             "apple",
+            course_profile_id="statistical-machine-learning",
         ),
         providers=ProviderSettings(
             "deepseek-secret",
@@ -149,6 +150,10 @@ class DashboardSettingsRepositoryTests(unittest.TestCase):
             self.assertEqual(
                 saved.get("translation", "course_topic"),
                 "",
+            )
+            self.assertEqual(
+                saved.get("translation", "course_profile"),
+                "statistical-machine-learning",
             )
             self.assertEqual(saved.get("display", "mode"), "notch")
             self.assertEqual(

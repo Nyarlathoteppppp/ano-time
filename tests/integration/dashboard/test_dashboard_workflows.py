@@ -272,17 +272,23 @@ class DashboardWorkflowTests(unittest.TestCase):
 
     def test_speed_test_uses_the_same_explicit_course_profile_as_runtime(self):
         self._choose_workflow("single_model")
+        profile_index = self.dashboard.course_profile.findData(
+            "artificial-intelligence-for-planning"
+        )
+        self.dashboard.course_profile.setCurrentIndex(profile_index)
         self.dashboard.current_course_topic.setText(
-            "COMP90054 Blind Search"
+            "Blind Search Algorithms"
         )
         spec = self.dashboard.api_test_controller._spec()
 
         self.assertEqual(
             spec["domain_prompt"],
-            "Current lecture topic: COMP90054 Blind Search.",
+            "Current lecture topic: Blind Search Algorithms.",
         )
         self.assertTrue(any(
-            str(path).endswith("course_profiles/comp90054/glossary.tsv")
+            str(path).endswith(
+                "course_profiles/artificial-intelligence-for-planning/glossary.tsv"
+            )
             for path in spec["glossary_path"]
         ))
 

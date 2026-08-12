@@ -53,6 +53,23 @@ adds temporary topic/keyword evidence. Neither changes the context history
 policy. A newly launched app should start with an empty manually entered topic
 unless the user fills it for that lecture.
 
+## Course profiles
+
+`course_profiles.py` discovers only explicit `course_profiles/*/profile.json`
+assets. `course_profile_id` is selected in Home, saved in `config.ini`, and
+captured at Launch. Never infer a profile from the session topic or live ASR:
+that would leak a course-specific correction into unrelated speech.
+
+- Profile names are generic and portable, never local course codes.
+- A profile may add a local glossary, conservative finalized-ASR corrections,
+  and a bounded current-sentence do-not-translate list.
+- A manually entered lecture topic overrides the profile's generic domain for
+  this launch; profile terminology remains active.
+- Smart Hint is supplementary only. It cannot override CURRENT, the selected
+  domain, or required terminology.
+- Profile assets are repository examples only. Never import a user's private
+  lecture transcripts from outside the project into the repository.
+
 ## Stage and routing invariants
 
 ```text
@@ -96,7 +113,7 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -q
 git diff --check
 ```
 
-The suite was 400 tests at the last verification. Do not weaken or delete
+The suite was 403 tests at the last verification. Do not weaken or delete
 contracts just to make a refactor pass; move them to the matching domain.
 
 ### When touching the live path

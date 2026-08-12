@@ -1,0 +1,4 @@
+A*
+FIFO
+Big O
+Dijkstra

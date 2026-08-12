@@ -8,6 +8,10 @@ target_lang = Chinese
 domain = Postgraduate Computer Science–AI coursework. Preserve standard terminology in AI, machine learning, probability and statistics, linear algebra, optimization, and software engineering.
 ; Optional per-lecture hint, for example: Regularisation & Bias-variance Trade-off — Statistical Machine Learning
 course_topic =
+; Optional reusable profile id from course_profiles/, selected in the Dashboard.
+; Profile display names are generic (not local university codes). A cloned
+; installation starts with no profile and no personal terminology.
+course_profile =
 threads = 4
 ai_deadline_seconds = 3.0
 fast_backend = apple

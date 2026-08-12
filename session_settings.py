@@ -9,6 +9,8 @@ mutable ``config`` object.
 from copy import deepcopy
 from types import MappingProxyType
 
+from course_profiles import resolve_course_profile
+
 
 class SessionSettingsSnapshot:
     """Read-only copy of Config's public runtime values."""
@@ -68,6 +70,9 @@ def describe_session(settings):
     topic = str(settings.current_course_topic or "").strip()
     if topic:
         parts.append(f"主题：{topic}")
+    profile = resolve_course_profile(getattr(settings, "course_profile_id", ""))
+    if profile:
+        parts.append(f"档案：{profile.name}")
     if str(settings.translation_workflow or "") == "smart_hybrid":
         parts.append("Preview：独立 Gemini 快速预览")
     elif str(settings.translation_workflow or "") != "apple_only":

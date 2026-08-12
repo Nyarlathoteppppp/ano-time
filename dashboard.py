@@ -40,6 +40,7 @@ from dashboard_support.settings_snapshot import (
     TranslationSettings,
 )
 from dashboard_support.panels import AsrPanel, AudioPanel, DEFAULT_AUDIO_SETTINGS
+from course_profiles import available_course_profiles
 from translation_usage import session_usage_meter
 
 class Dashboard(QWidget):
@@ -303,6 +304,28 @@ class Dashboard(QWidget):
             "background: rgba(255,255,255,12); border-radius: 7px;"
         )
         layout.addWidget(self.active_session_label)
+
+        profile_row = QHBoxLayout()
+        profile_label = QLabel("Course Profile（课程档案）:")
+        profile_label.setMinimumWidth(270)
+        profile_row.addWidget(profile_label)
+        self.course_profile = ReadableComboBox()
+        self.course_profile.addItem("None（不使用档案）", "")
+        for profile in available_course_profiles():
+            self.course_profile.addItem(profile.name, profile.id)
+        configured_profile_index = self.course_profile.findData(
+            getattr(config, "course_profile_id", "")
+        )
+        self.course_profile.setCurrentIndex(
+            configured_profile_index if configured_profile_index >= 0 else 0
+        )
+        self.course_profile.setToolTip(
+            "Optional reusable subject profile. It adds only its glossary, ASR "
+            "corrections and protected technical terms after Save + Launch. "
+            "It never reads lecture transcripts and does not affect Apple Draft."
+        )
+        profile_row.addWidget(self.course_profile, 1)
+        layout.addLayout(profile_row)
 
         topic_row = QHBoxLayout()
         topic_label = QLabel("Current Lecture Topic（本节课程主题）:")
@@ -865,6 +888,7 @@ class Dashboard(QWidget):
             self.single_streaming_mode,
             self.subtitle_presentation_policy,
             self.subtitle_update_pacing,
+            self.course_profile,
         )
         for combo in combos:
             combo.currentTextChanged.connect(self._mark_settings_dirty)
@@ -2492,6 +2516,7 @@ class Dashboard(QWidget):
                 streaming_mode=str(
                     self.single_streaming_mode.currentData() or "auto"
                 ),
+                course_profile_id=str(self.course_profile.currentData() or ""),
             ),
             providers=ProviderSettings(
                 deepseek_api_key=self.provider_keys.get("DeepSeek Official", ""),

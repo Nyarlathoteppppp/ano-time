@@ -247,7 +247,11 @@ tail -f /tmp/realtime-ton-hotkey.log
 | `audio.device_index` | `system`、`auto` 或麦克风设备编号 |
 | `display.mode` | `notch` 或 `glass` |
 
-### 可选术语配置
+### 课程档案与可选术语配置
+
+Home 页面可选 **Course Profile（课程档案）**。档案会保存为一个可复用的学科预设；它只为远程模型添加该学科的术语、finalized ASR 纠错和少量必须保留的技术缩写，不影响最快的 Apple 草稿。手填的 **本节课程主题** 仍只属于这次 Launch，下一次启动默认留空。
+
+仓库提供四个通用示例：Statistical Machine Learning、Artificial Intelligence for Planning、Introduction to Machine Learning、Software Processes and Management。它们不依赖任何学校课程代码，也不会读取或打包你的课程文字记录。自定义格式见 [`course_profiles/README.md`](./course_profiles/README.md)。
 
 新安装默认不加载维护者的术语文件。普通课程请保持为空：
 
@@ -643,7 +647,20 @@ mode = notch
 | `audio.silence_threshold` | Voice/silence sensitivity |
 | `display.mode` | `notch` or `glass` |
 
-## Optional terminology profiles
+## Course profiles and optional terminology
+
+Choose **Course Profile** on Home to save a reusable subject preset. It adds
+only the selected profile's glossary, finalized-ASR corrections, and a small
+current-sentence protection list for technical terms. It never changes the
+zero-context Apple Draft path. **Current Lecture Topic** remains session-only:
+it overrides the profile's generic domain just for the next Launch, then
+starts blank the next time.
+
+The repository includes portable examples for Statistical Machine Learning,
+Artificial Intelligence for Planning, Introduction to Machine Learning, and
+Software Processes and Management. They use generic names rather than a local
+university course code and never read or bundle your lecture transcripts. See
+[`course_profiles/README.md`](./course_profiles/README.md) to create one.
 
 New installations do **not** load the maintainer's terminology files. For a general lecture, leave both settings empty:
 

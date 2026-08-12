@@ -1,10 +1,18 @@
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
-from glossary import ASRCorrections, CourseGlossary
-from course_profiles import correction_paths, glossary_paths, resolve_course_profile
+from glossary import ASRCorrections, CourseGlossary, DoNotTranslateTerms
+from course_profiles import (
+    _load_profiles,
+    available_course_profiles,
+    correction_paths,
+    do_not_translate_paths,
+    glossary_paths,
+    resolve_course_profile,
+)
 from translator import Translator
 
 
@@ -24,17 +32,39 @@ class _RecordingClient:
 
 
 class CourseGlossaryTests(unittest.TestCase):
-    def test_comp90054_profile_requires_explicit_matching_topic(self):
+    def test_profiles_use_explicit_ids_and_generic_names(self):
         self.assertIsNone(resolve_course_profile(""))
         self.assertIsNone(resolve_course_profile("Statistical Machine Learning"))
-        profile = resolve_course_profile("COMP90054 Blind Search Algorithms")
-        self.assertEqual(profile.name, "COMP90054 Planning for Autonomy")
-        self.assertEqual(len(glossary_paths("base.tsv", "blind search")), 2)
-        self.assertEqual(len(correction_paths("base.tsv", "blind search")), 2)
+        self.assertIsNone(resolve_course_profile("COMP90054 Blind Search Algorithms"))
+        profile = resolve_course_profile("artificial-intelligence-for-planning")
+        self.assertEqual(profile.name, "Artificial Intelligence for Planning")
+        self.assertEqual(len(glossary_paths("base.tsv", profile.id)), 2)
+        self.assertEqual(len(correction_paths("base.tsv", profile.id)), 2)
+        self.assertIn(profile, available_course_profiles())
+        self.assertTrue(all("900" not in item.name for item in available_course_profiles()))
 
-    def test_comp90054_profile_corrects_observed_planning_asr_errors(self):
+    def test_malformed_or_unsafe_profile_metadata_is_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            malformed = os.path.join(directory, "broken")
+            os.mkdir(malformed)
+            with open(os.path.join(malformed, "profile.json"), "w", encoding="utf-8") as handle:
+                handle.write("not json")
+            unsafe = os.path.join(directory, "unsafe profile")
+            os.mkdir(unsafe)
+            with open(os.path.join(unsafe, "profile.json"), "w", encoding="utf-8") as handle:
+                handle.write('{"name":"Unsafe", "domain":"Test"}')
+            valid = os.path.join(directory, "valid-profile")
+            os.mkdir(valid)
+            with open(os.path.join(valid, "profile.json"), "w", encoding="utf-8") as handle:
+                handle.write('{"name":"Valid", "domain":"Test"}')
+            profiles = _load_profiles(Path(directory))
+            self.assertEqual([(profile.id, profile.name) for profile in profiles], [
+                ("valid-profile", "Valid")
+            ])
+
+    def test_explicit_planning_profile_corrects_observed_asr_errors(self):
         corrections = ASRCorrections.from_files(
-            correction_paths(None, "Planning for Autonomy: blind search")
+            correction_paths(None, "artificial-intelligence-for-planning")
         )
         self.assertEqual(
             corrections.apply(
@@ -42,6 +72,16 @@ class CourseGlossaryTests(unittest.TestCase):
             ),
             "breadth-first search uses a priority queue and checks the goal state.",
         )
+
+    def test_explicit_sml_profile_only_protects_terms_present_in_current_text(self):
+        protected = DoNotTranslateTerms.from_files(
+            do_not_translate_paths("statistical-machine-learning")
+        )
+        self.assertEqual(
+            protected.match("MAP estimation minimizes the Hessian approximation."),
+            ["Hessian", "MAP"],
+        )
+        self.assertEqual(protected.match("The model is regularized."), [])
     def test_finalized_asr_corrections_are_boundary_safe(self):
         corrections = ASRCorrections([
             ("Ajail", "Agile"),
@@ -125,6 +165,28 @@ class CourseGlossaryTests(unittest.TestCase):
             )
             self.assertNotIn("state space", str(translation_options["terms"]).casefold())
             self.assertIn("source comes from ASR", translation_options["domains"])
+
+    def test_generic_profile_protected_terms_are_bounded_and_prompted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "protected.txt")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("MSE\nMAP\n")
+            translator = Translator(
+                api_key="test-key",
+                base_url="https://example.invalid/v1",
+                model="generic-fast-model",
+                do_not_translate_path=path,
+            )
+            translator.client = _RecordingClient()
+            translator.translate(
+                "MAP estimation uses MSE as its loss.",
+                use_context=False,
+                remember_context=False,
+                failure_scope="preview",
+            )
+            prompt = translator.client.chat.completions.options["messages"][0]["content"]
+            self.assertIn("Preserve these technical terms exactly as written", prompt)
+            self.assertIn("MSE; MAP", prompt)
 
     def test_generic_model_prompt_requests_conservative_asr_correction(self):
         translator = Translator(
@@ -213,7 +275,7 @@ class CourseGlossaryTests(unittest.TestCase):
         prompt = translator.client.chat.completions.options["messages"][0]["content"]
         self.assertIn("Domain:", prompt)
         self.assertIn("Supplemental live lecture hint", prompt)
-        self.assertIn("CURRENT is authoritative", prompt)
+        self.assertIn("CURRENT, the lecture topic or domain, and required terminology", prompt)
 
     def test_preview_continuity_preserves_exact_accurate_wording(self):
         translator = Translator(

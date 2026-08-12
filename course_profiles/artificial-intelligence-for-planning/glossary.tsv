@@ -1,0 +1,23 @@
+# Optional terminology for Artificial Intelligence for Planning.
+planning for autonomy	自主规划
+uninformed search	无信息搜索
+blind search	无信息搜索
+state space	状态空间
+initial state	初始状态
+goal state	目标状态
+goal test	目标测试
+search tree	搜索树
+search frontier	搜索前沿
+breadth-first search	广度优先搜索
+depth-first search	深度优先搜索
+uniform-cost search	一致代价搜索
+priority queue	优先队列
+path cost	路径代价
+branching factor	分支因子
+iterative deepening	迭代加深搜索
+heuristic function	启发式函数
+admissible heuristic	可采纳启发式
+consistent heuristic	一致启发式
+time complexity	时间复杂度
+space complexity	空间复杂度
+Dijkstra's algorithm	Dijkstra 算法

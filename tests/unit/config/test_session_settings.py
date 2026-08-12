@@ -12,6 +12,7 @@ class SessionSettingsSnapshotTests(unittest.TestCase):
             single_provider="unused",
             model="unused",
             current_course_topic="old topic",
+            course_profile_id="statistical-machine-learning",
             nested={"items": ["before"]},
         )
 
@@ -25,6 +26,7 @@ class SessionSettingsSnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot.nested, {"items": ["before"]})
         self.assertIn("Gemini 主翻译", describe_session(snapshot))
         self.assertIn("主题：Current lecture", describe_session(snapshot))
+        self.assertIn("档案：Statistical Machine Learning", describe_session(snapshot))
 
     def test_single_model_description_uses_session_route(self):
         settings = SessionSettingsSnapshot({

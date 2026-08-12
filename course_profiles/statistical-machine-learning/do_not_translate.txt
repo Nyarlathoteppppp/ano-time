@@ -1,0 +1,5 @@
+MSE
+MAP
+MLE
+Hessian
+AdaGrad

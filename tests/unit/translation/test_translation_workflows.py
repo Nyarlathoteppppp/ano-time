@@ -30,6 +30,7 @@ def workflow_config(**overrides):
         "target_lang": "Chinese",
         "translation_domain": "Computer Science–AI coursework.",
         "current_course_topic": "Regularisation and bias-variance trade-off",
+        "course_profile_id": "",
         "ai_deadline_seconds": 3.0,
         "glossary_path": None,
         "groq_api_key": "groq-key",
@@ -58,6 +59,30 @@ class TranslationWorkflowTests(unittest.TestCase):
             config,
             os.path.join(directory.name, "usage.json"),
         )
+
+    def test_selected_profile_changes_default_domain_but_not_explicit_topic(self):
+        profile_only = self._build(workflow_config(
+            current_course_topic="",
+            course_profile_id="statistical-machine-learning",
+        ))
+        profile_translator = profile_only.final_translator.router.providers[-1]["translator"]
+        self.assertIn("Statistical machine learning", profile_translator.domain_prompt)
+        self.assertTrue(
+            profile_translator.glossary.match(
+                "Empirical risk minimization controls model complexity."
+            )
+        )
+
+        topic = self._build(workflow_config(
+            current_course_topic="Bayesian regularisation",
+            course_profile_id="statistical-machine-learning",
+        ))
+        topic_translator = topic.final_translator.router.providers[-1]["translator"]
+        self.assertEqual(
+            topic_translator.domain_prompt,
+            "Current lecture topic: Bayesian regularisation.",
+        )
+        self.assertGreater(len(topic_translator.glossary), 0)
 
     def test_smart_hybrid_uses_paid_gemini_before_glm_fallback(self):
         workflow = self._build(workflow_config())

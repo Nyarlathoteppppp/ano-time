@@ -4,14 +4,14 @@ import os
 import re
 import time
 
-from glossary import CourseGlossary
+from glossary import CourseGlossary, DoNotTranslateTerms
 from math_subtitles import safe_normalize_math_subtitles
 from translation_context import estimate_tokens
 
 class Translator:
     def __init__(self, api_key=None, base_url=None, model="MBZUAI-IFM/K2-Think-nothink",
                  target_lang="Chinese", domain_prompt=None, deadline_seconds=3.0,
-                 glossary_path=None):
+                 glossary_path=None, do_not_translate_path=None):
         """
         Translates text using an LLM.
         
@@ -39,6 +39,12 @@ class Translator:
             else (glossary_path,)
         )
         self.glossary = CourseGlossary.from_files(paths)
+        protected_paths = (
+            do_not_translate_path
+            if isinstance(do_not_translate_path, (list, tuple))
+            else (do_not_translate_path,)
+        )
+        self.do_not_translate = DoNotTranslateTerms.from_files(protected_paths)
         
         # If no key provided, check env. If still none, we might be in local mode (no auth) or fail.
         # Some local servers don't need a valid key, but the client requires a string.
@@ -189,17 +195,25 @@ class Translator:
             raise TimeoutError("AI translation deadline expired before request start")
 
         is_qwen_mt = self.model.startswith("qwen-mt-")
-        matched_terms = self.glossary.match(text)
+        match_limit = 8 if failure_scope == "preview" else 12
+        matched_terms = self.glossary.match(text, limit=match_limit)
         terminology_prompt = ""
         if matched_terms:
             pairs = "; ".join(
                 f"{term.source} = {term.target}" for term in matched_terms
             )
             terminology_prompt = f" Required terminology: {pairs}."
+        protected_terms = self.do_not_translate.match(text, limit=match_limit)
+        protected_terms_prompt = (
+            " Preserve these technical terms exactly as written: "
+            + "; ".join(protected_terms) + "."
+            if protected_terms else ""
+        )
         live_hint = " ".join(str(live_hint or "").split())
         hint_prompt = (
             " Supplemental live lecture hint: " + live_hint
-            + " Use it only when it agrees with CURRENT; CURRENT is authoritative."
+            + " Use it only when it agrees with CURRENT, the lecture topic or "
+            + "domain, and required terminology; those are authoritative."
             if live_hint else ""
         )
 
@@ -218,7 +232,7 @@ class Translator:
             system_prompt = (
                 f"Domain: {self.domain_prompt} {self.asr_correction_prompt} "
                 "Correct DRAFT using CURRENT; preserve meaning and terminology. "
-                f"{output_constraint}{terminology_prompt}"
+                f"{output_constraint}{terminology_prompt}{protected_terms_prompt}"
             )
             user_message = (
                 f"DRAFT:\n{draft_translation}\n\nCURRENT:\n{text}"
@@ -238,6 +252,7 @@ class Translator:
                 f"{self.asr_correction_prompt} "
                 f"{continuity_rule} Use CONTEXT only for "
                 f"references and terminology. {output_constraint}{terminology_prompt}"
+                f"{protected_terms_prompt}"
             )
             context_block = (
                 f"\n\nCONTEXT:\n{context_text}" if context_text else ""
@@ -251,14 +266,14 @@ class Translator:
                 f"Domain: {self.domain_prompt} "
                 f"{self.asr_correction_prompt} "
                 "Use CONTEXT only for references and terminology. "
-                f"{output_constraint}{terminology_prompt}"
+                f"{output_constraint}{terminology_prompt}{protected_terms_prompt}"
             )
             user_message = f"CONTEXT:\n{context_text}\n\nCURRENT:\n{text}"
         elif use_context and self.previous_text:
             system_prompt = (
                 f"Domain: {self.domain_prompt} {self.asr_correction_prompt} "
                 "Use PREVIOUS only for terminology continuity. "
-                f"{output_constraint}{terminology_prompt}"
+                f"{output_constraint}{terminology_prompt}{protected_terms_prompt}"
             )
             user_message = (
                 f"PREVIOUS:\n{self.previous_text}\n\nCURRENT:\n{text}"
@@ -266,7 +281,7 @@ class Translator:
         else:
             system_prompt = (
                 f"Domain: {self.domain_prompt} {self.asr_correction_prompt} "
-                f"{output_constraint}{terminology_prompt}"
+                f"{output_constraint}{terminology_prompt}{protected_terms_prompt}"
             )
             user_message = f"CURRENT:\n{text}"
 
@@ -285,7 +300,7 @@ class Translator:
                     "target_lang": self.target_lang,
                     "domains": (
                         f"{self.domain_prompt} {self.asr_correction_prompt}"
-                        f"{hint_prompt}"
+                        f"{protected_terms_prompt}{hint_prompt}"
                     ),
                 }
                 if matched_terms:

@@ -1,0 +1,24 @@
+# Optional terminology for Statistical Machine Learning.
+statistical machine learning	统计机器学习
+random variable	随机变量
+probability distribution	概率分布
+Bernoulli distribution	伯努利分布
+likelihood function	似然函数
+maximum likelihood estimation	最大似然估计
+maximum a posteriori	最大后验估计
+objective function	目标函数
+gradient descent	梯度下降
+stochastic gradient descent	随机梯度下降
+Hessian matrix	Hessian 矩阵
+logistic regression	逻辑回归
+linear regression	线性回归
+decision theory	决策理论
+empirical risk minimization	经验风险最小化
+closed-form solution	闭式解
+constrained optimization	约束优化
+unconstrained optimization	无约束优化
+convex function	凸函数
+non-convex function	非凸函数
+global minimum	全局最小值
+local minimum	局部最小值
+Lagrangian duality	拉格朗日对偶性

@@ -3,7 +3,7 @@
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from config import config
-from course_profiles import glossary_paths
+from course_profiles import do_not_translate_paths, glossary_paths, profile_domain
 
 
 class ApiSpeedTestWorker(QThread):
@@ -112,9 +112,14 @@ class ApiTestController:
         view = self.view
         target = view.api_test_provider.currentData()
         course_topic = view.current_course_topic.text().strip()
+        profile_id = (
+            view.course_profile.currentData()
+            if hasattr(view, "course_profile")
+            else getattr(config, "course_profile_id", "")
+        )
         domain_prompt = (
-            f"Current lecture topic: {course_topic}."
-            if course_topic else view.translation_domain.text()
+            f"Current lecture topic: {course_topic}." if course_topic else
+            profile_domain(view.translation_domain.text(), profile_id)
         )
         common = {
             "target_lang": str(
@@ -122,9 +127,8 @@ class ApiTestController:
             ),
             "domain_prompt": domain_prompt,
             "deadline_seconds": 3.0,
-            "glossary_path": glossary_paths(
-                config.glossary_path, course_topic
-            ),
+            "glossary_path": glossary_paths(config.glossary_path, profile_id),
+            "do_not_translate_path": do_not_translate_paths(profile_id),
         }
         specs = {
             "groq": {

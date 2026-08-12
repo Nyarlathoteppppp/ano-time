@@ -111,6 +111,9 @@ class DashboardSettingsRepository:
         # Lecture topics belong to one active Launch only. SessionController
         # injects the current UI value into an immutable session snapshot.
         parser.set("translation", "course_topic", "")
+        parser.set(
+            "translation", "course_profile", translation.course_profile_id
+        )
         parser.set("translation", "fast_backend", translation.fast_backend)
         parser.set("translation", "workflow", translation.workflow)
         parser.set("translation", "bridge_provider", translation.bridge_provider)

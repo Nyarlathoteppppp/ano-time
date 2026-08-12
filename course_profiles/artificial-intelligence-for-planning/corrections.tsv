@@ -1,5 +1,4 @@
-# COMP90054 Planning for Autonomy: high-confidence finalized-ASR corrections.
-# This file is activated only by an explicitly entered matching lecture topic.
+# Conservative finalized-ASR corrections for Artificial Intelligence for Planning.
 breath research	breadth-first search
 breath search	breadth-first search
 the firstst search	depth-first search
@@ -10,5 +9,4 @@ FIFA	FIFO
 PriorityQ	priority queue
 Bonnotation	Big O notation
 Russell and Norwich	Russell and Norvig
-AI for Modern Approach	Artificial Intelligence: A Modern Approach
 the cube becomes	the queue becomes

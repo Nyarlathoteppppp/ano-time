@@ -35,6 +35,7 @@ class TranslationSettings:
     input_price_per_million: float = 0.0
     output_price_per_million: float = 0.0
     streaming_mode: str = "auto"
+    course_profile_id: str = ""
 
 
 @dataclass(frozen=True)

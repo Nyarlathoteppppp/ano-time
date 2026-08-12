@@ -1,0 +1,20 @@
+# Optional terminology for Introduction to Machine Learning.
+machine learning	机器学习
+supervised learning	监督学习
+unsupervised learning	无监督学习
+classification	分类
+regression	回归
+decision tree	决策树
+nearest neighbour	最近邻
+k-nearest neighbours	k 近邻
+training set	训练集
+test set	测试集
+validation set	验证集
+feature vector	特征向量
+feature space	特征空间
+class label	类别标签
+confusion matrix	混淆矩阵
+cross-validation	交叉验证
+overfitting	过拟合
+underfitting	欠拟合
+bias-variance trade-off	偏差—方差权衡

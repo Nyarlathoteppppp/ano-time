@@ -1,5 +1,9 @@
 from translator import Translator
-from course_profiles import glossary_paths
+from course_profiles import (
+    do_not_translate_paths,
+    glossary_paths,
+    profile_domain,
+)
 
 
 GROQ_NAME = "Groq GPT-OSS 20B"
@@ -7,7 +11,10 @@ CEREBRAS_NAME = "Cerebras GPT-OSS 120B"
 
 
 def translator_options(config, include_course_topic=False):
-    domain_prompt = config.translation_domain
+    domain_prompt = profile_domain(
+        config.translation_domain,
+        getattr(config, "course_profile_id", ""),
+    )
     course_topic = getattr(config, "current_course_topic", "").strip()
     if include_course_topic and course_topic:
         domain_prompt = f"Current lecture topic: {course_topic}."
@@ -15,7 +22,13 @@ def translator_options(config, include_course_topic=False):
         "target_lang": config.target_lang,
         "domain_prompt": domain_prompt,
         "deadline_seconds": config.ai_deadline_seconds,
-        "glossary_path": glossary_paths(config.glossary_path, course_topic),
+        "glossary_path": glossary_paths(
+            config.glossary_path,
+            getattr(config, "course_profile_id", ""),
+        ),
+        "do_not_translate_path": do_not_translate_paths(
+            getattr(config, "course_profile_id", ""),
+        ),
     }
 
 

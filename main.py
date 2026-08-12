@@ -118,7 +118,7 @@ class Pipeline(QObject):
         self._asr_corrections = ASRCorrections.from_files(
             correction_paths(
                 settings.asr_corrections_path,
-                settings.current_course_topic,
+                getattr(settings, "course_profile_id", ""),
             )
         )
         

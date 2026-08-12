@@ -53,6 +53,11 @@ class Config:
         self.current_course_topic = self._get(
             "translation", "course_topic", ""
         ).strip()
+        # A reusable course profile is persisted separately from the one-off
+        # lecture topic.  The topic deliberately starts blank each app launch.
+        self.course_profile_id = self._get(
+            "translation", "course_profile", ""
+        ).strip()
         self.translation_threads = self._getint("translation", "threads", 4)
         self.ai_deadline_seconds = self._getfloat("translation", "ai_deadline_seconds", 3.0)
         self.fast_translation_backend = self._get(
