@@ -22,11 +22,14 @@ M2_PANEL_MODULES = (
     "dashboard_support/panels/audio.py",
     "shortcut_controller.py",
 )
+M3_RUNTIME_MODULES = (
+    "dashboard_support/app_runtime.py",
+)
 
 
 class QtBindingBoundaryTests(unittest.TestCase):
     def test_m1_modules_only_import_qt_through_the_binding_boundary(self):
-        for relative_path in M1_MODULES + M2_PANEL_MODULES:
+        for relative_path in M1_MODULES + M2_PANEL_MODULES + M3_RUNTIME_MODULES:
             with self.subTest(module=relative_path):
                 source = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
                 self.assertIn("from ui.qt import", source)

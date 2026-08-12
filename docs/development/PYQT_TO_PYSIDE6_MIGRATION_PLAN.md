@@ -150,6 +150,8 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 **验收**：重复启动仅激活现有窗口；叉掉控制中心、Control+S、停止、保存设置、透明度、动画均正常；不新增 WindowServer 鼠标漂移。
 
+实施拆分：先迁移 `app_runtime.py`，并对 single-instance socket 的 stale-server 恢复和 activate/quit/toggle 分发新增纯单元测试；随后单独迁移 `dashboard.py` 的 Qt import。二者不在同一提交修改。
+
 ### M4：实时运行核心
 
 迁移 `main.py`，只替换 binding import / signal 名称。

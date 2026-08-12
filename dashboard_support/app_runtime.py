@@ -1,9 +1,14 @@
 import sys
 import time
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtNetwork import QLocalServer, QLocalSocket
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from ui.qt import QtCore, QtNetwork, QtWidgets
+
+
+QTimer = QtCore.QTimer
+QLocalServer = QtNetwork.QLocalServer
+QLocalSocket = QtNetwork.QLocalSocket
+QApplication = QtWidgets.QApplication
+QMessageBox = QtWidgets.QMessageBox
 
 
 INSTANCE_SERVER_NAME = "com.realtime-ton.dashboard"
