@@ -1,11 +1,41 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QFrame, QLineEdit,
-                             QTabWidget, QGridLayout,
-                             QScrollArea, QSizePolicy, QSpacerItem, QFormLayout, QApplication,
-                             QMessageBox, QTextEdit, QDialog, QLayout, QInputDialog)
-from PyQt6.QtWidgets import QCheckBox, QDoubleSpinBox, QSlider
-from PyQt6.QtCore import QEvent, Qt, QSize, QUrl, pyqtSignal, QTimer
-from PyQt6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap
+from ui.qt import QtCore, QtGui, QtWidgets, Signal
+
+
+QWidget = QtWidgets.QWidget
+QVBoxLayout = QtWidgets.QVBoxLayout
+QHBoxLayout = QtWidgets.QHBoxLayout
+QLabel = QtWidgets.QLabel
+QPushButton = QtWidgets.QPushButton
+QFrame = QtWidgets.QFrame
+QLineEdit = QtWidgets.QLineEdit
+QTabWidget = QtWidgets.QTabWidget
+QGridLayout = QtWidgets.QGridLayout
+QScrollArea = QtWidgets.QScrollArea
+QSizePolicy = QtWidgets.QSizePolicy
+QSpacerItem = QtWidgets.QSpacerItem
+QFormLayout = QtWidgets.QFormLayout
+QApplication = QtWidgets.QApplication
+QMessageBox = QtWidgets.QMessageBox
+QTextEdit = QtWidgets.QTextEdit
+QDialog = QtWidgets.QDialog
+QLayout = QtWidgets.QLayout
+QInputDialog = QtWidgets.QInputDialog
+QCheckBox = QtWidgets.QCheckBox
+QDoubleSpinBox = QtWidgets.QDoubleSpinBox
+QSlider = QtWidgets.QSlider
+
+QEvent = QtCore.QEvent
+Qt = QtCore.Qt
+QSize = QtCore.QSize
+QUrl = QtCore.QUrl
+QTimer = QtCore.QTimer
+
+QColor = QtGui.QColor
+QDesktopServices = QtGui.QDesktopServices
+QFont = QtGui.QFont
+QIcon = QtGui.QIcon
+QPainter = QtGui.QPainter
+QPixmap = QtGui.QPixmap
 import sys
 import os
 import sounddevice as sd
@@ -44,8 +74,8 @@ from course_profiles import available_course_profiles
 from translation_usage import session_usage_meter
 
 class Dashboard(QWidget):
-    start_requested = pyqtSignal()
-    stop_requested = pyqtSignal()
+    start_requested = Signal()
+    stop_requested = Signal()
 
     def paintEvent(self, event):
         if self.control_center_transparency > 0:

@@ -24,6 +24,7 @@ M2_PANEL_MODULES = (
 )
 M3_RUNTIME_MODULES = (
     "dashboard_support/app_runtime.py",
+    "dashboard.py",
 )
 
 

@@ -7,7 +7,11 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QLabel
+from ui.qt import QtWidgets
+
+
+QApplication = QtWidgets.QApplication
+QLabel = QtWidgets.QLabel
 
 from dashboard import Dashboard
 from dashboard import DEFAULT_AUDIO_SETTINGS
