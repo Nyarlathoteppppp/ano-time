@@ -432,6 +432,46 @@ class Dashboard(QWidget):
         display_row.addWidget(self.display_mode)
         layout.addLayout(display_row)
 
+        presentation_row = QHBoxLayout()
+        presentation_row.addWidget(QLabel("Caption Stability（字幕稳定度）:"))
+        self.subtitle_presentation_policy = ReadableComboBox()
+        self.subtitle_presentation_policy.addItem(
+            "Real-time（实时优先 · 所有临时中文）", "realtime"
+        )
+        self.subtitle_presentation_policy.addItem(
+            "Balanced（平衡 · 隐藏快速草稿）", "balanced"
+        )
+        self.subtitle_presentation_policy.addItem(
+            "Stable（稳定优先 · 只显示定稿中文）", "stable"
+        )
+        policy_index = self.subtitle_presentation_policy.findData(
+            config.subtitle_presentation_policy
+        )
+        self.subtitle_presentation_policy.setCurrentIndex(max(0, policy_index))
+        presentation_row.addWidget(self.subtitle_presentation_policy)
+        layout.addLayout(presentation_row)
+
+        pacing_row = QHBoxLayout()
+        pacing_row.addWidget(QLabel("Update Rhythm（字幕更新节奏）:"))
+        self.subtitle_update_pacing = ReadableComboBox()
+        self.subtitle_update_pacing.addItem("Fluent（流畅 · 110ms）", "fluent")
+        self.subtitle_update_pacing.addItem("Steady（稳定 · 180ms）", "steady")
+        self.subtitle_update_pacing.addItem("Focus（专注 · 280ms）", "focus")
+        pacing_index = self.subtitle_update_pacing.findData(
+            config.subtitle_update_pacing
+        )
+        self.subtitle_update_pacing.setCurrentIndex(max(0, pacing_index))
+        pacing_row.addWidget(self.subtitle_update_pacing)
+        layout.addLayout(pacing_row)
+
+        subtitle_policy_hint = QLabel(
+            "稳定度决定是否显示临时中文；更新节奏只合并同一句的连续更新。"
+            "英文首条、Apple 首条和最终稿不会等待。"
+        )
+        subtitle_policy_hint.setWordWrap(True)
+        subtitle_policy_hint.setStyleSheet("font-size: 11px; color: #bac2de;")
+        layout.addWidget(subtitle_policy_hint)
+
         display_apply_hint = QLabel("保存后重新 Launch 生效")
         display_apply_hint.setStyleSheet("font-size: 11px; color: #f9e2af;")
         layout.addWidget(display_apply_hint)
@@ -823,6 +863,8 @@ class Dashboard(QWidget):
             self.target_lang,
             self.fast_translation_backend,
             self.single_streaming_mode,
+            self.subtitle_presentation_policy,
+            self.subtitle_update_pacing,
         )
         for combo in combos:
             combo.currentTextChanged.connect(self._mark_settings_dirty)
@@ -2478,6 +2520,12 @@ class Dashboard(QWidget):
                 self.control_center_transparency_slider.value()
             ),
             usage_tracking_enabled=self.usage_tracking_checkbox.isChecked(),
+            subtitle_presentation_policy=(
+                self.subtitle_presentation_policy.currentData() or "realtime"
+            ),
+            subtitle_update_pacing=(
+                self.subtitle_update_pacing.currentData() or "fluent"
+            ),
         )
 
     def _show_save_feedback(self, message, *, success):

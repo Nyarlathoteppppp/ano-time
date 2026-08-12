@@ -48,6 +48,13 @@ display_duration = 10
 window_width = 800
 window_height = 120
 mode = notch
+# Subtitle stability only controls what is drawn. It never delays ASR,
+# Apple Translation, remote translation, or transcript persistence.
+# realtime / balanced / stable
+subtitle_presentation_policy = realtime
+# Coalesce only continuous remote AI updates. First English, Apple drafts and
+# final translations are always rendered immediately. fluent / steady / focus
+subtitle_update_pacing = fluent
 # Control-center background transparency. 0 is fully opaque; maximum is 70.
 # Restart the app after changing this value.
 control_center_transparency = 30

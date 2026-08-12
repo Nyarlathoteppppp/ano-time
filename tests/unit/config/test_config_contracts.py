@@ -22,6 +22,23 @@ class ConfigContractTests(unittest.TestCase):
         self.assertIsNone(loaded.device_index)
         self.assertTrue(loaded.auto_save_transcripts)
         self.assertEqual(loaded.single_streaming_mode, "auto")
+        self.assertEqual(loaded.subtitle_presentation_policy, "realtime")
+        self.assertEqual(loaded.subtitle_update_pacing, "fluent")
+
+    def test_invalid_subtitle_display_preferences_fall_back_to_fast_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.ini")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "[display]\n"
+                    "subtitle_presentation_policy = unknown\n"
+                    "subtitle_update_pacing = 999\n"
+                )
+            with patch.object(config_module.keychain, "resolve", return_value=""):
+                loaded = config_module.Config(path)
+
+        self.assertEqual(loaded.subtitle_presentation_policy, "realtime")
+        self.assertEqual(loaded.subtitle_update_pacing, "fluent")
 
     def test_saved_single_endpoint_overrides_openai_environment_fallback(self):
         with tempfile.TemporaryDirectory() as directory:

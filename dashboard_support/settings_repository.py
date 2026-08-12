@@ -165,6 +165,22 @@ class DashboardSettingsRepository:
         parser.set("smart_hint", "model", smart_hint.model)
         parser.set("smart_hint", "interval_seconds", "240")
         parser.set("display", "mode", snapshot.display_mode)
+        presentation_policy = str(snapshot.subtitle_presentation_policy).lower()
+        parser.set(
+            "display",
+            "subtitle_presentation_policy",
+            presentation_policy
+            if presentation_policy in ("realtime", "balanced", "stable")
+            else "realtime",
+        )
+        update_pacing = str(snapshot.subtitle_update_pacing).lower()
+        parser.set(
+            "display",
+            "subtitle_update_pacing",
+            update_pacing
+            if update_pacing in ("fluent", "steady", "focus")
+            else "fluent",
+        )
         parser.set(
             "display",
             "control_center_transparency",

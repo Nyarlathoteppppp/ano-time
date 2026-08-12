@@ -158,6 +158,31 @@ class DashboardSettingsRepositoryTests(unittest.TestCase):
             self.assertEqual(
                 saved.get("translation", "single_streaming_mode"), "auto"
             )
+            self.assertEqual(
+                saved.get("display", "subtitle_presentation_policy"), "realtime"
+            )
+            self.assertEqual(
+                saved.get("display", "subtitle_update_pacing"), "fluent"
+            )
+
+    def test_subtitle_display_preferences_round_trip_independently(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.ini")
+            snapshot = replace(
+                make_snapshot(),
+                subtitle_presentation_policy="stable",
+                subtitle_update_pacing="focus",
+            )
+            DashboardSettingsRepository(path, keychain=FakeKeychain()).save(snapshot)
+            saved = configparser.ConfigParser()
+            saved.read(path)
+
+            self.assertEqual(
+                saved.get("display", "subtitle_presentation_policy"), "stable"
+            )
+            self.assertEqual(
+                saved.get("display", "subtitle_update_pacing"), "focus"
+            )
 
     def test_apple_sample_rate_is_normalized_before_persistence(self):
         with tempfile.TemporaryDirectory() as directory:

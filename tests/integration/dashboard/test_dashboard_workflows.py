@@ -96,6 +96,23 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertIn("2 条", text)
         self.assertIn("3 条", text)
 
+    def test_home_exposes_display_stability_and_update_pacing_preferences(self):
+        self.assertEqual(
+            self.dashboard.subtitle_presentation_policy.currentData(), "realtime"
+        )
+        self.assertEqual(
+            self.dashboard.subtitle_update_pacing.currentData(), "fluent"
+        )
+        self.dashboard.subtitle_presentation_policy.setCurrentIndex(
+            self.dashboard.subtitle_presentation_policy.findData("stable")
+        )
+        self.dashboard.subtitle_update_pacing.setCurrentIndex(
+            self.dashboard.subtitle_update_pacing.findData("focus")
+        )
+        snapshot = self.dashboard.collect_settings()
+        self.assertEqual(snapshot.subtitle_presentation_policy, "stable")
+        self.assertEqual(snapshot.subtitle_update_pacing, "focus")
+
     def test_home_shows_permanent_transcript_status_and_output_location(self):
         self.assertIn("永久保留", self.dashboard.transcript_recording_checkbox.text())
         self.dashboard.set_transcript_recording_status(

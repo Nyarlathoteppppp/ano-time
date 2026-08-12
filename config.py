@@ -179,6 +179,22 @@ class Config:
         self.window_width = self._getint("display", "window_width", 800)
         self.window_height = self._getint("display", "window_height", 120)
         self.display_mode = self._get("display", "mode", "notch").lower()
+        configured_presentation_policy = self._get(
+            "display", "subtitle_presentation_policy", "realtime"
+        ).lower()
+        self.subtitle_presentation_policy = (
+            configured_presentation_policy
+            if configured_presentation_policy in ("realtime", "balanced", "stable")
+            else "realtime"
+        )
+        configured_update_pacing = self._get(
+            "display", "subtitle_update_pacing", "fluent"
+        ).lower()
+        self.subtitle_update_pacing = (
+            configured_update_pacing
+            if configured_update_pacing in ("fluent", "steady", "focus")
+            else "fluent"
+        )
         self.control_center_transparency = max(
             0,
             min(70, self._getint("display", "control_center_transparency", 30)),

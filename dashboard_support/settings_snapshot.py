@@ -73,3 +73,5 @@ class DashboardSettingsSnapshot:
     auto_save_transcripts: bool
     control_center_transparency: int = 30
     usage_tracking_enabled: bool = True
+    subtitle_presentation_policy: str = "realtime"
+    subtitle_update_pacing: str = "fluent"
