@@ -31,14 +31,15 @@ fi
 # ==================================================
 # Step 2: Create Virtual Environment
 # ==================================================
-# A virtual environment (.venv) isolates Python packages from your system,
+# A virtual environment (.venv-pyside) isolates Python packages from your system,
 # preventing conflicts with other projects. If .venv already exists,
 # we'll skip this step and reuse the existing environment.
-if [ ! -d ".venv" ]; then
-    echo "[1/4] Creating virtual environment (.venv)..."
-    python3 -m venv .venv
+VENV_DIR=".venv-pyside"
+if [ ! -d "$VENV_DIR" ]; then
+    echo "[1/4] Creating PySide6 virtual environment ($VENV_DIR)..."
+    python3 -m venv "$VENV_DIR"
 else
-    echo "[1/4] Virtual environment exists."
+    echo "[1/4] PySide6 virtual environment exists."
 fi
 
 # ==================================================
@@ -46,16 +47,23 @@ fi
 # ==================================================
 # Activates the virtual environment and installs all required packages
 # from requirements.txt, including:
-#   - PyQt6 (GUI framework)
+#   - PySide6 (GUI framework)
 #   - faster-whisper (speech recognition)
 #   - funasr (Alibaba ASR engine)
 #   - sounddevice (audio capture)
 #   - openai (translation API)
 #   - And other essential libraries
 echo "[2/4] Installing dependencies..."
-source .venv/bin/activate
+source "$VENV_DIR/bin/activate"
 pip install --upgrade pip
 pip install -r requirements.txt
+
+# A new clone must have a safe, key-free configuration before the dashboard
+# can start. Existing local settings are never overwritten.
+if [ ! -f "config.ini" ]; then
+    cp config.ini.example config.ini
+    echo "  [OK] Created config.ini from the safe example."
+fi
 
 # ==================================================
 # Step 4: Apple Silicon GPU Optimization

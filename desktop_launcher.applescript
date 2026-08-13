@@ -1,5 +1,5 @@
 on run
-	set projectPath to "/Users/ywbw/realtime-ton-pyside6"
+	set projectPath to "__ANOTIME_PROJECT_PATH__"
 	display notification "Translator dashboard is starting" with title "Anotime"
 	set launchCommand to "export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin; " & ¬
 		"cd " & quoted form of projectPath & "; ./launch_desktop.sh"

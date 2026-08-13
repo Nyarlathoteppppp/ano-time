@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 
 APP_NAME="Anotime"
 APP_PATH="$HOME/Desktop/$APP_NAME.app"
+PROJECT_ROOT="$(pwd -P)"
 
 # Build the native subtitle helper during installation, never when a user
 # presses Launch in the control center. NativeNotchOverlay still has a
@@ -12,7 +13,14 @@ APP_PATH="$HOME/Desktop/$APP_NAME.app"
 echo "Preparing native subtitle helper..."
 ./build_native_notch.sh
 
-/usr/bin/osacompile -o "$APP_PATH" desktop_launcher.applescript
+# The Finder launcher cannot assume the maintainer's home directory. Render
+# the current cloned project path into a temporary AppleScript at install time.
+launcher_template="$(mktemp -t anotime-launcher)"
+escaped_project_root="$(printf '%s' "$PROJECT_ROOT" | sed 's/[\\/&]/\\&/g')"
+sed "s|__ANOTIME_PROJECT_PATH__|$escaped_project_root|g" \
+    desktop_launcher.applescript > "$launcher_template"
+/usr/bin/osacompile -o "$APP_PATH" "$launcher_template"
+rm -f "$launcher_template"
 
 PLIST="$APP_PATH/Contents/Info.plist"
 BUNDLE_ID="com.nyarlathotep.realtime-ton"

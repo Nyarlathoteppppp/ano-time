@@ -3,7 +3,7 @@
 The default suite is intentionally offline and fast:
 
 ```bash
-QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -q
+QT_QPA_PLATFORM=offscreen .venv-pyside/bin/python -m unittest discover -s tests -q
 ```
 
 - `unit/`: one production module or one pure behavior per test file.

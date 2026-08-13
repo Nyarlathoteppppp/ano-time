@@ -100,7 +100,7 @@ chmod +x install_mac.sh start_mac.sh
 brew install ffmpeg
 ```
 
-安装脚本会创建项目内的 `.venv`、安装 Python 依赖、构建 Apple Speech 与原生刘海 helper，并从示例生成 `config.ini`。
+安装脚本会创建项目内的 `.venv-pyside`、安装 Python 依赖、构建 Apple Speech 与原生刘海 helper，并从示例生成 `config.ini`。
 
 #### 安装桌面应用和快捷键
 
@@ -320,7 +320,7 @@ MLX/Whisper 会在首次使用时下载模型；Apple Speech 也可能需要下�
 ```bash
 ./build_apple_speech.sh
 ./build_native_notch.sh
-QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -q
+QT_QPA_PLATFORM=offscreen .venv-pyside/bin/python -m unittest discover -s tests -q
 ```
 
 Before changing the live pipeline, read [AGENTS.md](./AGENTS.md) and
@@ -444,7 +444,7 @@ If FFmpeg is missing:
 brew install ffmpeg
 ```
 
-The installer creates a project-local `.venv`, installs Python dependencies, builds the Apple Speech and native-notch helpers, and prepares `config.ini` from the example configuration.
+The installer creates a project-local `.venv-pyside`, installs Python dependencies, builds the Apple Speech and native-notch helpers, and prepares `config.ini` from the example configuration.
 
 ### Optional desktop launcher
 
@@ -765,7 +765,7 @@ MLX/Whisper models download on first use. Apple Speech may also need language as
 ./tools/run_tests.sh
 
 # Temporarily enable Diagnostics on Home and restart first, then measure.
-.venv/bin/python tools/latency_baseline.py
+.venv-pyside/bin/python tools/latency_baseline.py
 
 # Optional source-file hot reload
 REALTIME_TON_DEV_RELOAD=1 ./start_mac.sh

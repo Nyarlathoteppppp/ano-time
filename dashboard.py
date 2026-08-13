@@ -1276,7 +1276,6 @@ class Dashboard(QWidget):
                 self.device_status.setText(f"✅ Audio MIDI Setup opened - Follow the instructions!")
                 self.device_status.setStyleSheet("color: #a6e3a1;")
                 # Refresh after user has time to create the device
-                QTimer = __import__('PyQt6.QtCore', fromlist=['QTimer']).QTimer
                 QTimer.singleShot(3000, self.refresh_audio_devices)
             else:
                 self.device_status.setText("❌ Failed to open Audio MIDI Setup")
