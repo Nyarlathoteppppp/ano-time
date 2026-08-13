@@ -343,6 +343,11 @@ release checks.
 
 项目采用 [MIT License](./LICENSE)。
 
+- 原始 `realtime-subtitle` 代码及其保留部分：Copyright © 2025 Van。
+- AnoTime 的新增与修改代码：Copyright © 2026 Ton618。
+
+AnoTime 源自上游 `realtime-subtitle`；上游 MIT 版权与许可声明会随所有副本和重要部分一并保留。
+
 ---
 
 <a id="english"></a>
@@ -788,4 +793,10 @@ for the complete regression suite, latency baselines, and manual acceptance chec
 
 ## License
 
-[MIT](./LICENSE) © Van and contributors.
+[MIT](./LICENSE).
+
+- Original `realtime-subtitle` portions: Copyright © 2025 Van.
+- AnoTime modifications: Copyright © 2026 Ton618.
+
+AnoTime is derived from `realtime-subtitle`; the upstream MIT attribution and
+license notice are retained in all copies and substantial portions.
