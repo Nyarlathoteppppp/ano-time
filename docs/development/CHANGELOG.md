@@ -14,3 +14,11 @@
 - 全量测试命令：`./.venv/bin/python -m unittest discover -s tests -q`。
 - 发布前扫描：`python3 tools/release_audit.py .`。
 - 界面相关测试会输出 Qt headless 警告，测试通过时不代表真实 macOS 全屏、权限和 Mission Control 已覆盖。
+
+## 2026-08-14
+
+- 新增 [`../ARCHITECTURE_MAP.md`](../ARCHITECTURE_MAP.md)：为后续 agent 标出旧版 Python/PySide6
+  原型的 capture、ASR、字幕事件、翻译、渲染、记录、配置与测试边界，并明确它不能与独立的原生
+  App Store Swift 工程耦合。
+- 未改动任何运行路径、配置文件、课程资料、日志或 API 密钥。该仓库继续作为本地课堂原型与
+  迁移参考，不作为 App Store 构建来源。

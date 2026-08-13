@@ -1,10 +1,14 @@
 # Anotime runtime handoff
 
-Last verified: `d7dbc30` (`translation: centralize bounded context policy`).
+Last verified: `f6c3a7d` (`Define isolated PySide6 migration architecture`).
 
 This document exists so future agents can safely continue work without
 re-learning the real-time constraints from the codebase or changing a fast
 path accidentally.
+
+For a module-by-module map of this Python/PySide6 prototype, read
+[`ARCHITECTURE_MAP.md`](ARCHITECTURE_MAP.md). The native App Store product is a
+separate Swift repository and must not be coupled to this runtime.
 
 ## Product priority
 
