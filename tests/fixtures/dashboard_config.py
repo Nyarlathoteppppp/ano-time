@@ -26,6 +26,7 @@ def make_dashboard_config(config_path):
     settings.gemini_api_key = "test-gemini-key"
     settings.cloudflare_account_id = "test-account"
     settings.cloudflare_api_token = "test-cloudflare-token"
+    settings.smart_hint_enabled = True
     settings.smart_hint_api_key = "test-hint-key"
 
     # These assertions describe the supported first-run experience, rather

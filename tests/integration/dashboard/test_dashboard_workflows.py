@@ -779,6 +779,9 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.assertEqual(openai_factory.call_args.kwargs["max_retries"], 0)
 
     def test_smart_hint_card_exposes_an_isolated_connection_test(self):
+        self.assertIn("下次 Launch", self.dashboard.smart_hint_next_launch.text())
+        self.assertIn("开启", self.dashboard.smart_hint_next_launch.text())
+        self.assertEqual(self.dashboard.smart_hint_status.text(), "未启动")
         self.assertIn("测试连接", self.dashboard.smart_hint_test_btn.text())
         self.assertIn("不会进入课堂字幕", self.dashboard.smart_hint_test_btn.toolTip())
         self.dashboard.smart_hint_provider.setCurrentIndex(
@@ -790,6 +793,13 @@ class DashboardWorkflowTests(unittest.TestCase):
         self.dashboard._test_smart_hint()
         self.assertIn("测试失败", self.dashboard.smart_hint_status.text())
         self.assertIsNone(getattr(self.dashboard, "smart_hint_test_worker", None))
+
+    def test_smart_hint_pending_switch_is_explicitly_marked_for_next_launch(self):
+        self.assertTrue(self.dashboard.smart_hint_enabled.isChecked())
+        self.dashboard.smart_hint_enabled.setChecked(False)
+        self.assertIn("下次 Launch：关闭（保存后）", self.dashboard.smart_hint_next_launch.text())
+        self.dashboard._settings_saved()
+        self.assertEqual(self.dashboard.smart_hint_next_launch.text(), "下次 Launch：关闭")
 
     def test_smart_hint_runtime_status_stays_single_line_with_full_detail_in_tooltip(self):
         detail = (

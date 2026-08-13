@@ -276,6 +276,7 @@ class Dashboard(QWidget):
         }
         self._connect_settings_dirty_signals()
         self._settings_ready = True
+        self._refresh_smart_hint_launch_state()
 
         self.permission_controller = PermissionController(
             self, lambda sample_rate: SystemAudioTestWorker(sample_rate)
@@ -777,13 +778,13 @@ class Dashboard(QWidget):
         status = str(status or "").lower()
         detail = " ".join(str(detail or "").split())
         if test_result:
-            summary = "连接成功" if status == "ok" else "测试失败"
+            summary = "连接成功（尚未启动）" if status == "ok" else "测试失败"
         else:
             summary = {
                 "active": "更新中…",
                 "ok": "已更新",
                 "waiting": "等待首轮总结",
-                "off": "已关闭",
+                "off": "本次未启用",
                 "warning": "更新失败",
                 "error": "更新失败",
             }.get(status, detail or "等待中")
@@ -988,6 +989,7 @@ class Dashboard(QWidget):
         if not self._settings_ready:
             return
         self._settings_dirty = True
+        self._refresh_smart_hint_launch_state()
         self.pending_settings_label.show()
         if self._session_state == "running":
             message = "已修改设置；下次 Launch 生效。"
@@ -1003,10 +1005,29 @@ class Dashboard(QWidget):
                 "已保存设置；下次 Launch 生效。"
             )
             self.pending_settings_label.show()
+            self._refresh_smart_hint_launch_state()
             return
         self._settings_dirty = False
         self.pending_settings_label.clear()
         self.pending_settings_label.hide()
+        self._refresh_smart_hint_launch_state()
+
+    def _refresh_smart_hint_launch_state(self):
+        """Keep saved next-launch intent separate from active Pipeline state."""
+        label = getattr(self, "smart_hint_next_launch", None)
+        checkbox = getattr(self, "smart_hint_enabled", None)
+        if label is None or checkbox is None:
+            return
+        enabled = checkbox.isChecked()
+        unsaved = bool(getattr(self, "_settings_dirty", False))
+        if enabled:
+            text = "下次 Launch：✓ 开启" + ("（保存后）" if unsaved else "")
+            color = "#a6e3a1"
+        else:
+            text = "下次 Launch：关闭" + ("（保存后）" if unsaved else "")
+            color = "#6c7086"
+        label.setText(text)
+        label.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {color};")
 
     def set_active_session_description(self, description, state="idle"):
         """Show the immutable route actually used by this Pipeline session."""
@@ -1903,6 +1924,9 @@ class Dashboard(QWidget):
         self.smart_hint_enabled = QCheckBox("开启智能提示")
         self.smart_hint_enabled.setChecked(config.smart_hint_enabled)
         self.smart_hint_form.addRow("状态:", self.smart_hint_enabled)
+        self.smart_hint_next_launch = QLabel()
+        self.smart_hint_next_launch.setMinimumHeight(24)
+        self.smart_hint_form.addRow("保存后:", self.smart_hint_next_launch)
         self.smart_hint_provider = ReadableComboBox()
         self.smart_hint_provider.addItem("SiliconFlow DeepSeek V4 Flash（推荐）", "siliconflow")
         self.smart_hint_provider.addItem("Custom OpenAI-Compatible", "custom")
@@ -1921,14 +1945,14 @@ class Dashboard(QWidget):
         self.smart_hint_model = QLineEdit(config.smart_hint_model)
         self.smart_hint_model.setPlaceholderText("deepseek-ai/DeepSeek-V4-Flash")
         self.smart_hint_form.addRow("Model:", self.smart_hint_model)
-        self.smart_hint_status = QLabel("已关闭")
+        self.smart_hint_status = QLabel("未启动")
         self.smart_hint_status.setWordWrap(False)
         self.smart_hint_status.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         self.smart_hint_status.setMinimumHeight(24)
         self.smart_hint_status.setStyleSheet("font-size: 12px; color: #6c7086;")
-        self.smart_hint_form.addRow("本次状态:", self.smart_hint_status)
+        self.smart_hint_form.addRow("当前运行:", self.smart_hint_status)
         self.smart_hint_test_btn = QPushButton("Test Smart Hint（测试连接）")
         self.smart_hint_test_btn.setToolTip(
             "用固定的机器学习英文测试 Key、Base URL 和 Model；不会进入课堂字幕。"
