@@ -8,6 +8,7 @@ import queue
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from ui.qt import QtWidgets, QObject, QTimer, Signal
 
 QApplication = QtWidgets.QApplication
@@ -40,6 +41,7 @@ from asr_pipeline import (
     ASRStablePrefix,
     ASRSubtitleCoordinator,
     BoundaryReason,
+    RollingASRAdapter,
     StreamingASRAdapter,
 )
 
@@ -84,6 +86,33 @@ class WorkerSignals(QObject):
             event.translated_text,
             event.legacy_state,
         )
+
+
+@dataclass(slots=True)
+class _SharedASRRuntime:
+    """Pipeline-owned downstream runtime reused by every unified ASR source.
+
+    The runtime begins after English ASR. It deliberately owns no audio stream
+    or recognizer object; native and rolling adapters only feed its
+    coordinator. This keeps Apple drafts, Preview, Final and subtitles on one
+    code path without adding a second translation implementation for MLX.
+    """
+
+    coordinator: ASRSubtitleCoordinator
+    preview_service: ProgressiveTranslationPreview
+    fast_path: FastPath | None
+    fast_executor: ThreadPoolExecutor | None
+    bridge_executor: ThreadPoolExecutor
+    refine_executor: ThreadPoolExecutor
+
+    def shutdown(self) -> None:
+        if self.fast_path:
+            self.fast_path.shutdown(wait=False)
+        elif self.fast_executor:
+            self.fast_executor.shutdown(wait=False, cancel_futures=True)
+        self.bridge_executor.shutdown(wait=False, cancel_futures=True)
+        self.refine_executor.shutdown(wait=False, cancel_futures=True)
+        self.preview_service.shutdown()
 
 class Pipeline(QObject):
     def __init__(self, session_settings=None, asr_session_generation=0):
@@ -522,18 +551,14 @@ class Pipeline(QObject):
         if settings.asr_backend in {"apple", "parakeet_eou"}:
             self._processing_loop_apple()
             return
+        if settings.asr_backend == "mlx":
+            self._processing_loop_mlx()
+            return
 
         print("Pipeline processing loop started (FULLY PARALLEL mode).")
         
         # Create multiple transcribers for concurrent processing
-        # CHECK: If using MLX, force 1 worker (MLX is not thread-safe for parallel inference in this way)
-        is_mlx = (settings.asr_backend == "mlx")
-        
-        if is_mlx:
-            print("[Pipeline] MLX backend detected - forcing single worker (MLX uses GPU parallelism internaly)")
-            num_transcription_workers = 1
-        else:
-            num_transcription_workers = settings.transcription_workers
+        num_transcription_workers = settings.transcription_workers
             
         print(f"[Pipeline] Using {num_transcription_workers} transcription workers...")
         
@@ -673,28 +698,178 @@ class Pipeline(QObject):
             transcribe_executor.shutdown(wait=False)
             translate_executor.shutdown(wait=False)
 
-    def _processing_loop_apple(self):
-        """Run the shared native-streaming path (Apple Speech or Parakeet EOU).
+    def _processing_loop_mlx(self):
+        """Run MLX rolling inference through the shared ASR subtitle runtime.
 
-        The historical method name stays as a compatibility boundary for the
-        existing pause/reset tests.  Engine-specific code is deliberately
-        limited to bridge selection below; subtitle, fast-draft, Preview and
-        Final handling remain one shared path.
+        The capture buffer, VAD thresholds, inference model and single-worker
+        rule intentionally remain local to this method. Only completed English
+        hypotheses cross into the backend-neutral Coordinator.
+        """
+        import numpy as np
+
+        settings = self._session_settings()
+        asr_label = "MLX Whisper"
+        print("[Pipeline] MLX backend detected - using one rolling inference worker")
+        runtime = self._create_shared_asr_runtime(asr_label=asr_label)
+        adapter = RollingASRAdapter(
+            session_generation=self.__dict__.get("_asr_session_generation", 0),
+            emit=runtime.coordinator.accept,
+        )
+        transcribe_executor = ThreadPoolExecutor(max_workers=1)
+        self.last_final_text = ""
+
+        def seal_pause_boundary():
+            adapter.boundary(BoundaryReason.PAUSE)
+
+        self._pause_boundary_handler = seal_pause_boundary
+
+        def transcribe_snapshot(audio_data, prompt, snapshot):
+            """Complete inside the serial worker, preserving VAD task order."""
+            if not self.running or self._paused.is_set():
+                return
+            text = ""
+            try:
+                text = self.transcriber.transcribe(audio_data, prompt=prompt)
+            except Exception as exc:
+                stage = "mlx_final" if snapshot.source_final else "mlx_partial"
+                print(f"[{stage}] Error: {exc}")
+                log_stage(stage, status="error", detail=str(exc))
+            if not self.running or self._paused.is_set():
+                return
+            adapter.complete(snapshot, text)
+
+        def complete_empty_snapshot(snapshot):
+            """Deliver an empty VAD boundary only while this session is live."""
+            if self.running and not self._paused.is_set():
+                adapter.complete(snapshot, "")
+
+        try:
+            print("[Pipeline] MLX rolling processing loop started.")
+            buffer = np.array([], dtype=np.float32)
+            last_update_time = time.time()
+            stream_ready_logged = False
+
+            for audio_chunk in self.audio.generator():
+                if not self.running:
+                    break
+                if self._paused.is_set():
+                    # Audio capture stays alive during pause, but no old buffer
+                    # or pre-pause context may leak into the resumed stream.
+                    buffer = np.array([], dtype=np.float32)
+                    last_update_time = time.time()
+                    continue
+                if not stream_ready_logged:
+                    stream_ready_logged = True
+                    log_stage("audio_stream_ready", elapsed_ms=0)
+
+                now = time.time()
+                rms = float(np.sqrt(np.mean(audio_chunk ** 2)))
+                activity_threshold = diagnostic_audio_activity_threshold(
+                    settings.silence_threshold
+                )
+                audio_marker = (
+                    adapter.note_audio_activity()
+                    if rms >= activity_threshold
+                    else None
+                )
+                if audio_marker:
+                    self.signals.runtime_status.emit(
+                        "ASR", "waiting", f"{asr_label} · audio detected"
+                    )
+                    log_stage(
+                        "speech_audio_detected",
+                        chunk_id=audio_marker[0],
+                        elapsed_ms=0,
+                        rms=f"{rms:.5f}",
+                    )
+
+                buffer = np.concatenate([buffer, audio_chunk])
+                buffer_duration = len(buffer) / self.audio.sample_rate
+                min_silence_dur = settings.silence_duration
+                is_silence = False
+                if buffer_duration > min_silence_dur:
+                    tail = buffer[-int(self.audio.sample_rate * min_silence_dur):]
+                    is_silence = bool(
+                        np.sqrt(np.mean(tail ** 2)) < self.audio.silence_threshold
+                    )
+
+                standard_cut = is_silence and buffer_duration > 1.0
+                soft_limit_cut = False
+                if buffer_duration > 6.0:
+                    short_tail_samps = int(self.audio.sample_rate * 0.4)
+                    if len(buffer) > short_tail_samps:
+                        short_rms = np.sqrt(
+                            np.mean(buffer[-short_tail_samps:] ** 2)
+                        )
+                        soft_limit_cut = short_rms < self.audio.silence_threshold
+                hard_limit_cut = buffer_duration > self.audio.max_phrase_duration
+                should_finalize = standard_cut or soft_limit_cut or hard_limit_cut
+
+                if should_finalize and buffer_duration > 0.5:
+                    final_buffer = buffer.copy()
+                    prompt = self.last_final_text
+                    snapshot = adapter.reserve(source_final=True)
+                    # Even a silent VAD cut goes through the serial executor.
+                    # It therefore cannot reset the Coordinator before a prior
+                    # rolling partial has completed.
+                    overall_rms = np.sqrt(np.mean(final_buffer ** 2))
+                    if overall_rms < self.audio.silence_threshold:
+                        print(
+                            "[Pipeline] MLX skipped silent VAD buffer "
+                            f"(RMS={overall_rms:.4f})"
+                        )
+                        transcribe_executor.submit(
+                            complete_empty_snapshot, snapshot
+                        )
+                    else:
+                        transcribe_executor.submit(
+                            transcribe_snapshot,
+                            final_buffer,
+                            prompt,
+                            snapshot,
+                        )
+                    buffer = np.array([], dtype=np.float32)
+                    last_update_time = now
+                elif (
+                    now - last_update_time > settings.update_interval
+                    and buffer_duration > 0.5
+                ):
+                    partial_buffer = buffer.copy()
+                    if np.sqrt(np.mean(partial_buffer ** 2)) > self.audio.silence_threshold:
+                        snapshot = adapter.reserve(source_final=False)
+                        transcribe_executor.submit(
+                            transcribe_snapshot,
+                            partial_buffer,
+                            self.last_final_text,
+                            snapshot,
+                        )
+                    last_update_time = now
+        except Exception as exc:
+            print(f"[Pipeline] MLX rolling error: {exc}")
+            log_stage("pipeline", status="error", detail=str(exc))
+            self.signals.pipeline_error.emit(str(exc))
+        finally:
+            transcribe_executor.shutdown(wait=False, cancel_futures=True)
+            self._pause_boundary_handler = None
+            runtime.shutdown()
+            if self.__dict__.get("_fast_path") is runtime.fast_path:
+                self._fast_path = None
+            if self.__dict__.get("_preview_service") is runtime.preview_service:
+                self._preview_service = None
+
+    def _create_shared_asr_runtime(
+        self,
+        *,
+        asr_label: str,
+        host_semantic_boundaries: bool = False,
+    ) -> _SharedASRRuntime:
+        """Build the one post-ASR runtime used by every unified backend.
+
+        ASR adapters are intentionally absent here. This method owns the
+        already-established subtitle/translation behavior while each backend
+        owns only audio ingestion and the conversion to ASR events.
         """
         settings = self._session_settings()
-        is_parakeet = settings.asr_backend == "parakeet_eou"
-        if is_parakeet:
-            from parakeet_transcriber import ParakeetEOUTranscriber
-            transcriber_class = ParakeetEOUTranscriber
-            asr_label = "Parakeet EOU"
-        else:
-            from apple_transcriber import AppleSpeechTranscriber
-            transcriber_class = AppleSpeechTranscriber
-            asr_label = "Apple"
-
-        # Apple drafts are the latency-critical path. Never run network work on
-        # this executor: a slow bridge request would otherwise delay every new
-        # provisional subtitle behind it.
         fast_path = (
             FastPath(self._segment_state_store())
             if settings.split_fast_path
@@ -723,6 +898,7 @@ class Pipeline(QObject):
             "ok" if self._final_translation_client() is not None else "warning",
             "ON · waiting" if self._final_translation_client() is not None else "OFF",
         )
+
         def publish_final(final: ASRSemanticFinal):
             text = final.text
             chunk_id = final.segment_id
@@ -861,8 +1037,6 @@ class Pipeline(QObject):
                 remainder,
                 stable_source_text=update.stable_source_text,
             )
-            # Speed-first path: every distinct Apple partial is translated. Stable
-            # Prefix is measured in parallel and never gates the local draft.
             partial_args = (
                 remainder, current_chunk_id, version,
                 update.segment_started_at, update.first_partial_at,
@@ -915,11 +1089,48 @@ class Pipeline(QObject):
                 "ASR", "ok", f"{asr_label} · idle"
             ),
             on_boundary=on_boundary,
+            host_semantic_boundaries=host_semantic_boundaries,
+        )
+        return _SharedASRRuntime(
+            coordinator=coordinator,
+            preview_service=preview_service,
+            fast_path=fast_path,
+            fast_executor=fast_executor,
+            bridge_executor=bridge_executor,
+            refine_executor=refine_executor,
+        )
+
+    def _processing_loop_apple(self):
+        """Run the shared native-streaming path (Apple Speech or Parakeet EOU).
+
+        The historical method name stays as a compatibility boundary for the
+        existing pause/reset tests.  Engine-specific code is deliberately
+        limited to bridge selection below; subtitle, fast-draft, Preview and
+        Final handling remain one shared path.
+        """
+        settings = self._session_settings()
+        is_parakeet = settings.asr_backend == "parakeet_eou"
+        if is_parakeet:
+            from parakeet_transcriber import ParakeetEOUTranscriber
+            transcriber_class = ParakeetEOUTranscriber
+            asr_label = "Parakeet EOU"
+        else:
+            from apple_transcriber import AppleSpeechTranscriber
+            transcriber_class = AppleSpeechTranscriber
+            asr_label = "Apple"
+
+        runtime = self._create_shared_asr_runtime(
+            asr_label=asr_label,
             # Parakeet can retain one unpunctuated stream for minutes when
-            # capturing system audio. Give only that source the conservative
-            # discourse-boundary policy; Apple remains the exact baseline.
+            # capturing system audio. Apple remains the exact baseline.
             host_semantic_boundaries=is_parakeet,
         )
+        coordinator = runtime.coordinator
+        fast_path = runtime.fast_path
+        fast_executor = runtime.fast_executor
+        bridge_executor = runtime.bridge_executor
+        refine_executor = runtime.refine_executor
+        preview_service = runtime.preview_service
         adapter = StreamingASRAdapter(
             backend=ASRBackend.PARAKEET_EOU if is_parakeet else ASRBackend.APPLE,
             session_generation=self.__dict__.get("_asr_session_generation", 0),

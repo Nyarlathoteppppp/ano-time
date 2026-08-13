@@ -177,28 +177,35 @@ Update this file in the same commit whenever you change:
 ## Unified ASR event pipeline
 
 - Canonical design: `docs/development/UNIFIED_ASR_EVENT_PIPELINE_PLAN.md`.
-- Completed: protocol/acceptance safety net, Apple-equivalent migration and
-  Parakeet EOU semantic-boundary policy in `ASRSubtitleCoordinator`.
+- Completed: protocol/acceptance safety net, Apple-equivalent migration,
+  Parakeet EOU semantic-boundary policy, and MLX rolling-output migration in
+  `ASRSubtitleCoordinator`.
 - Apple runtime remains the latency baseline. Its source callback is adapted by
   `StreamingASRAdapter`; translation, display and recording continue through
   the existing Pipeline outputs.
-- Do **not** add another subtitle route for Parakeet or MLX. The remaining
-  work is to emit the same immutable ASR events from those backends.
+- Do **not** add another subtitle route for Apple, Parakeet or MLX. All three
+  emit immutable ASR events into the shared coordinator.
+- MLX uses `RollingASRAdapter`: sequence and anchor are frozen when an audio
+  snapshot is submitted, not when inference completes. Its pause boundary
+  invalidates outstanding snapshots before starting a fresh stream.
+- Whisper and FunASR remain explicitly legacy paths. Do not migrate either by
+  copying MLX code; create their adapter contract and real-audio baseline first.
 - Native Apple and Parakeet helpers have process-generation guards. Preserve
   them whenever changing their reset/start lifecycle.
 
 ## Verification performed
 
-- Full PySide6 suite passed after the phase-1 migration.
-- Focused protocol/Pipeline tests passed: 29 tests.
+- Full PySide6 suite passed after the Phase-3 migration: 465 tests.
+- Focused protocol/Pipeline tests passed: 34 tests.
 - 60-second real system-audio Apple smoke test: six native finals, 573 signal
   updates, no Pipeline error. Apple Translation availability can independently
   depend on macOS language resources.
+- MLX replay smoke test using captured system audio: seven ASR partials, two
+  ASR finals, seven Apple drafts and two Apple finals across two segments; no
+  Pipeline error.
 
 ## Next safe step
 
-Phase 3 only: migrate MLX rolling-buffer output to
-`ASRHypothesis → ASRSubtitleCoordinator`. Allocate `sequence` when an audio
-snapshot is submitted, not when inference returns. Do not change MLX model,
-rolling buffer, worker count, VAD thresholds or host-boundary policy in the
-same change.
+Phase 4 only after real-device acceptance: document the support matrix and
+remove unreachable MLX-specific subtitle code if it is genuinely unused. Do
+not modify the legacy Whisper/FunASR output path opportunistically.

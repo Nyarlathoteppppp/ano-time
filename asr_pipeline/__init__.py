@@ -6,7 +6,7 @@ hands them to the shared subtitle coordinator.
 """
 
 from .acceptance import ASREventAcceptanceGate, AcceptanceDecision
-from .adapters import StreamingASRAdapter
+from .adapters import RollingASRAdapter, RollingASRSnapshot, StreamingASRAdapter
 from .coordinator import (
     ASRBoundaryUpdate,
     ASRFirstPartial,
@@ -30,5 +30,7 @@ __all__ = [
     "ASRStreamBoundary",
     "AcceptanceDecision",
     "BoundaryReason",
+    "RollingASRAdapter",
+    "RollingASRSnapshot",
     "StreamingASRAdapter",
 ]

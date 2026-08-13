@@ -1,6 +1,6 @@
 # 统一 ASR 事件管线：设计与迁移计划
 
-> 状态：Phase 0、Phase 1、Phase 2 已完成并验证；MLX 迁移尚未开始。
+> 状态：Phase 0、Phase 1、Phase 2、Phase 3 已完成并验证。
 > 范围：Apple Speech、Parakeet EOU、MLX Whisper 在 **ASR 输出之后** 的统一事件语义。  
 > 非目标：不重写任一 ASR 模型；不改变 Apple 草稿的速度优先策略；不改模型路由、课程档案、Smart Hint 或刘海视觉设计。
 
@@ -19,9 +19,9 @@ Parakeet EOU
   → 已进入上述路径，但长时间连续语音时会累积为很长的一段
 
 MLX Whisper
-  rolling buffer → 旧 _process_partial_chunk / _process_final_chunk
-  → 旧字幕路径
-  → 绕过稳定前缀、统一分句、Preview 和现有展示状态机
+  rolling buffer → RollingASRAdapter → ASRHypothesis
+  → 稳定前缀 → 分句 → Apple 草稿 → Preview / Final
+  → SubtitleEvent → 刘海 / 玻璃 / 记录
 ```
 
 目标不是让三个模型的首字延迟、改写频率或 native final 完全一样。那既不现实，也会损害各自优势。
@@ -101,7 +101,7 @@ asr_pipeline/
 ├── events.py          # 不可变 ASR 事件与枚举
 ├── acceptance.py      # stream / sequence 过期拒绝规则
 ├── coordinator.py     # ASRSubtitleCoordinator
-└── adapters.py        # 仅协议适配；不拥有模型生命周期
+└── adapters.py        # streaming / rolling 协议适配；不拥有模型生命周期
 ```
 
 现有低层模型实现不搬动：
@@ -261,18 +261,21 @@ Parakeet 在连续课程语音中可能很久不产生 EOU。基准测试中，�
 rolling buffer → MLX inference → _process_partial_chunk / _process_final_chunk
 
 目标：
-rolling buffer → MLX inference → MLXASRAdapter → ASRHypothesis
+rolling buffer → MLX inference → RollingASRAdapter → ASRHypothesis
                                           ↓
                                ASRSubtitleCoordinator
 ```
 
 关键细节：
 
-- 每次 audio buffer 复制并提交时分配 `sequence` 和 `audio_anchor`；
+- 每次 audio buffer 复制并提交时通过不可变 `RollingASRSnapshot` 分配
+  `sequence` 和 `audio_anchor`；推理返回时间不参与顺序判定；
 - 同一个滚动语音 buffer 持续使用同一 `stream_id`；
 - VAD、硬切或暂停时，最后一个有效假设以 `source_final=True` 交给 Coordinator，随后开启新 stream；
 - MLX worker 仍可维持单 worker；Coordinator 不依赖并行来正确工作；
-- 旧的 `_process_partial_chunk()` / `_process_final_chunk()` 不应再作为 MLX 的字幕出口。它们移除前必须有 contract tests 覆盖替代路径。
+- `_process_partial_chunk()` / `_process_final_chunk()` 已不再是 MLX 的字幕出口；
+  它们暂时保留给尚未迁移的 Whisper / FunASR legacy path，不能因为 MLX
+  重构而删除。
 
 MLX 的首字延迟仍受 rolling re-transcription 本身限制；本计划只确保它获得同等的产品功能，而不承诺它变成 Apple 式 token streaming。
 
@@ -370,6 +373,25 @@ tests/integration/pipeline/test_asr_backend_contracts.py
 验收：MLX 可使用所有刘海大小、玻璃模式、分句、Apple 草稿、Preview、Final、记录；旧 buffer 晚回来不会倒退；暂停后不黏连。
 
 风险：中。MLX 的输出时序与 Apple 不同，必须验证 `stream_id / sequence` 的边界而非只看单句结果。
+
+**实施记录（2026-08-13）**
+
+- `RollingASRAdapter` 在音频快照进入原有单 worker 前冻结
+  `session_generation / stream_id / sequence / audio_anchor`。旧推理即使较晚完成，
+  也会由接受闸门按快照顺序拒绝，不能使字幕英文回退；
+- rolling buffer、MLX 模型、单 worker、VAD 阈值、音频更新间隔和推理参数均未改变。
+  VAD / 硬时长的 source final 仍通过同一 worker 串行提交；空 VAD 结果变为
+  `ASRStreamBoundary(VAD_SILENCE)`，不会越过先前已排队的 partial；
+- pause 会使 adapter 递增 submission epoch、密封当前可见 stream，并丢弃仍在
+  推理中的旧快照。恢复后只能从新的 stream 开始，避免旧尾文本黏连；
+- MLX 的 partial / final 现在与 Apple / Parakeet 共用
+  `ASRSubtitleCoordinator`，因此统一获得 stable prefix、semantic segment、
+  Apple 草稿、AI Preview / Final、显示投影和课堂记录；
+- 新增 MLX rolling contract tests。完整 PySide6 套件为 465/465；使用已捕获的
+  系统音频回放实测，MLX 产生 7 个 ASR partial、2 个 ASR final、7 个 Apple partial
+  与 2 个 Apple final，覆盖两个连续 segment，未出现 Pipeline error；
+- Whisper / FunASR 仍保持 legacy path，明确不属于本阶段；后续若迁移，必须先建立
+  相同的 adapter contract 与真实音频回归，禁止直接复制 MLX 逻辑。
 
 ### Phase 4：收尾与文档
 
