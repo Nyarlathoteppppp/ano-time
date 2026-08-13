@@ -32,15 +32,21 @@ class AsrPanel(QWidget):
         )
         layout.addRow(self.apply_hint)
         self.asr_backend = ReadableComboBox()
-        self.asr_backend.addItems([
-            "apple", "parakeet_eou", "mlx", "whisper", "funasr",
-        ])
-        self.asr_backend.setCurrentText(self.settings.asr_backend)
+        # Only show engines that are installed and tested in AnoTime's bundled
+        # PySide runtime.  Legacy Whisper/FunASR code remains available for
+        # developers who install those optional dependencies themselves, but a
+        # normal user must never be able to select a backend that cannot start.
+        self.available_backends = ("apple", "parakeet_eou", "mlx")
+        self.asr_backend.addItems(self.available_backends)
+        configured_backend = self.settings.asr_backend
+        self.asr_backend.setCurrentText(
+            configured_backend
+            if configured_backend in self.available_backends
+            else "apple"
+        )
         self.asr_backend.setToolTip(
             "parakeet_eou: Experimental local English streaming CoreML model\n"
-            "whisper: CPU/CUDA (faster-whisper)\n"
-            "mlx: Apple Silicon GPU (mlx-whisper)\n"
-            "funasr: Alibaba ASR (excellent for Chinese)"
+            "mlx: Apple Silicon MLX Whisper (local, higher latency)"
         )
         self.asr_backend.currentTextChanged.connect(self.on_backend_changed)
         layout.addRow("ASR Backend（语音识别引擎）:", self.asr_backend)

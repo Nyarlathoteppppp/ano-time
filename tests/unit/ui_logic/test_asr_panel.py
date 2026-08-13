@@ -42,17 +42,6 @@ class AsrPanelTests(unittest.TestCase):
         self.assertFalse(panel.source_language.isHidden())
         self.assertIn("Apple 原生实时识别", panel.backend_hint.text())
 
-    def test_whisper_backend_exposes_only_consumed_controls(self):
-        panel = AsrPanel(settings())
-        self.addCleanup(panel.close)
-
-        panel.asr_backend.setCurrentText("whisper")
-
-        self.assertFalse(panel.whisper_model.isHidden())
-        self.assertTrue(panel.funasr_model.isHidden())
-        self.assertFalse(panel.device_type.isHidden())
-        self.assertFalse(panel.compute_type.isHidden())
-
     def test_parakeet_eou_is_explicit_experimental_streaming_choice(self):
         panel = AsrPanel(settings())
         self.addCleanup(panel.close)
@@ -65,17 +54,24 @@ class AsrPanelTests(unittest.TestCase):
         self.assertEqual(panel.source_language.currentData(), "en")
         self.assertIn("实验", panel.backend_hint.text())
 
-    def test_funasr_mps_enforces_float32_inside_panel(self):
+    def test_only_installed_user_ready_asr_backends_are_selectable(self):
         panel = AsrPanel(settings())
         self.addCleanup(panel.close)
-        panel.show_mps_float32_warning = Mock()
-        panel.compute_type.setCurrentText("int8")
-        panel.device_type.setCurrentText("mps")
 
-        panel.asr_backend.setCurrentText("funasr")
+        choices = [panel.asr_backend.itemText(index) for index in range(panel.asr_backend.count())]
 
-        self.assertEqual(panel.compute_type.currentText(), "float32")
-        panel.show_mps_float32_warning.assert_called_once_with()
+        self.assertEqual(choices, ["apple", "parakeet_eou", "mlx"])
+        self.assertNotIn("whisper", choices)
+        self.assertNotIn("funasr", choices)
+
+    def test_unavailable_legacy_backend_configuration_falls_back_to_apple_in_the_ui(self):
+        legacy_settings = settings()
+        legacy_settings.asr_backend = "funasr"
+
+        panel = AsrPanel(legacy_settings)
+        self.addCleanup(panel.close)
+
+        self.assertEqual(panel.asr_backend.currentText(), "apple")
 
 
 if __name__ == "__main__":
