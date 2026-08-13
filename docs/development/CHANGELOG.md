@@ -4,6 +4,8 @@
 
 ## 2026-08-13
 
+- 新增 `UNIFIED_ASR_EVENT_PIPELINE_PLAN.md`：记录 Apple / Parakeet EOU / MLX Whisper 只统一 ASR 后事件语义、而不强制统一模型表现的重构边界。计划引入 `ASRHypothesis`、`ASRStreamBoundary`、`session_generation`、`stream_id` 和音频快照顺序 `sequence`，以消除 MLX 旧字幕旁路与 Parakeet 连续语音累积问题；本文档本身不改运行代码。
+
 - `93233d5`：修复 Pipeline contract 测试夹具兼容性。`_segment_state_store()` 只从实例字典读取启动设置，避免未初始化的 `QObject` 测试对象触发 Qt 父类异常。完整测试恢复为 414/414。
 - `6103c76`：产品路线改为 macOS 优先、iPhone/iPad 延期；明确不购买 PyQt6，近期方向是 PySide6。
 - `9a163be`：新增受邀体验者指南、产品发布路线和 `tools/release_audit.py`。发布扫描只检查 Git 跟踪文件，永不打印匹配到的密钥。
