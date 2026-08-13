@@ -31,13 +31,41 @@ class IncrementalSegmenter:
         ("kind", "of"), ("part", "of"), ("number", "of"),
     }
 
+    # Streaming recognizers such as Parakeet can emit long, unpunctuated
+    # cumulative hypotheses for a whole lecture. These are discourse starters
+    # that can safely begin a new *product* cue when the preceding stable
+    # phrase is already substantial. They deliberately exclude dependent-clause
+    # starters such as ``because``, ``if``, ``when`` and ``that``.
+    _HOST_DISCOURSE_STARTERS = {
+        "also", "anyway", "but", "finally", "however", "meanwhile",
+        "next", "now", "okay", "otherwise", "so", "then", "therefore",
+        "well",
+    }
+    _HOST_WINDOW_FORBIDDEN_LEFT = _FORBIDDEN_LEFT | {
+        "all", "any", "each", "every", "few", "many", "most", "much",
+        "no", "some", "such", "the", "this", "those", "these", "very",
+    }
+    _HOST_WINDOW_FORBIDDEN_RIGHT = _FORBIDDEN_RIGHT | {
+        "a", "an", "at", "because", "before", "between", "by", "can",
+        "could", "during", "for", "from", "has", "have", "if", "in",
+        "into", "is", "may", "might", "of", "on", "onto", "over", "that",
+        "the", "then", "there", "these", "this", "through", "to", "under",
+        "was", "were", "when", "where", "which", "while", "will", "with",
+        "without", "would",
+    }
+
     def __init__(self, target_words=18, max_words=28, timeout_seconds=1.2,
-                 timeout_min_words=12, min_words=6):
+                 timeout_min_words=12, min_words=6,
+                 host_semantic_boundaries=False, host_min_words=10,
+                 host_force_words=36):
         self.target_words = target_words
         self.max_words = max_words
         self.timeout_seconds = timeout_seconds
         self.timeout_min_words = timeout_min_words
         self.min_words = min_words
+        self.host_semantic_boundaries = bool(host_semantic_boundaries)
+        self.host_min_words = max(self.min_words, int(host_min_words))
+        self.host_force_words = max(self.host_min_words, int(host_force_words))
         self.started_at = None
         self.last_stable_growth_at = None
         self.stable_word_count = 0
@@ -66,6 +94,55 @@ class IncrementalSegmenter:
                 return False
         return True
 
+    def _host_discourse_boundary(self, words, full_words, index):
+        """Return whether a stable, unpunctuated cue can end before `index`.
+
+        This is intentionally more conservative than a generic word limit. It
+        only considers a known discourse starter at the beginning of the next
+        clause. The result is still a semantic product segment (not merely a
+        UI wrap), so dependent starts are never accepted here.
+        """
+        if index < self.host_min_words or index >= len(full_words):
+            return False
+        left = self._plain(words[index - 1])
+        right = self._plain(full_words[index])
+        if not left or left in self._FORBIDDEN_LEFT:
+            return False
+        if right not in self._HOST_DISCOURSE_STARTERS:
+            return False
+        suffix = tuple(self._plain(word) for word in words[max(0, index - 2):index])
+        if suffix in self._FORBIDDEN_SUFFIXES:
+            return False
+        # "so that" starts a dependent purpose clause rather than a new cue.
+        if (
+            right == "so"
+            and index + 1 < len(full_words)
+            and self._plain(full_words[index + 1]) == "that"
+        ):
+            return False
+        return True
+
+    def _host_stable_window_boundary(self, words, full_words, index):
+        """Return a last-resort stable cut for an indefinitely open stream.
+
+        It is enabled only for hosts that never report EOU. The cut must lie
+        between two content words and therefore cannot end on a determiner,
+        preposition, auxiliary or conjunction. This is not used by Apple and
+        does not change its native-final semantics.
+        """
+        if index < self.host_min_words or index >= len(full_words):
+            return False
+        left = self._plain(words[index - 1])
+        right = self._plain(full_words[index])
+        if not left or not right:
+            return False
+        if left in self._HOST_WINDOW_FORBIDDEN_LEFT:
+            return False
+        if right in self._HOST_WINDOW_FORBIDDEN_RIGHT:
+            return False
+        suffix = tuple(self._plain(word) for word in words[max(0, index - 2):index])
+        return suffix not in self._FORBIDDEN_SUFFIXES
+
     def _cut_count(self, words, full_words, stalled=False, final=False):
         if not words:
             return 0, ""
@@ -85,6 +162,36 @@ class IncrementalSegmenter:
             return min(candidates, key=lambda item: (abs(item - self.target_words), -item)), "soft_boundary"
         if candidates and stalled and len(words) >= self.timeout_min_words:
             return candidates[-1], "stable_pause"
+        if self.host_semantic_boundaries:
+            host_upper = min(len(words), self.max_words)
+            host_candidates = [
+                index
+                for index in range(self.host_min_words, host_upper)
+                if self._host_discourse_boundary(words, full_words, index)
+            ]
+            if host_candidates:
+                return (
+                    min(
+                        host_candidates,
+                        key=lambda item: (abs(item - self.target_words), -item),
+                    ),
+                    "host_discourse_boundary",
+                )
+            if len(words) >= self.host_force_words:
+                window_upper = min(len(words), self.host_force_words)
+                window_candidates = [
+                    index
+                    for index in range(self.host_min_words, window_upper)
+                    if self._host_stable_window_boundary(words, full_words, index)
+                ]
+                if window_candidates:
+                    return (
+                        min(
+                            window_candidates,
+                            key=lambda item: (abs(item - self.target_words), -item),
+                        ),
+                        "host_stable_window",
+                    )
         # A word limit is a search window, never permission to split grammar.
         # If no safe boundary exists, keep the text provisional until Apple
         # finalizes it or more stable context exposes a real clause boundary.

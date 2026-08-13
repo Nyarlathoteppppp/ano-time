@@ -915,6 +915,10 @@ class Pipeline(QObject):
                 "ASR", "ok", f"{asr_label} · idle"
             ),
             on_boundary=on_boundary,
+            # Parakeet can retain one unpunctuated stream for minutes when
+            # capturing system audio. Give only that source the conservative
+            # discourse-boundary policy; Apple remains the exact baseline.
+            host_semantic_boundaries=is_parakeet,
         )
         adapter = StreamingASRAdapter(
             backend=ASRBackend.PARAKEET_EOU if is_parakeet else ASRBackend.APPLE,

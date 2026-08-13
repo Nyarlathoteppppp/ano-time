@@ -90,6 +90,7 @@ class ASRSubtitleCoordinator:
         on_source_idle: Callable[[], object] = _noop,
         on_boundary: Callable[[ASRBoundaryUpdate], object] = _noop,
         meaningful_text: Callable[[str], bool] = is_meaningful_final,
+        host_semantic_boundaries: bool = False,
     ):
         self._gate = ASREventAcceptanceGate(session_generation)
         self._stable_prefix_window = float(stable_prefix_window)
@@ -101,6 +102,7 @@ class ASRSubtitleCoordinator:
         self._on_source_idle = on_source_idle
         self._on_boundary = on_boundary
         self._meaningful_text = meaningful_text
+        self._host_semantic_boundaries = bool(host_semantic_boundaries)
         self._lock = threading.RLock()
         self._next_segment_id = 1
         self._stream_id: int | None = None
@@ -108,7 +110,9 @@ class ASRSubtitleCoordinator:
         self._first_partial_at: float | None = None
         self._latest_remainder = ""
         self._stable_tracker = self._new_stable_tracker()
-        self._segmenter = IncrementalSegmenter()
+        self._segmenter = IncrementalSegmenter(
+            host_semantic_boundaries=self._host_semantic_boundaries,
+        )
 
     @property
     def session_generation(self) -> int:
@@ -270,7 +274,9 @@ class ASRSubtitleCoordinator:
         self._first_partial_at = None
         self._latest_remainder = ""
         self._stable_tracker = self._new_stable_tracker()
-        self._segmenter = IncrementalSegmenter()
+        self._segmenter = IncrementalSegmenter(
+            host_semantic_boundaries=self._host_semantic_boundaries,
+        )
 
     def _new_stable_tracker(self) -> StablePrefixTracker:
         return StablePrefixTracker(

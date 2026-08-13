@@ -177,8 +177,8 @@ Update this file in the same commit whenever you change:
 ## Unified ASR event pipeline
 
 - Canonical design: `docs/development/UNIFIED_ASR_EVENT_PIPELINE_PLAN.md`.
-- Completed: protocol/acceptance safety net and Apple-equivalent migration to
-  `asr_pipeline.ASRSubtitleCoordinator`.
+- Completed: protocol/acceptance safety net, Apple-equivalent migration and
+  Parakeet EOU semantic-boundary policy in `ASRSubtitleCoordinator`.
 - Apple runtime remains the latency baseline. Its source callback is adapted by
   `StreamingASRAdapter`; translation, display and recording continue through
   the existing Pipeline outputs.
@@ -197,6 +197,8 @@ Update this file in the same commit whenever you change:
 
 ## Next safe step
 
-Phase 2 only: send Parakeet EOU partial/final callbacks through the existing
-`StreamingASRAdapter → ASRSubtitleCoordinator` path, then run a >=90s system
-audio test. Do not introduce host VAD semantic finals in the same change.
+Phase 3 only: migrate MLX rolling-buffer output to
+`ASRHypothesis → ASRSubtitleCoordinator`. Allocate `sequence` when an audio
+snapshot is submitted, not when inference returns. Do not change MLX model,
+rolling buffer, worker count, VAD thresholds or host-boundary policy in the
+same change.

@@ -10,14 +10,14 @@ from tests.fixtures.asr_hypotheses import hypothesis
 
 
 class ASRSubtitleCoordinatorTests(unittest.TestCase):
-    def _coordinator(self):
+    def _coordinator(self, **overrides):
         self.firsts = []
         self.stable = []
         self.partials = []
         self.finals = []
         self.boundaries = []
         self.idles = 0
-        return ASRSubtitleCoordinator(
+        options = dict(
             session_generation=1,
             stable_prefix_window=0.0,
             stable_prefix_min_words=1,
@@ -28,6 +28,8 @@ class ASRSubtitleCoordinatorTests(unittest.TestCase):
             on_source_idle=self._on_idle,
             on_boundary=self.boundaries.append,
         )
+        options.update(overrides)
+        return ASRSubtitleCoordinator(**options)
 
     def _on_idle(self):
         self.idles += 1
@@ -81,6 +83,35 @@ class ASRSubtitleCoordinatorTests(unittest.TestCase):
 
         self.assertEqual(self.finals, [])
         self.assertEqual(self.partials[-1].segment_id, 1)
+
+    def test_parakeet_host_policy_commits_only_stable_discourse_boundary(self):
+        coordinator = self._coordinator(host_semantic_boundaries=True)
+        coordinator.accept(hypothesis(
+            "The compressed representation preserves the important structure "
+            "of the original data but the decoder needs additional information",
+            backend=ASRBackend.PARAKEET_EOU,
+            sequence=1,
+            emitted_at=1.0,
+        ))
+        coordinator.accept(hypothesis(
+            "The compressed representation preserves the important structure "
+            "of the original data but the decoder needs additional information "
+            "for reliable reconstruction",
+            backend=ASRBackend.PARAKEET_EOU,
+            sequence=2,
+            emitted_at=1.5,
+        ))
+
+        self.assertEqual(
+            [(item.segment_id, item.text, item.cut_reason) for item in self.finals],
+            [(
+                1,
+                "The compressed representation preserves the important structure of the original data",
+                "host_discourse_boundary",
+            )],
+        )
+        self.assertEqual(self.partials[-1].segment_id, 2)
+        self.assertTrue(self.partials[-1].text.startswith("but the decoder"))
 
     def test_pause_boundary_seals_meaningful_remainder_without_fake_remote_final(self):
         coordinator = self._coordinator()

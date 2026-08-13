@@ -1,6 +1,6 @@
 # 统一 ASR 事件管线：设计与迁移计划
 
-> 状态：Phase 0、Phase 1 已完成并验证；Parakeet / MLX 迁移尚未开始。
+> 状态：Phase 0、Phase 1、Phase 2 已完成并验证；MLX 迁移尚未开始。
 > 范围：Apple Speech、Parakeet EOU、MLX Whisper 在 **ASR 输出之后** 的统一事件语义。  
 > 非目标：不重写任一 ASR 模型；不改变 Apple 草稿的速度优先策略；不改模型路由、课程档案、Smart Hint 或刘海视觉设计。
 
@@ -350,6 +350,14 @@ tests/integration/pipeline/test_asr_backend_contracts.py
 验收：至少 90 秒连续系统音频；不出现整屏单 segment、不重复 Final、不丢 Apple 草稿；语义记录不被显示级碎片污染。
 
 风险：中。风险集中在边界过于激进时破坏语义，因此初版只使用现有保守分句规则。
+
+**实施记录（2026-08-13）**
+
+- 95 秒系统音频基准确认 Parakeet 可产生 374 个 partial、0 个运行中 EOU；最长一个 open segment 为 306 词。50 ms 与 160 ms 输入块均没有改善运行中 EOU，因此不以 helper input size 作为修复方案；
+- 只为 `parakeet_eou` 开启 `IncrementalSegmenter` 的 host policy：优先稳定句末、软边界和显式语篇起点；连续长语音达到受控窗口后，只允许在两个内容词之间切，避开冠词、介词、连接词、助动词及 `because` / `if` / `so that` 等依赖结构；
+- 120 秒实测得到 21 个约 11–25 词的 semantic final，最长活跃 partial 为 40 词；没有 Pipeline error；
+- 67 秒 pause/resume 实测中，恢复后的 segment ID 从 6 开始，未出现旧 ID 或旧尾文本黏连；
+- 该 policy 不对 Apple 或即将迁移的 MLX 生效。它确实以有限句法猜测换取 Parakeet 可用的远程 Final / 记录边界，因此仍保持 experimental 标识。
 
 ### Phase 3：MLX 出口迁移
 

@@ -109,7 +109,77 @@ class IncrementalSegmenterTest(unittest.TestCase):
             text, stable_text="", is_final=True, now=1
         )
         self.assertEqual(finalized, [text])
-        self.assertEqual(remainder, "")
+
+    def test_host_mode_splits_before_a_stable_discourse_starter(self):
+        segmenter = IncrementalSegmenter(host_semantic_boundaries=True)
+        text = (
+            "The compressed representation preserves the important structure "
+            "of the original data but the decoder needs additional information"
+        )
+        finalized, remainder = segmenter.observe(text, stable_text=text, now=1)
+
+        self.assertEqual(
+            finalized,
+            ["The compressed representation preserves the important structure of the original data"],
+        )
+        self.assertEqual(remainder, "but the decoder needs additional information")
+        self.assertEqual(segmenter.last_cut_reasons, ["host_discourse_boundary"])
+
+    def test_host_mode_never_splits_before_a_dependent_because_clause(self):
+        segmenter = IncrementalSegmenter(host_semantic_boundaries=True)
+        text = (
+            "The compressed representation preserves the important structure "
+            "of the original data because the decoder needs additional information"
+        )
+        finalized, remainder = segmenter.observe(text, stable_text=text, now=1)
+
+        self.assertEqual(finalized, [])
+        self.assertEqual(remainder, text)
+
+    def test_host_mode_never_splits_before_so_that(self):
+        segmenter = IncrementalSegmenter(host_semantic_boundaries=True)
+        text = (
+            "The algorithm stores a compact representation of the input data "
+            "so that the decoder can recover the required information"
+        )
+        finalized, remainder = segmenter.observe(text, stable_text=text, now=1)
+
+        self.assertEqual(finalized, [])
+        self.assertEqual(remainder, text)
+
+    def test_host_mode_uses_a_content_word_window_only_after_long_growth(self):
+        segmenter = IncrementalSegmenter(
+            host_semantic_boundaries=True,
+            target_words=12,
+            host_force_words=20,
+        )
+        text = (
+            "The encoder creates a compact representation preserving useful "
+            "structure while allowing the decoder to reconstruct important "
+            "details from the observed data without extra metadata"
+        )
+        finalized, remainder = segmenter.observe(text, stable_text=text, now=1)
+
+        self.assertEqual(len(finalized), 1)
+        self.assertLess(len(finalized[0].split()), 20)
+        self.assertFalse(finalized[0].endswith(("of", "the", "in", "a", "to")))
+        self.assertTrue(remainder)
+        self.assertEqual(segmenter.last_cut_reasons, ["host_stable_window"])
+
+    def test_host_window_never_cuts_at_a_preposition_or_determiner(self):
+        segmenter = IncrementalSegmenter(
+            host_semantic_boundaries=True,
+            target_words=10,
+            host_force_words=18,
+        )
+        text = (
+            "The model estimates the probability of the next token in the "
+            "sequence using a representation of the observed context"
+        )
+        finalized, _remainder = segmenter.observe(text, stable_text=text, now=1)
+
+        self.assertEqual(len(finalized), 1)
+        self.assertFalse(finalized[0].endswith(("of", "the", "in", "a")))
 
 
 if __name__ == "__main__":
