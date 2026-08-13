@@ -152,6 +152,16 @@ be fully reproduced in headless unit tests.
 - The notch and glass layouts deliberately perform presentation-side smoothing.
   Do not “fix” visual motion by withholding Apple drafts or serializing remote
   translation work.
+- Local ASR experiment: `native/parakeet_eou/` is an explicit FluidAudio
+  CoreML/ANE **experimental** helper. On the 2026-08-13 same-audio benchmark
+  its formal 50 ms-input helper produced the first English partial faster than
+  Apple Speech, but used substantially more CPU/RAM and formed only one final
+  over an uninterrupted 89.65-second lecture. Never make it the default or
+  fallback automatically. Read `docs/LOCAL_ASR_BENCHMARK_2026-08-13.md` before
+  changing ASR selection.
+- Existing MLX Whisper is a rolling re-transcription backend, not native
+  token-streaming. It has better controlled SML/AI Planning term coverage but
+  materially higher latency and memory use than Apple Speech.
 
 ## Update this handoff when
 

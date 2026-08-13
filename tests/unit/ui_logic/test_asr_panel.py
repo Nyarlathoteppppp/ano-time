@@ -53,6 +53,18 @@ class AsrPanelTests(unittest.TestCase):
         self.assertFalse(panel.device_type.isHidden())
         self.assertFalse(panel.compute_type.isHidden())
 
+    def test_parakeet_eou_is_explicit_experimental_streaming_choice(self):
+        panel = AsrPanel(settings())
+        self.addCleanup(panel.close)
+
+        panel.asr_backend.setCurrentText("parakeet_eou")
+
+        self.assertTrue(panel.whisper_model.isHidden())
+        self.assertTrue(panel.device_type.isHidden())
+        self.assertFalse(panel.source_language.isEnabled())
+        self.assertEqual(panel.source_language.currentData(), "en")
+        self.assertIn("实验", panel.backend_hint.text())
+
     def test_funasr_mps_enforces_float32_inside_panel(self):
         panel = AsrPanel(settings())
         self.addCleanup(panel.close)

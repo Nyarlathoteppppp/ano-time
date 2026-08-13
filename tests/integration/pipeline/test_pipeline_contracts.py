@@ -35,6 +35,7 @@ class PipelineContractTests(unittest.TestCase):
     def test_apple_live_asr_uses_small_audio_blocks_without_changing_other_backends(self):
         self.assertEqual(effective_streaming_step_size("apple", 0.2), 0.05)
         self.assertEqual(effective_streaming_step_size("apple", 0.03), 0.03)
+        self.assertEqual(effective_streaming_step_size("parakeet_eou", 0.2), 0.05)
         self.assertEqual(effective_streaming_step_size("mlx", 0.2), 0.2)
 
     def test_start_runs_processing_loop_on_daemon_thread(self):

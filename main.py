@@ -50,9 +50,11 @@ def recent_audio_anchor(recent_activity_at, now, max_age=1.5):
 
 
 def effective_streaming_step_size(asr_backend, configured_step):
-    """Feed Apple live ASR at most 50 ms of audio without changing other ASR paths."""
+    """Feed streaming native ASR with low-latency audio blocks only."""
     step = max(0.01, float(configured_step))
-    return min(step, 0.05) if str(asr_backend).lower() == "apple" else step
+    return min(step, 0.05) if str(asr_backend).lower() in {
+        "apple", "parakeet_eou"
+    } else step
 
 class WorkerSignals(QObject):
     subtitle_event = Signal(object)
@@ -162,8 +164,11 @@ class Pipeline(QObject):
             model_size = settings.whisper_model
             
         self.transcriber = None
+        # A single compatibility attribute keeps the existing pause/reset
+        # contract intact for both native streaming engines.  It is not
+        # Apple-specific despite the historical name.
         self.apple_transcriber = None
-        if settings.asr_backend != "apple":
+        if settings.asr_backend not in {"apple", "parakeet_eou"}:
             self.transcriber = Transcriber(
                 backend=settings.asr_backend,
                 model_size=model_size,
@@ -500,7 +505,7 @@ class Pipeline(QObject):
     def processing_loop(self):
         """Fully parallel pipeline: multiple concurrent transcription + translation"""
         settings = self._session_settings()
-        if settings.asr_backend == "apple":
+        if settings.asr_backend in {"apple", "parakeet_eou"}:
             self._processing_loop_apple()
             return
 
@@ -655,9 +660,23 @@ class Pipeline(QObject):
             translate_executor.shutdown(wait=False)
 
     def _processing_loop_apple(self):
-        """Feed PCM audio to Apple's native streaming speech recognizer."""
-        from apple_transcriber import AppleSpeechTranscriber
+        """Run the shared native-streaming path (Apple Speech or Parakeet EOU).
+
+        The historical method name stays as a compatibility boundary for the
+        existing pause/reset tests.  Engine-specific code is deliberately
+        limited to bridge selection below; subtitle, fast-draft, Preview and
+        Final handling remain one shared path.
+        """
         settings = self._session_settings()
+        is_parakeet = settings.asr_backend == "parakeet_eou"
+        if is_parakeet:
+            from parakeet_transcriber import ParakeetEOUTranscriber
+            transcriber_class = ParakeetEOUTranscriber
+            asr_label = "Parakeet EOU"
+        else:
+            from apple_transcriber import AppleSpeechTranscriber
+            transcriber_class = AppleSpeechTranscriber
+            asr_label = "Apple"
 
         # Apple drafts are the latency-critical path. Never run network work on
         # this executor: a slow bridge request would otherwise delay every new
@@ -768,7 +787,7 @@ class Pipeline(QObject):
                 self._finalized_chunks.add(chunk_id)
                 self._partial_versions[chunk_id] = self._partial_versions.get(chunk_id, 0) + 1
             elapsed_ms = (now - segment_started_at) * 1000
-            print(f"[Apple Final {chunk_id}] {text}")
+            print(f"[{asr_label} Final {chunk_id}] {text}")
             log_stage(
                 "asr_final", chunk_id=chunk_id, elapsed_ms=elapsed_ms,
                 since_first_partial_ms=(
@@ -777,7 +796,7 @@ class Pipeline(QObject):
                 words=len(text.split()), cut_reason=cut_reason, detail=text,
             )
             self.signals.runtime_status.emit(
-                "ASR", "ok", f"Apple · {elapsed_ms / 1000:.1f}s"
+                "ASR", "ok", f"{asr_label} · {elapsed_ms / 1000:.1f}s"
             )
             self.last_final_text = text
             previous_preview = preview_service.displayed_candidate(chunk_id)
@@ -842,7 +861,7 @@ class Pipeline(QObject):
                         first_partial_at = now
                         state["first_partial_at"] = now
                         self.signals.runtime_status.emit(
-                            "ASR", "active", "Apple · listening"
+                            "ASR", "active", f"{asr_label} · listening"
                         )
                         log_stage(
                             "asr_first_partial",
@@ -903,7 +922,7 @@ class Pipeline(QObject):
                 publish_final(segment, final_id, started_at, partial_at, cut_reason)
 
             if is_final:
-                self.signals.runtime_status.emit("ASR", "ok", "Apple · idle")
+                self.signals.runtime_status.emit("ASR", "ok", f"{asr_label} · idle")
                 return
 
             if not remainder:
@@ -964,16 +983,16 @@ class Pipeline(QObject):
                     self._run_partial_translation, *partial_args
                 )
 
-        self.apple_transcriber = AppleSpeechTranscriber(
+        self.apple_transcriber = transcriber_class(
             language=settings.source_language or "en",
             sample_rate=settings.sample_rate,
             on_result=on_result,
         )
 
         try:
-            print("[Pipeline] Starting Apple SpeechTranscriber...")
+            print(f"[Pipeline] Starting {asr_label} streaming ASR...")
             self.apple_transcriber.start()
-            print("[Pipeline] Apple SpeechTranscriber ready")
+            print(f"[Pipeline] {asr_label} streaming ASR ready")
             for audio_chunk in self.audio.generator():
                 if not self.running:
                     break
@@ -1002,7 +1021,7 @@ class Pipeline(QObject):
                         audio_marker = (state["chunk_id"], state["audio_started_at"])
                 if audio_marker:
                     self.signals.runtime_status.emit(
-                        "ASR", "waiting", "Apple · audio detected"
+                        "ASR", "waiting", f"{asr_label} · audio detected"
                     )
                     log_stage(
                         "speech_audio_detected",
@@ -1012,8 +1031,11 @@ class Pipeline(QObject):
                     )
                 self.apple_transcriber.feed(audio_chunk)
         except Exception as exc:
-            print(f"[Pipeline] Apple Speech error: {exc}")
-            log_stage("apple_speech", status="error", detail=str(exc))
+            print(f"[Pipeline] {asr_label} Speech error: {exc}")
+            log_stage(
+                "parakeet_eou" if is_parakeet else "apple_speech",
+                status="error", detail=str(exc),
+            )
             self.signals.pipeline_error.emit(str(exc))
         finally:
             if self.apple_transcriber:

@@ -125,7 +125,7 @@ chmod +x install_desktop_app.sh install_hotkey_agent.sh
 在控制中心中：
 
 1. **Audio**：翻译视频或应用时选择 `System Audio`，线下课堂选择麦克风。
-2. **ASR · 语音识别**：最低延迟选择 `Apple`，Apple Silicon Whisper 路径选择 `MLX`。
+2. **ASR · 语音识别**：默认选择 `Apple`；可实验 `Parakeet EOU`（英文首字更快、资源更高），Apple Silicon Whisper 路径选择 `MLX`。
 3. **AI · 翻译**：选择翻译流程、可选桥接模型，并填写对应 API Key。
 4. **Subtitle Mode**：选择 `Physical MacBook Notch` 或 `Glass`。
 5. 点击 **Launch Translator**。
@@ -334,6 +334,7 @@ release checks.
 | --- | --- | --- |
 | Python/Qt 控制中心 | 支持 | 部分支持 |
 | Whisper / FunASR | 支持 | 支持，取决于硬件和依赖 |
+| Parakeet EOU（实验性英文本地流式 ASR） | 支持 | 不支持 |
 | Apple Speech / Translation | 支持 | 不支持 |
 | ScreenCaptureKit 系统音频 | 支持 | 不支持 |
 | 物理 MacBook 刘海 | 支持 | 不支持 |
@@ -766,6 +767,9 @@ MLX/Whisper models download on first use. Apple Speech may also need language as
 ./build_apple_speech.sh
 ./build_native_notch.sh
 
+# Optional: only required for the experimental Parakeet EOU backend.
+(cd native/parakeet_eou && swift build -c release)
+
 # Tests
 ./tools/run_tests.sh
 
@@ -785,6 +789,7 @@ for the complete regression suite, latency baselines, and manual acceptance chec
 | --- | ---: | ---: |
 | Microphone capture | Yes | Legacy/partial |
 | Whisper/FunASR | Yes | Architecture supports it |
+| Parakeet EOU (experimental English streaming ASR) | Yes | No |
 | Apple live ASR and translation | Yes | No |
 | ScreenCaptureKit system audio | Yes | No |
 | Physical MacBook notch UI | Yes | No |

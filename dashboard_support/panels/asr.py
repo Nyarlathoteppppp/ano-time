@@ -32,9 +32,12 @@ class AsrPanel(QWidget):
         )
         layout.addRow(self.apply_hint)
         self.asr_backend = ReadableComboBox()
-        self.asr_backend.addItems(["apple", "whisper", "mlx", "funasr"])
+        self.asr_backend.addItems([
+            "apple", "parakeet_eou", "mlx", "whisper", "funasr",
+        ])
         self.asr_backend.setCurrentText(self.settings.asr_backend)
         self.asr_backend.setToolTip(
+            "parakeet_eou: Experimental local English streaming CoreML model\n"
             "whisper: CPU/CUDA (faster-whisper)\n"
             "mlx: Apple Silicon GPU (mlx-whisper)\n"
             "funasr: Alibaba ASR (excellent for Chinese)"
@@ -123,12 +126,22 @@ class AsrPanel(QWidget):
     def on_backend_changed(self, backend):
         is_whisper_or_mlx = backend in ("whisper", "mlx")
         is_funasr = backend == "funasr"
+        is_parakeet = backend == "parakeet_eou"
         self.set_row_visible(self.whisper_model, is_whisper_or_mlx)
         self.set_row_visible(self.funasr_model, is_funasr)
         self.set_row_visible(self.device_type, backend in ("whisper", "funasr"))
         self.set_row_visible(self.compute_type, backend == "whisper")
+        if is_parakeet:
+            english_index = self.source_language.findData("en")
+            if english_index >= 0:
+                self.source_language.setCurrentIndex(english_index)
+        self.source_language.setEnabled(not is_parakeet)
         hints = {
             "apple": "Apple 原生实时识别：只使用原文语言，其他模型参数已隐藏。",
+            "parakeet_eou": (
+                "Parakeet EOU（实验）：本地英文 CoreML 流式识别；首次需要下载约 "
+                "500 MB 模型。本机首个英文通常更快，但 CPU/内存更高，长句收尾仍需观察；默认建议 Apple。"
+            ),
             "mlx": "MLX Whisper：使用所选 Whisper 模型，并自动调用 Apple Silicon Metal。",
             "whisper": "Faster-Whisper：模型、计算设备和推理精度均会参与运行。",
             "funasr": "FunASR：使用所选模型和计算设备；MPS 会自动采用 float32。",

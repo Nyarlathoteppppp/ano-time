@@ -88,6 +88,7 @@ split_fast_path = true
 
 [transcription]
 backend = apple
+; apple (recommended) / parakeet_eou (experimental English-only) / mlx / whisper / funasr
 whisper_model = base
 funasr_model = iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch
 device = auto
