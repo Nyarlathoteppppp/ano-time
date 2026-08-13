@@ -1,6 +1,6 @@
 # Anotime runtime handoff
 
-Last verified: `f6c3a7d` (`Define isolated PySide6 migration architecture`).
+Last verified: `91b6443` (`docs: map legacy prototype architecture`).
 
 This document exists so future agents can safely continue work without
 re-learning the real-time constraints from the codebase or changing a fast
@@ -117,7 +117,7 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -q
 git diff --check
 ```
 
-The suite was 403 tests at the last verification. Do not weaken or delete
+The suite was 414 tests at the 2026-08-14 verification. Do not weaken or delete
 contracts just to make a refactor pass; move them to the matching domain.
 
 ### When touching the live path
