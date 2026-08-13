@@ -3,14 +3,14 @@
 # Ensure we are in the script's directory
 cd "$(dirname "$0")"
 
-if [ ! -d ".venv" ]; then
+if [ ! -x ".venv-pyside/bin/python" ]; then
     echo "[ERROR] Virtual environment not found."
-    echo "Please run './install_mac.sh' first."
+    echo "Please create the isolated PySide6 environment first."
     exit 1
 fi
 
 echo "[Launcher] Activating environment..."
-source .venv/bin/activate
+source .venv-pyside/bin/activate
 
 if [ "${REALTIME_TON_DEV_RELOAD:-0}" = "1" ]; then
     echo "[Launcher] Starting development hot-reload mode..."

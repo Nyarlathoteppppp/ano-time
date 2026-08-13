@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-if [ ! -x .venv/bin/python ]; then
+if [ ! -x .venv-pyside/bin/python ]; then
     exit 1
 fi
 
@@ -30,9 +30,9 @@ if [ ! -f "$state_path" ] && [ -f "$legacy_pid_path" ]; then
 fi
 
 if [ -n "$previous_version" ] && [ "$previous_version" != "$current_version" ]; then
-    .venv/bin/python dashboard.py --quit-existing >/dev/null 2>&1 || true
+    .venv-pyside/bin/python dashboard.py --quit-existing >/dev/null 2>&1 || true
     for _ in 1 2 3 4 5 6 7 8 9 10; do
-        .venv/bin/python dashboard.py --quit-existing >/dev/null 2>&1 || break
+        .venv-pyside/bin/python dashboard.py --quit-existing >/dev/null 2>&1 || break
         /bin/sleep 0.1
     done
 fi
