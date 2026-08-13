@@ -172,3 +172,31 @@ Update this file in the same commit whenever you change:
 - Provider routing/fallback/deadline semantics.
 - Keychain/config persistence behavior.
 - Required test commands or real-device release checks.
+# Current engineering handoff
+
+## Unified ASR event pipeline
+
+- Canonical design: `docs/development/UNIFIED_ASR_EVENT_PIPELINE_PLAN.md`.
+- Completed: protocol/acceptance safety net and Apple-equivalent migration to
+  `asr_pipeline.ASRSubtitleCoordinator`.
+- Apple runtime remains the latency baseline. Its source callback is adapted by
+  `StreamingASRAdapter`; translation, display and recording continue through
+  the existing Pipeline outputs.
+- Do **not** add another subtitle route for Parakeet or MLX. The remaining
+  work is to emit the same immutable ASR events from those backends.
+- Native Apple and Parakeet helpers have process-generation guards. Preserve
+  them whenever changing their reset/start lifecycle.
+
+## Verification performed
+
+- Full PySide6 suite passed after the phase-1 migration.
+- Focused protocol/Pipeline tests passed: 29 tests.
+- 60-second real system-audio Apple smoke test: six native finals, 573 signal
+  updates, no Pipeline error. Apple Translation availability can independently
+  depend on macOS language resources.
+
+## Next safe step
+
+Phase 2 only: send Parakeet EOU partial/final callbacks through the existing
+`StreamingASRAdapter → ASRSubtitleCoordinator` path, then run a >=90s system
+audio test. Do not introduce host VAD semantic finals in the same change.

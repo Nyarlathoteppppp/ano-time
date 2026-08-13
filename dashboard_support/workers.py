@@ -121,7 +121,10 @@ class StartupWorker(QThread):
         try:
             from main import Pipeline
 
-            pipeline = Pipeline(session_settings=self.session_settings)
+            pipeline = Pipeline(
+                session_settings=self.session_settings,
+                asr_session_generation=self.generation,
+            )
             self.ready.emit(self.generation, pipeline)
         except Exception as exc:
             print(f"Startup Error: {exc}")

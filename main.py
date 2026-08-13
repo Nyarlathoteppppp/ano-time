@@ -18,9 +18,7 @@ from transcriber import Transcriber
 from overlay_factory import OverlaySpec, create_overlay
 from config import config
 from runtime_log import diagnostics_enabled, log_stage
-from stable_prefix import StablePrefixTracker
 from groq_bridge import GroqBridgeGate
-from live_segmenter import IncrementalSegmenter
 from glossary import ASRCorrections
 from course_profiles import correction_paths
 from finalized_text import clean_finalized_text, is_meaningful_final, should_request_remote
@@ -33,6 +31,17 @@ from translation_preview import ProgressiveTranslationPreview
 from session_settings import SessionSettingsSnapshot, describe_session
 from smart_hint import build_smart_hint_scheduler
 from translation_context import ContextPolicy
+from asr_pipeline import (
+    ASRBackend,
+    ASRBoundaryUpdate,
+    ASRFirstPartial,
+    ASRPartialUpdate,
+    ASRSemanticFinal,
+    ASRStablePrefix,
+    ASRSubtitleCoordinator,
+    BoundaryReason,
+    StreamingASRAdapter,
+)
 
 
 FINAL_CONTEXT_SEGMENTS = 4
@@ -77,11 +86,16 @@ class WorkerSignals(QObject):
         )
 
 class Pipeline(QObject):
-    def __init__(self, session_settings=None):
+    def __init__(self, session_settings=None, asr_session_generation=0):
         super().__init__()
         # The global Config can reload when the Dashboard is saved.  Freeze
         # every runtime value before constructing audio, ASR, or translators.
         self.settings = session_settings or SessionSettingsSnapshot.from_config(config)
+        # Dashboard session generation is already incremented on every Launch
+        # and Stop.  Keep it at the ASR boundary so a future adapter can reject
+        # a callback from a previous native/rolling recognition session before
+        # it reaches subtitle state.  Standalone use retains generation zero.
+        self._asr_session_generation = max(0, int(asr_session_generation))
         settings = self.settings
         self.session_description = describe_session(settings)
         self.signals = WorkerSignals()
@@ -709,66 +723,12 @@ class Pipeline(QObject):
             "ok" if self._final_translation_client() is not None else "warning",
             "ON · waiting" if self._final_translation_client() is not None else "OFF",
         )
-        state_lock = threading.Lock()
-        state = {
-            "chunk_id": 1,
-            "audio_started_at": None,
-            "recent_audio_activity_at": None,
-            "first_partial_at": None,
-            "stable_tracker": StablePrefixTracker(
-                agreement_window=settings.stable_prefix_window,
-                min_growth_words=settings.stable_prefix_min_words,
-            ),
-            "segmenter": IncrementalSegmenter(),
-            "stream_ready_logged": False,
-            "latest_remainder": "",
-        }
-
-        def seal_pause_boundary():
-            """Finalize/discard the current hypothesis and force a new ID."""
-            boundary = None
-            with state_lock:
-                remainder = state["latest_remainder"]
-                had_activity = bool(
-                    remainder
-                    or state["audio_started_at"] is not None
-                    or state["first_partial_at"] is not None
-                )
-                if remainder and is_meaningful_final(remainder):
-                    boundary = (state["chunk_id"], remainder)
-                if had_activity:
-                    state["chunk_id"] += 1
-                state["audio_started_at"] = None
-                state["recent_audio_activity_at"] = None
-                state["first_partial_at"] = None
-                state["stable_tracker"] = StablePrefixTracker(
-                    agreement_window=settings.stable_prefix_window,
-                    min_growth_words=settings.stable_prefix_min_words,
-                )
-                state["segmenter"] = IncrementalSegmenter()
-                state["latest_remainder"] = ""
-            if boundary:
-                chunk_id, text = boundary
-                with self._translation_state_lock:
-                    self._finalized_chunks.add(chunk_id)
-                    self._partial_versions[chunk_id] = (
-                        self._partial_versions.get(chunk_id, 0) + 1
-                    )
-                self._emit_subtitle(
-                    chunk_id, text, "", "final", SubtitleStage.ASR_FINAL
-                )
-                log_stage(
-                    "pause_boundary", chunk_id=chunk_id,
-                    status="sealed", detail=text,
-                )
-            else:
-                log_stage("pause_boundary", status="reset")
-            preview_service.reset()
-
-        self._pause_boundary_handler = seal_pause_boundary
-
-        def publish_final(text, chunk_id, segment_started_at, first_partial_at,
-                          cut_reason="native_final"):
+        def publish_final(final: ASRSemanticFinal):
+            text = final.text
+            chunk_id = final.segment_id
+            segment_started_at = final.segment_started_at
+            first_partial_at = final.first_partial_at
+            cut_reason = final.cut_reason
             original_text = text
             text = clean_finalized_text(self._asr_corrections.apply(text))
             if text != original_text:
@@ -835,100 +795,36 @@ class Pipeline(QObject):
                     self._run_fast_final_translation, *final_args
                 )
 
-        def on_result(text, is_final):
-            if not self.running or self._paused.is_set():
-                return
-            text = " ".join(text.split())
-            if not text:
-                return
-            now = time.monotonic()
-            finalized_segments = []
-            preview_stable_text = ""
-            with state_lock:
-                audio_anchor = state["audio_started_at"]
-                if audio_anchor is None:
-                    recent_audio = recent_audio_anchor(
-                        state["recent_audio_activity_at"], now
-                    )
-                    if recent_audio is not None:
-                        audio_anchor = recent_audio
-                        state["audio_started_at"] = recent_audio
-                segment_started_at = audio_anchor or now
-                first_partial_at = state["first_partial_at"]
-                stable_text = text if is_final else ""
-                if not is_final:
-                    if first_partial_at is None:
-                        first_partial_at = now
-                        state["first_partial_at"] = now
-                        self.signals.runtime_status.emit(
-                            "ASR", "active", f"{asr_label} · listening"
-                        )
-                        log_stage(
-                            "asr_first_partial",
-                            chunk_id=state["chunk_id"],
-                            status="ok" if audio_anchor else "unanchored",
-                            elapsed_ms=(
-                                (now - segment_started_at) * 1000
-                                if audio_anchor else None
-                            ),
-                            words=len(text.split()),
-                        )
-                    stable_text = state["stable_tracker"].observe(text, now=now)
-                    if stable_text:
-                        log_stage(
-                            "asr_stable",
-                            chunk_id=state["chunk_id"],
-                            elapsed_ms=(now - segment_started_at) * 1000,
-                            since_first_partial_ms=(now - first_partial_at) * 1000,
-                            words=len(stable_text.split()),
-                            detail=stable_text,
-                        )
-                segments, remainder = state["segmenter"].observe(
-                    text, stable_text=stable_text, is_final=is_final, now=now
-                )
-                state["latest_remainder"] = "" if is_final else remainder
-                if not is_final and stable_text and remainder:
-                    stable_word_count = len(stable_text.split())
-                    committed_word_count = state["segmenter"].committed_words
-                    stable_remainder_count = max(
-                        0, stable_word_count - committed_word_count
-                    )
-                    preview_stable_text = " ".join(
-                        remainder.split()[:stable_remainder_count]
-                    )
-                cut_reasons = list(state["segmenter"].last_cut_reasons)
-                for index, segment in enumerate(segments):
-                    finalized_segments.append((
-                        state["chunk_id"], segment,
-                        segment_started_at, first_partial_at,
-                        cut_reasons[index] if index < len(cut_reasons) else "unknown",
-                    ))
-                    state["chunk_id"] += 1
-                    segment_started_at = now
-                    first_partial_at = now
-                current_chunk_id = state["chunk_id"]
-                if is_final:
-                    state["audio_started_at"] = None
-                    state["first_partial_at"] = None
-                    state["stable_tracker"] = StablePrefixTracker(
-                        agreement_window=settings.stable_prefix_window,
-                        min_growth_words=settings.stable_prefix_min_words,
-                    )
-                elif finalized_segments:
-                    state["audio_started_at"] = now
-                    state["first_partial_at"] = now
+        def on_first_partial(update: ASRFirstPartial):
+            self.signals.runtime_status.emit(
+                "ASR", "active", f"{asr_label} · listening"
+            )
+            log_stage(
+                "asr_first_partial",
+                chunk_id=update.segment_id,
+                status="ok" if update.anchored else "unanchored",
+                elapsed_ms=(
+                    (update.first_partial_at - update.segment_started_at) * 1000
+                    if update.anchored else None
+                ),
+                words=len(update.text.split()),
+            )
 
-            for final_id, segment, started_at, partial_at, cut_reason in finalized_segments:
-                publish_final(segment, final_id, started_at, partial_at, cut_reason)
+        def on_stable_prefix(update: ASRStablePrefix):
+            log_stage(
+                "asr_stable",
+                chunk_id=update.segment_id,
+                elapsed_ms=(update.first_partial_at - update.segment_started_at) * 1000,
+                since_first_partial_ms=(
+                    (update.observed_at - update.first_partial_at) * 1000
+                ),
+                words=len(update.text.split()),
+                detail=update.text,
+            )
 
-            if is_final:
-                self.signals.runtime_status.emit("ASR", "ok", f"{asr_label} · idle")
-                return
-
-            if not remainder:
-                return
-            if not is_meaningful_final(remainder):
-                return
+        def on_partial(update: ASRPartialUpdate):
+            current_chunk_id = update.segment_id
+            remainder = update.text
             prior_state = self._segment_state_store().snapshot(current_chunk_id)
             event = self._emit_subtitle(
                 current_chunk_id,
@@ -963,13 +859,13 @@ class Pipeline(QObject):
                 current_chunk_id,
                 hypothesis_revision,
                 remainder,
-                stable_source_text=preview_stable_text,
+                stable_source_text=update.stable_source_text,
             )
             # Speed-first path: every distinct Apple partial is translated. Stable
             # Prefix is measured in parallel and never gates the local draft.
             partial_args = (
                 remainder, current_chunk_id, version,
-                segment_started_at, first_partial_at,
+                update.segment_started_at, update.first_partial_at,
             )
             if fast_path:
                 fast_path.submit_partial(
@@ -983,6 +879,62 @@ class Pipeline(QObject):
                     self._run_partial_translation, *partial_args
                 )
 
+        def on_boundary(update: ASRBoundaryUpdate):
+            if update.segment_id is not None:
+                with self._translation_state_lock:
+                    self._finalized_chunks.add(update.segment_id)
+                    self._partial_versions[update.segment_id] = (
+                        self._partial_versions.get(update.segment_id, 0) + 1
+                    )
+                self._emit_subtitle(
+                    update.segment_id,
+                    update.text,
+                    "",
+                    "final",
+                    SubtitleStage.ASR_FINAL,
+                )
+                log_stage(
+                    "pause_boundary",
+                    chunk_id=update.segment_id,
+                    status="sealed",
+                    detail=update.text,
+                )
+            else:
+                log_stage("pause_boundary", status="reset")
+            preview_service.reset()
+
+        coordinator = ASRSubtitleCoordinator(
+            session_generation=self.__dict__.get("_asr_session_generation", 0),
+            stable_prefix_window=settings.stable_prefix_window,
+            stable_prefix_min_words=settings.stable_prefix_min_words,
+            on_first_partial=on_first_partial,
+            on_stable_prefix=on_stable_prefix,
+            on_partial=on_partial,
+            on_semantic_final=publish_final,
+            on_source_idle=lambda: self.signals.runtime_status.emit(
+                "ASR", "ok", f"{asr_label} · idle"
+            ),
+            on_boundary=on_boundary,
+        )
+        adapter = StreamingASRAdapter(
+            backend=ASRBackend.PARAKEET_EOU if is_parakeet else ASRBackend.APPLE,
+            session_generation=self.__dict__.get("_asr_session_generation", 0),
+            emit=coordinator.accept,
+        )
+
+        def seal_pause_boundary():
+            """Reset source state before the native recognizer is restarted."""
+            adapter.boundary(BoundaryReason.PAUSE)
+
+        self._pause_boundary_handler = seal_pause_boundary
+
+        def on_result(text, is_final):
+            if not self.running or self._paused.is_set():
+                return
+            if not " ".join((text or "").split()):
+                return
+            adapter.result(text, bool(is_final))
+
         self.apple_transcriber = transcriber_class(
             language=settings.source_language or "en",
             sample_rate=settings.sample_rate,
@@ -993,32 +945,28 @@ class Pipeline(QObject):
             print(f"[Pipeline] Starting {asr_label} streaming ASR...")
             self.apple_transcriber.start()
             print(f"[Pipeline] {asr_label} streaming ASR ready")
+            stream_ready_logged = False
             for audio_chunk in self.audio.generator():
                 if not self.running:
                     break
                 if self._paused.is_set():
                     continue
-                audio_marker = None
-                with state_lock:
-                    if not state["stream_ready_logged"]:
-                        state["stream_ready_logged"] = True
-                        log_stage("audio_stream_ready", elapsed_ms=0)
-                    rms = float((audio_chunk ** 2).mean() ** 0.5)
-                    # Diagnostic anchor only: Apple Speech can recognize quiet
-                    # speech below the user-facing silence threshold. A lower
-                    # threshold makes first-partial latency measurable without
-                    # changing which audio is fed to ASR.
-                    activity_threshold = diagnostic_audio_activity_threshold(
-                        settings.silence_threshold
-                    )
-                    if rms >= activity_threshold:
-                        state["recent_audio_activity_at"] = time.monotonic()
-                    if (
-                        state["audio_started_at"] is None
-                        and rms >= activity_threshold
-                    ):
-                        state["audio_started_at"] = time.monotonic()
-                        audio_marker = (state["chunk_id"], state["audio_started_at"])
+                if not stream_ready_logged:
+                    stream_ready_logged = True
+                    log_stage("audio_stream_ready", elapsed_ms=0)
+                rms = float((audio_chunk ** 2).mean() ** 0.5)
+                # Diagnostic anchor only: Apple Speech can recognize quiet
+                # speech below the user-facing silence threshold. A lower
+                # threshold makes first-partial latency measurable without
+                # changing which audio is fed to ASR.
+                activity_threshold = diagnostic_audio_activity_threshold(
+                    settings.silence_threshold
+                )
+                audio_marker = (
+                    adapter.note_audio_activity()
+                    if rms >= activity_threshold
+                    else None
+                )
                 if audio_marker:
                     self.signals.runtime_status.emit(
                         "ASR", "waiting", f"{asr_label} · audio detected"

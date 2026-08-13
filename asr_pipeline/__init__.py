@@ -6,13 +6,29 @@ hands them to the shared subtitle coordinator.
 """
 
 from .acceptance import ASREventAcceptanceGate, AcceptanceDecision
+from .adapters import StreamingASRAdapter
+from .coordinator import (
+    ASRBoundaryUpdate,
+    ASRFirstPartial,
+    ASRPartialUpdate,
+    ASRSemanticFinal,
+    ASRStablePrefix,
+    ASRSubtitleCoordinator,
+)
 from .events import ASRBackend, ASRHypothesis, ASRStreamBoundary, BoundaryReason
 
 __all__ = [
     "ASRBackend",
+    "ASRBoundaryUpdate",
     "ASREventAcceptanceGate",
+    "ASRFirstPartial",
     "ASRHypothesis",
+    "ASRPartialUpdate",
+    "ASRSemanticFinal",
+    "ASRStablePrefix",
+    "ASRSubtitleCoordinator",
     "ASRStreamBoundary",
     "AcceptanceDecision",
     "BoundaryReason",
+    "StreamingASRAdapter",
 ]

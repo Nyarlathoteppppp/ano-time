@@ -32,6 +32,8 @@ class ParakeetEOUTranscriber:
         self._write_lock = threading.Lock()
         self._reset_lock = threading.Lock()
         self._resetting = threading.Event()
+        self._lifecycle_lock = threading.RLock()
+        self._process_generation = 0
 
         root = os.path.dirname(os.path.abspath(__file__))
         self.package_path = os.path.join(root, "native", "parakeet_eou")
@@ -56,15 +58,23 @@ class ParakeetEOUTranscriber:
 
     def start(self, timeout=180):
         self._ensure_built()
-        self.process = subprocess.Popen(
+        process = subprocess.Popen(
             [self.binary_path],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0,
         )
-        threading.Thread(target=self._read_stdout, daemon=True).start()
-        threading.Thread(target=self._read_stderr, daemon=True).start()
+        with self._lifecycle_lock:
+            self._process_generation += 1
+            generation = self._process_generation
+            self.process = process
+        threading.Thread(
+            target=self._read_stdout, args=(process, generation), daemon=True
+        ).start()
+        threading.Thread(
+            target=self._read_stderr, args=(process,), daemon=True
+        ).start()
         if not self.ready.wait(timeout):
             self.stop()
             raise RuntimeError(self.error or "Parakeet EOU helper did not become ready")
@@ -72,35 +82,53 @@ class ParakeetEOUTranscriber:
             self.stop()
             raise RuntimeError(self.error)
 
-    def _read_stdout(self):
-        assert self.process and self.process.stdout
-        for raw_line in iter(self.process.stdout.readline, b""):
+    def _read_stdout(self, process, generation):
+        """Read one helper process without letting an old session leak events."""
+        assert process.stdout
+        for raw_line in iter(process.stdout.readline, b""):
             try:
                 event = json.loads(raw_line.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 print(f"[Parakeet EOU] Invalid helper output: {exc}")
                 continue
             event_type = event.get("type")
-            if event_type == "result" and self.on_result and not self._resetting.is_set():
+            if event_type == "result" and self.on_result and self._accepts_event_from(process, generation):
                 self.on_result(event.get("text", ""), bool(event.get("final")))
             elif event_type == "status":
                 status = event.get("status", "unknown")
                 print(f"[Parakeet EOU] Status: {status}")
-                if self.on_status:
+                if self.on_status and self._accepts_event_from(
+                    process, generation, allow_reset=True
+                ):
                     self.on_status(status)
-                if status == "ready":
+                if status == "ready" and self._accepts_event_from(
+                    process, generation, allow_reset=True
+                ):
                     self.ready.set()
             elif event_type == "error":
-                self.error = event.get("message", "Unknown Parakeet EOU error")
-                print(f"[Parakeet EOU] Error: {self.error}")
-                self.ready.set()
-        if self.process and self.process.poll() not in (None, 0) and not self.error:
+                if self._accepts_event_from(process, generation, allow_reset=True):
+                    self.error = event.get("message", "Unknown Parakeet EOU error")
+                    print(f"[Parakeet EOU] Error: {self.error}")
+                    self.ready.set()
+        if (
+            self._accepts_event_from(process, generation, allow_reset=True)
+            and process.poll() not in (None, 0)
+            and not self.error
+        ):
             self.error = f"Parakeet EOU helper exited with code {self.process.returncode}"
             self.ready.set()
 
-    def _read_stderr(self):
-        assert self.process and self.process.stderr
-        for raw_line in iter(self.process.stderr.readline, b""):
+    def _accepts_event_from(self, process, generation, *, allow_reset=False):
+        with self._lifecycle_lock:
+            return (
+                (allow_reset or not self._resetting.is_set())
+                and self.process is process
+                and self._process_generation == generation
+            )
+
+    def _read_stderr(self, process):
+        assert process.stderr
+        for raw_line in iter(process.stderr.readline, b""):
             print(f"[Parakeet EOU helper] {raw_line.decode('utf-8', errors='replace').rstrip()}")
 
     def feed(self, audio_data):
@@ -148,4 +176,6 @@ class ParakeetEOUTranscriber:
             except subprocess.TimeoutExpired:
                 process.kill()
         finally:
-            self.process = None
+            with self._lifecycle_lock:
+                if self.process is process:
+                    self.process = None

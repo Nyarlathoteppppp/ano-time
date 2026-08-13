@@ -1,6 +1,6 @@
 # 统一 ASR 事件管线：设计与迁移计划
 
-> 状态：已批准设计，尚未实施。  
+> 状态：Phase 0、Phase 1 已完成并验证；Parakeet / MLX 迁移尚未开始。
 > 范围：Apple Speech、Parakeet EOU、MLX Whisper 在 **ASR 输出之后** 的统一事件语义。  
 > 非目标：不重写任一 ASR 模型；不改变 Apple 草稿的速度优先策略；不改模型路由、课程档案、Smart Hint 或刘海视觉设计。
 
@@ -330,6 +330,15 @@ tests/integration/pipeline/test_asr_backend_contracts.py
 
 风险：低—中。原因是代码移动范围大，但不能修改规则；任何非等价结果立即回滚。
 
+**实施记录（2026-08-13）**
+
+- `ASRSubtitleCoordinator` 已接管 Apple 的 stable-prefix、语义分句、pause boundary 与 segment 编号；
+- Apple 的 FastPath、Apple Translation、Preview、Final、executor 和 Qt 信号仍由 `Pipeline` 持有，未迁入 coordinator；
+- Dashboard 的 Launch generation 已传入 Pipeline，作为 ASR 事件 session generation；
+- Apple 与 Parakeet 原生 helper 现在各自带有 process generation guard，旧 helper stdout 即使在 reset 后残留，也不能进入新会话；
+- 自动测试通过，实际系统音频 smoke test 连续识别到 6 个 Apple native final、573 个字幕更新，未出现 Pipeline error；
+- 烟测中的 Apple Translation 一次曾报 `Unable to Translate`，另一次恢复 Ready；它是 macOS 翻译资源状态，不属于 ASR 协调器或事件协议回归。
+
 ### Phase 2：Parakeet 接入与长连续语音验证
 
 1. 通过 `ParakeetASRAdapter` 接入同一 Coordinator；
@@ -449,4 +458,3 @@ Apple 草稿持续出现
 | Parakeet 无 EOU 时是否强制 Final | 否；先显示级切分，语义 final 保持保守 |
 | MLX 是否重写推理方式 | 否；保留 rolling buffer + 单 worker，只替换字幕出口 |
 | 是否改 Apple fast path | 否；Apple 是行为与延迟基准 |
-

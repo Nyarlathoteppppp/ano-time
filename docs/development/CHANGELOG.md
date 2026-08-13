@@ -4,6 +4,8 @@
 
 ## 2026-08-13
 
+- `ASR event pipeline` Phase 0/1：新增独立的 `asr_pipeline` 协议、接受闸门、streaming adapter 和 `ASRSubtitleCoordinator`。Apple 的现有 stable-prefix、语义分句、pause boundary 和 segment 编号已迁入统一协调器；Apple 草稿、Preview、Final、翻译队列、显示和记录仍由 Pipeline 持有，未改变速度优先路径。Dashboard Launch generation 已传递到 ASR session。Apple / Parakeet native helper 增加 process-generation guard，避免 reset 后旧 stdout 回调泄漏进新句。完整 PySide6 测试通过；60 秒真实系统音频 Apple smoke 测到 6 个 native final / 573 个字幕更新、无 Pipeline error。下一步仅迁移 Parakeet，再迁移 MLX；禁止重新引入旧字幕旁路。
+
 - 新增 `UNIFIED_ASR_EVENT_PIPELINE_PLAN.md`：记录 Apple / Parakeet EOU / MLX Whisper 只统一 ASR 后事件语义、而不强制统一模型表现的重构边界。计划引入 `ASRHypothesis`、`ASRStreamBoundary`、`session_generation`、`stream_id` 和音频快照顺序 `sequence`，以消除 MLX 旧字幕旁路与 Parakeet 连续语音累积问题；本文档本身不改运行代码。
 
 - `93233d5`：修复 Pipeline contract 测试夹具兼容性。`_segment_state_store()` 只从实例字典读取启动设置，避免未初始化的 `QObject` 测试对象触发 Qt 父类异常。完整测试恢复为 414/414。
