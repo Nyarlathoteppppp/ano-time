@@ -5,6 +5,13 @@ cd "$(dirname "$0")"
 
 APP_NAME="Anotime"
 APP_PATH="$HOME/Desktop/$APP_NAME.app"
+
+# Build the native subtitle helper during installation, never when a user
+# presses Launch in the control center. NativeNotchOverlay still has a
+# non-blocking background-build fallback for development source updates.
+echo "Preparing native subtitle helper..."
+./build_native_notch.sh
+
 /usr/bin/osacompile -o "$APP_PATH" desktop_launcher.applescript
 
 PLIST="$APP_PATH/Contents/Info.plist"

@@ -85,6 +85,40 @@ class NativeNotchOverlayTest(unittest.TestCase):
         self.assertIn("os.walk(source_root)", bridge_source)
         self.assertIn('filename.endswith(".swift")', bridge_source)
 
+    def test_first_time_native_build_is_started_off_the_gui_thread(self):
+        overlay = NativeNotchOverlay()
+        with patch.object(
+            NativeNotchOverlay, "_needs_native_build", return_value=True
+        ), patch("native_notch_overlay.threading.Thread") as thread:
+            overlay.show()
+
+        thread.assert_called_once()
+        thread.return_value.start.assert_called_once()
+        self.assertIsNone(overlay.process)
+        self.assertTrue(overlay._visible_requested)
+
+    def test_background_build_starts_renderer_when_still_visible(self):
+        overlay = NativeNotchOverlay()
+        overlay._visible_requested = True
+        overlay._native_build_in_progress = True
+
+        with patch.object(overlay, "_start_native_helper") as start:
+            overlay._on_native_build_completed()
+
+        start.assert_called_once()
+        self.assertFalse(overlay._native_build_in_progress)
+
+    def test_completed_build_does_not_resurrect_closed_overlay(self):
+        overlay = NativeNotchOverlay()
+        overlay._native_build_in_progress = True
+        overlay._visible_requested = False
+
+        with patch.object(overlay, "_start_native_helper") as start:
+            overlay._on_native_build_completed()
+
+        start.assert_not_called()
+        self.assertFalse(overlay._native_build_in_progress)
+
     def test_glass_transition_detaches_terminating_native_process(self):
         overlay = NativeNotchOverlay()
         process = MagicMock()

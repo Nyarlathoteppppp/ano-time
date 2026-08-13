@@ -17,6 +17,8 @@ class NativeNotchOverlay(QObject):
     stop_requested = Signal()
     pause_requested = Signal(bool)
     _event_received = Signal(str)
+    _native_build_completed = Signal()
+    _native_build_failed = Signal(str)
 
     def __init__(self, display_duration=None, window_width=800, window_height=120,
                  display_mode="notch"):
@@ -39,8 +41,13 @@ class NativeNotchOverlay(QObject):
         self._write_queue = queue.Queue(maxsize=1)
         self._writer_stop = threading.Event()
         self._writer_thread = None
+        self._native_build_lock = threading.Lock()
+        self._native_build_in_progress = False
+        self._visible_requested = False
         self._display_mode = "notch"
         self._event_received.connect(self._handle_event)
+        self._native_build_completed.connect(self._on_native_build_completed)
+        self._native_build_failed.connect(self._on_native_build_failed)
 
         root = os.path.dirname(os.path.abspath(__file__))
         self.package_dir = os.path.join(root, "native_notch")
@@ -54,7 +61,7 @@ class NativeNotchOverlay(QObject):
         """Read-only compatibility snapshot of complete semantic records."""
         return self.record_store.snapshot()
 
-    def _ensure_built(self):
+    def _needs_native_build(self):
         source_root = os.path.join(self.package_dir, "Sources")
         source_files = [os.path.join(self.package_dir, "Package.swift")]
         for directory, _subdirs, filenames in os.walk(source_root):
@@ -67,12 +74,62 @@ class NativeNotchOverlay(QObject):
         if not needs_build:
             binary_mtime = os.path.getmtime(self.binary_path)
             needs_build = any(os.path.getmtime(path) > binary_mtime for path in source_files)
-        if needs_build:
+        return needs_build
+
+    def _ensure_built(self):
+        """Synchronously build the helper for installer/worker use only."""
+        if self._needs_native_build():
             subprocess.run([self.build_script], check=True, cwd=os.path.dirname(self.build_script))
 
     def show(self):
-        self._ensure_built()
+        self._visible_requested = True
         if self.process and self.process.poll() is None:
+            return
+        if self._needs_native_build():
+            self._start_native_build_async()
+            return
+        self._start_native_helper()
+
+    def _start_native_build_async(self):
+        """Build DynamicNotchKit away from the Qt GUI thread."""
+        with self._native_build_lock:
+            if self._native_build_in_progress:
+                return
+            self._native_build_in_progress = True
+
+        print("[Native Notch] Preparing native helper in background...")
+
+        def build():
+            try:
+                self._ensure_built()
+            except Exception as exc:
+                self._native_build_failed.emit(str(exc))
+            else:
+                self._native_build_completed.emit()
+
+        threading.Thread(
+            target=build,
+            name="notch-native-builder",
+            daemon=True,
+        ).start()
+
+    def _on_native_build_completed(self):
+        with self._native_build_lock:
+            self._native_build_in_progress = False
+        if self._visible_requested and self._display_mode == "notch":
+            self._start_native_helper()
+
+    def _on_native_build_failed(self, detail):
+        with self._native_build_lock:
+            self._native_build_in_progress = False
+        print(f"[Native Notch] Helper build failed: {detail}")
+
+    def _start_native_helper(self):
+        """Start an already-built helper without compile work."""
+        if self.process and self.process.poll() is None:
+            return
+        if not os.path.exists(self.binary_path):
+            self._start_native_build_async()
             return
         self.process = subprocess.Popen(
             [self.binary_path],
@@ -85,6 +142,8 @@ class NativeNotchOverlay(QObject):
         threading.Thread(target=self._read_stderr, daemon=True).start()
         self._start_writer()
         print("[Native Notch] DynamicNotchKit helper started")
+        self._last_native_items = self._latest_items()
+        self._send({"items": self._last_native_items})
 
     def _start_writer(self):
         if self._writer_thread and self._writer_thread.is_alive():
@@ -151,6 +210,7 @@ class NativeNotchOverlay(QObject):
         # Detach it immediately so a quick switch back cannot mistake that
         # terminating process for a live notch renderer.
         self._display_mode = "glass"
+        self._visible_requested = False
         self._retire_native_process()
         from overlay_window import OverlayWindow
 
@@ -587,6 +647,7 @@ class NativeNotchOverlay(QObject):
         self._send(payload)
 
     def close(self):
+        self._visible_requested = False
         if self.delegate:
             self.delegate.close()
             self.delegate = None
