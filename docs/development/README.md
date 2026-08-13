@@ -26,6 +26,8 @@
 
 ## 现有全局文档
 
+- [Mac App Store MVP 执行计划](../product/MAC_APP_STORE_MVP_EXECUTION_PLAN.md)
+- [产品决策记录](../product/PRODUCT_DECISIONS.md)
 - [产品与 Mac 发布路线](../PRODUCT_RELEASE_AND_APP_STORE_ROADMAP.md)
 - [重构安全网与不变式](../REFACTORING_SAFETY_NET.md)
 - [延迟基准](../LATENCY_BASELINE.md)

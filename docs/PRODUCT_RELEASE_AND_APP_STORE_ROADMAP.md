@@ -1,8 +1,13 @@
 # AnoTime：macOS 体验版与 Mac App Store 路线
 
-> 状态：设计文档，不改变当前运行代码。
+> 状态：历史背景路线，不改变当前运行代码。
 > 当前范围：只做 macOS 体验版与未来 Mac App Store。iPhone/iPad 已明确延期，不进入近期工程计划。
 > 产品原则：先让用户在十分钟内听懂一段课或会议；任何商业化、记录和 AI 功能都不能拖慢本地 Apple 草稿路径。
+>
+> **当前执行计划已迁移至 [`docs/product/MAC_APP_STORE_MVP_EXECUTION_PLAN.md`](./product/MAC_APP_STORE_MVP_EXECUTION_PLAN.md)。**
+> 新计划已确定：首发为 Apple silicon、macOS 26.0+、原生 Swift App Store Runtime、3 小时受邀体验，且不以本文件内旧的 2 小时/过渡分发设想作为当前范围。
+>
+> **归档说明：以下内容只保留为当时的讨论背景；其中的 2 小时试用、PySide6 过渡发布与旧阶段名称均不可直接执行。新 Issue、PR 和发布判断只能引用 `docs/product/`。**
 
 ---
 
