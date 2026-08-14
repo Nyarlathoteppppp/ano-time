@@ -148,6 +148,7 @@ class Pipeline(QObject):
         )
         self._context_lock = threading.Lock()
         self._finalized_context = deque(maxlen=FINAL_CONTEXT_SEGMENTS)
+        self._finalized_context_ids = deque(maxlen=FINAL_CONTEXT_SEGMENTS)
         self._context_policy = ContextPolicy()
         self._smart_hint_scheduler = build_smart_hint_scheduler(
             settings,
@@ -540,6 +541,9 @@ class Pipeline(QObject):
             return
         with lock:
             context.clear()
+            context_ids = self.__dict__.get("_finalized_context_ids")
+            if context_ids is not None:
+                context_ids.clear()
 
     @property
     def is_paused(self):
@@ -905,6 +909,7 @@ class Pipeline(QObject):
             segment_started_at = final.segment_started_at
             first_partial_at = final.first_partial_at
             cut_reason = final.cut_reason
+            source_correction = final.source_correction
             original_text = text
             text = clean_finalized_text(self._asr_corrections.apply(text))
             if text != original_text:
@@ -929,7 +934,9 @@ class Pipeline(QObject):
                 since_first_partial_ms=(
                     (now - first_partial_at) * 1000 if first_partial_at else None
                 ),
-                words=len(text.split()), cut_reason=cut_reason, detail=text,
+                words=len(text.split()), cut_reason=cut_reason,
+                status="corrected" if source_correction else "ok",
+                detail=text,
             )
             self.signals.runtime_status.emit(
                 "ASR", "ok", f"{asr_label} · {elapsed_ms / 1000:.1f}s"
@@ -940,6 +947,8 @@ class Pipeline(QObject):
                 text,
                 limit=3,
                 previous_preview=previous_preview,
+                segment_id=chunk_id,
+                source_correction=source_correction,
             )
             log_stage(
                 "translation_context",
@@ -1153,6 +1162,13 @@ class Pipeline(QObject):
         self.apple_transcriber = transcriber_class(
             language=settings.source_language or "en",
             sample_rate=settings.sample_rate,
+            **(
+                {
+                    "eou_debounce_ms": settings.parakeet_eou_debounce_ms,
+                    "adaptive_gain_enabled": settings.parakeet_adaptive_gain,
+                }
+                if is_parakeet else {}
+            ),
             on_result=on_result,
         )
 
@@ -1161,6 +1177,7 @@ class Pipeline(QObject):
             self.apple_transcriber.start()
             print(f"[Pipeline] {asr_label} streaming ASR ready")
             stream_ready_logged = False
+            last_gain_log_at = 0.0
             for audio_chunk in self.audio.generator():
                 if not self.running:
                     break
@@ -1193,6 +1210,18 @@ class Pipeline(QObject):
                         rms=f"{rms:.5f}",
                     )
                 self.apple_transcriber.feed(audio_chunk)
+                if (
+                    is_parakeet
+                    and settings.parakeet_adaptive_gain
+                    and time.monotonic() - last_gain_log_at >= 2.0
+                ):
+                    last_gain_log_at = time.monotonic()
+                    log_stage(
+                        "parakeet_input_gain",
+                        status="active",
+                        rms=f"{self.apple_transcriber.last_input_rms:.5f}",
+                        gain=f"{self.apple_transcriber.last_input_gain:.2f}",
+                    )
         except Exception as exc:
             print(f"[Pipeline] {asr_label} Speech error: {exc}")
             log_stage(
@@ -1379,14 +1408,46 @@ class Pipeline(QObject):
             print(f"[Partial Translation {chunk_id}] Failed: {e}")
             log_stage("partial_translation", chunk_id=chunk_id, status="error", detail=str(e))
 
-    def _snapshot_finalized_context(self, text, limit=3, previous_preview=""):
-        """Freeze bounded prior finalized context, then append current text."""
+    def _snapshot_finalized_context(
+        self,
+        text,
+        limit=3,
+        previous_preview="",
+        segment_id=None,
+        source_correction=False,
+    ):
+        """Freeze prior finalized context, then append or replace current text.
+
+        Native Parakeet source finals can correct a previously sealed host
+        segment.  Corrections replace that segment in the bounded context but
+        do not count as a new lecture sentence or trigger Smart Hint again.
+        """
         limit = max(0, int(limit))
         with self._context_lock:
-            history = tuple(self._finalized_context)
-            self._finalized_context.append(text)
+            context = self._finalized_context
+            context_ids = self.__dict__.get("_finalized_context_ids")
+            if source_correction and segment_id is not None and context_ids:
+                entries = list(zip(context_ids, context))
+                history = tuple(
+                    value for known_id, value in entries
+                    if known_id != int(segment_id)
+                )
+                try:
+                    index = list(context_ids).index(int(segment_id))
+                except ValueError:
+                    context.append(text)
+                    context_ids.append(int(segment_id))
+                else:
+                    context[index] = text
+            else:
+                history = tuple(context)
+                context.append(text)
+                if context_ids is not None:
+                    context_ids.append(
+                        int(segment_id) if segment_id is not None else None
+                    )
         scheduler = self.__dict__.get("_smart_hint_scheduler")
-        if scheduler is not None:
+        if scheduler is not None and not source_correction:
             # The scheduler only copies finalized source into a bounded deque;
             # its optional request is submitted on its own executor.
             scheduler.observe_finalized(text)

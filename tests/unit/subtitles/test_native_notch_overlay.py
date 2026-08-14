@@ -20,8 +20,9 @@ class RecordingNotchOverlay(NativeNotchOverlay):
         super().__init__()
         self.sent = []
 
-    def _send(self, payload):
+    def _send(self, payload, **_kwargs):
         self.sent.append(payload)
+        return True
 
 
 class NativeNotchOverlayTest(unittest.TestCase):
@@ -73,9 +74,15 @@ class NativeNotchOverlayTest(unittest.TestCase):
 
         overlay = NativeNotchOverlay()
         overlay.process = Process()
+        overlay._native_generation = 1
+        overlay._native_helper_ready = True
         overlay._send({"items": [{"id": 1}]})
         overlay._send({"items": [{"id": 2}]})
-        payload = json.loads(overlay._write_queue.get_nowait().decode("utf-8"))
+        generation, frame_id, kind, line = overlay._write_queue.get_nowait()
+        payload = json.loads(line.decode("utf-8"))
+        self.assertEqual(generation, 1)
+        self.assertEqual(frame_id, payload["frameId"])
+        self.assertEqual(kind, "state")
         self.assertEqual(payload["items"][0]["id"], 2)
 
     def test_native_rebuild_watches_every_swift_source_file(self):
@@ -146,6 +153,42 @@ class NativeNotchOverlayTest(unittest.TestCase):
         self.assertEqual(replayed_ids, list(range(6, 46)))
         self.assertEqual(len(replayed_ids), 40)
 
+    def test_initial_glass_mode_uses_reversible_delegate_without_building_notch(self):
+        overlay = NativeNotchOverlay(
+            display_mode="glass",
+            window_width=640,
+            window_height=360,
+            video_overlay=True,
+        )
+
+        with patch("overlay_window.OverlayWindow") as window_class:
+            overlay.show()
+
+        window_class.assert_called_once_with(
+            window_width=640,
+            window_height=360,
+            display_mode="glass",
+            allow_notch_switch=True,
+            video_overlay=True,
+        )
+        window_class.return_value.show.assert_called_once()
+        self.assertEqual(overlay._display_mode, "glass")
+        self.assertTrue(overlay._visible_requested)
+
+    def test_initial_glass_subtitle_switch_requests_native_notch(self):
+        overlay = NativeNotchOverlay(display_mode="glass")
+        try:
+            with patch("overlay_window.HAS_APPKIT", False), patch.object(
+                overlay, "_show_native_overlay"
+            ) as show_notch:
+                overlay.show()
+                overlay.delegate.container.mode_switch_requested.emit()
+                self.app.processEvents()
+
+            show_notch.assert_called_once()
+        finally:
+            overlay.close()
+
     def test_late_glass_final_for_scrolled_record_is_saved_but_not_redrawn(self):
         overlay = NativeNotchOverlay()
         for chunk_id in range(1, 46):
@@ -169,7 +212,7 @@ class NativeNotchOverlayTest(unittest.TestCase):
         self.assertTrue(overlay._writer_stop.is_set())
         overlay.delegate = None
 
-    def test_return_to_notch_restarts_helper_and_replays_latest_frame(self):
+    def test_return_to_notch_restarts_helper_and_defers_snapshot_until_ready(self):
         overlay = RecordingNotchOverlay()
         overlay.update_text(1, "A sentence", "一句话", "final")
         overlay.sent.clear()
@@ -183,7 +226,8 @@ class NativeNotchOverlayTest(unittest.TestCase):
         self.assertIsNone(overlay.delegate)
         show.assert_called_once()
         self.assertEqual(overlay._display_mode, "notch")
-        self.assertEqual(overlay.sent[-1]["items"][0]["translated"], "一句话")
+        self.assertEqual(overlay.sent, [])
+        self.assertTrue(overlay._transport_dirty)
 
     def test_long_translation_is_split_for_display_not_transcript_semantics(self):
         overlay = RecordingNotchOverlay()
@@ -195,6 +239,14 @@ class NativeNotchOverlayTest(unittest.TestCase):
         self.assertEqual(len(rendered), 1)
         self.assertEqual(rendered[0]["segmentID"], 7)
         self.assertGreater(len(rendered[0]["fragments"]), 1)
+        self.assertEqual(
+            "".join(fragment["translated"] for fragment in rendered[0]["fragments"]),
+            translation,
+        )
+        self.assertEqual(
+            [fragment["id"] for fragment in rendered[0]["fragments"]],
+            sorted(fragment["id"] for fragment in rendered[0]["fragments"]),
+        )
 
     def test_long_active_cue_does_not_consume_history_slots(self):
         overlay = RecordingNotchOverlay()
@@ -353,10 +405,101 @@ class NativeNotchOverlayTest(unittest.TestCase):
 
         real = NativeNotchOverlay()
         real.process = Process()
+        real._native_generation = 1
+        real._native_helper_ready = True
         real._busy_stages.add("Remote:Gemini")
         real._send({"items": [{"id": 2}]})
-        payload = json.loads(real._write_queue.get_nowait().decode("utf-8"))
+        _generation, _frame_id, _kind, line = real._write_queue.get_nowait()
+        payload = json.loads(line.decode("utf-8"))
         self.assertEqual(payload["busyStages"], ["Remote:Gemini"])
+
+    def test_ready_replays_complete_snapshot_with_transport_metadata(self):
+        class Stdin:
+            pass
+
+        class Process:
+            stdin = Stdin()
+
+            @staticmethod
+            def poll():
+                return None
+
+        overlay = NativeNotchOverlay()
+        overlay.update_text(9, "A complete sentence", "完整句子", "final")
+        overlay.process = Process()
+        overlay._native_generation = 4
+        overlay._visible_requested = True
+
+        overlay._handle_event("ready", generation=4)
+
+        generation, frame_id, kind, line = overlay._write_queue.get_nowait()
+        payload = json.loads(line.decode("utf-8"))
+        self.assertTrue(overlay._native_helper_ready)
+        self.assertEqual((generation, frame_id, kind), (4, payload["frameId"], "snapshot"))
+        self.assertEqual(payload["generation"], 4)
+        self.assertEqual(payload["items"][0]["translated"], "完整句子")
+
+    def test_status_frame_carries_snapshot_and_stale_ready_is_ignored(self):
+        class Stdin:
+            pass
+
+        class Process:
+            stdin = Stdin()
+
+            @staticmethod
+            def poll():
+                return None
+
+        overlay = NativeNotchOverlay()
+        overlay.update_text(3, "Current speech", "当前字幕", "partial")
+        overlay.process = Process()
+        overlay._native_generation = 5
+        overlay._visible_requested = True
+
+        overlay._handle_event("ready", generation=4)
+        self.assertFalse(overlay._native_helper_ready)
+        self.assertTrue(overlay._write_queue.empty())
+
+        overlay._handle_event("ready", generation=5)
+        overlay._write_queue.get_nowait()
+        overlay.update_runtime_status("Remote", "active", "Gemini · translating")
+        _generation, _frame_id, kind, line = overlay._write_queue.get_nowait()
+        payload = json.loads(line.decode("utf-8"))
+        self.assertEqual(kind, "status")
+        self.assertEqual(payload["items"][0]["translated"], "当前字幕")
+
+    def test_current_helper_failure_schedules_recovery_but_stale_one_does_not(self):
+        overlay = NativeNotchOverlay()
+        overlay._native_generation = 7
+        overlay._visible_requested = True
+        overlay._native_helper_ready = True
+
+        with patch.object(overlay, "_retire_native_process") as retire, patch(
+            "native_notch_overlay.QTimer.singleShot"
+        ) as single_shot:
+            overlay._handle_native_helper_failure(7, "pipe write failed")
+
+        retire.assert_called_once()
+        self.assertFalse(overlay._native_helper_ready)
+        self.assertTrue(overlay._transport_dirty)
+        self.assertTrue(overlay._native_recovery_scheduled)
+        self.assertEqual(single_shot.call_args.args[0], 200)
+
+        overlay._native_recovery_scheduled = False
+        with patch.object(overlay, "_retire_native_process") as stale_retire:
+            overlay._handle_native_helper_failure(6, "old helper closed")
+        stale_retire.assert_not_called()
+
+    def test_latest_applied_ack_marks_transport_clean(self):
+        overlay = NativeNotchOverlay()
+        overlay._native_generation = 3
+        overlay._next_frame_id = 12
+        overlay._transport_dirty = True
+
+        overlay._handle_event("applied", generation=3, frame_id=12)
+
+        self.assertEqual(overlay._last_applied_frame_id, 12)
+        self.assertFalse(overlay._transport_dirty)
 
     def test_runtime_status_does_not_replay_identical_subtitle_items(self):
         overlay = RecordingNotchOverlay()

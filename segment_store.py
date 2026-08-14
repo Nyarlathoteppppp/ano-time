@@ -120,6 +120,17 @@ class SegmentStore:
             elif stage == SubtitleStage.ASR_FINAL:
                 if state.finalized and state.original_text == original_text:
                     return None
+                if state.finalized:
+                    # A Parakeet host cut may have sealed before its eventual
+                    # native final revises an earlier word.  The source final
+                    # is authoritative: clear every translation lane so an
+                    # in-flight result for the old source cannot remain on
+                    # screen or in the transcript.
+                    state.translation_rank = 0
+                    state.translation_stage = None
+                    state.translation_source_text = ""
+                    state.translated_text = ""
+                    state.committed_prefix_length = 0
                 state.hypothesis_revision += 1
                 state.finalized = True
 
@@ -152,6 +163,11 @@ class SegmentStore:
                     translation_source_text or original_text
                 )
                 event_translation_source = incoming_translation_source
+                if (
+                    state.finalized
+                    and incoming_translation_source != state.original_text
+                ):
+                    return None
                 current_translation_source = state.translation_source_text
                 incoming_is_newer_source = bool(
                     current_translation_source

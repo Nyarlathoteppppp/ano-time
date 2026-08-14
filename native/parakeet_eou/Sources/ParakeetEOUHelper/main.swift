@@ -5,6 +5,16 @@ import Foundation
 
 private let sampleRate = 16_000.0
 
+private func eouDebounceMs() -> Int {
+    let arguments = CommandLine.arguments
+    guard let index = arguments.firstIndex(of: "--eou-debounce-ms"),
+          arguments.indices.contains(index + 1),
+          let value = Int(arguments[index + 1]),
+          [320, 480, 640, 800].contains(value)
+    else { return 640 }
+    return value
+}
+
 private func emit(_ type: String, _ values: [String: Any] = [:]) {
     var payload = values
     payload["type"] = type
@@ -41,7 +51,7 @@ struct ParakeetEOUHelper {
         let manager = StreamingEouAsrManager(
             configuration: configuration,
             chunkSize: .ms160,
-            eouDebounceMs: 640
+            eouDebounceMs: eouDebounceMs()
         )
 
         await manager.setPartialTranscriptCallback { text in

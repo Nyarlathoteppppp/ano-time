@@ -83,6 +83,17 @@ class DashboardSettingsRepository:
         parser.set("transcription", "device", transcription.device)
         parser.set("transcription", "compute_type", transcription.compute_type)
         parser.set("transcription", "source_language", transcription.source_language)
+        debounce_ms = int(getattr(transcription, "parakeet_eou_debounce_ms", 640))
+        parser.set(
+            "transcription",
+            "parakeet_eou_debounce_ms",
+            str(debounce_ms if debounce_ms in (320, 480, 640, 800) else 640),
+        )
+        parser.set(
+            "transcription",
+            "parakeet_adaptive_gain",
+            str(bool(getattr(transcription, "parakeet_adaptive_gain", False))).lower(),
+        )
 
         translation = snapshot.translation
         if translation.workflow == "single_model":

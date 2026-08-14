@@ -84,7 +84,7 @@ class ASRSubtitleCoordinatorTests(unittest.TestCase):
         self.assertEqual(self.finals, [])
         self.assertEqual(self.partials[-1].segment_id, 1)
 
-    def test_parakeet_host_policy_commits_only_stable_discourse_boundary(self):
+    def test_parakeet_host_boundary_is_a_candidate_until_second_stable_observation(self):
         coordinator = self._coordinator(host_semantic_boundaries=True)
         coordinator.accept(hypothesis(
             "The compressed representation preserves the important structure "
@@ -102,6 +102,19 @@ class ASRSubtitleCoordinatorTests(unittest.TestCase):
             emitted_at=1.5,
         ))
 
+        self.assertEqual(self.finals, [])
+        self.assertEqual(self.partials[-1].segment_id, 2)
+        self.assertTrue(self.partials[-1].text.startswith("but the decoder"))
+
+        coordinator.accept(hypothesis(
+            "The compressed representation preserves the important structure "
+            "of the original data but the decoder needs additional information "
+            "for reliable reconstruction in practice",
+            backend=ASRBackend.PARAKEET_EOU,
+            sequence=3,
+            emitted_at=2.0,
+        ))
+
         self.assertEqual(
             [(item.segment_id, item.text, item.cut_reason) for item in self.finals],
             [(
@@ -112,6 +125,87 @@ class ASRSubtitleCoordinatorTests(unittest.TestCase):
         )
         self.assertEqual(self.partials[-1].segment_id, 2)
         self.assertTrue(self.partials[-1].text.startswith("but the decoder"))
+
+    def test_parakeet_native_final_corrects_sealed_host_segment_in_place(self):
+        coordinator = self._coordinator(host_semantic_boundaries=True)
+        old = (
+            "The figure preserves the important structure of the original data "
+            "but the decoder needs additional information"
+        )
+        coordinator.accept(hypothesis(
+            old,
+            backend=ASRBackend.PARAKEET_EOU,
+            sequence=1,
+            emitted_at=1.0,
+        ))
+        coordinator.accept(hypothesis(
+            old + " for reliable reconstruction",
+            backend=ASRBackend.PARAKEET_EOU,
+            sequence=2,
+            emitted_at=1.5,
+        ))
+        coordinator.accept(hypothesis(
+            old + " for reliable reconstruction in practice",
+            backend=ASRBackend.PARAKEET_EOU,
+            sequence=3,
+            emitted_at=2.0,
+        ))
+
+        self.assertEqual(self.finals[0].segment_id, 1)
+        self.assertIn("figure", self.finals[0].text)
+
+        corrected = old.replace("figure", "model") + " for reliable reconstruction in practice."
+        coordinator.accept(hypothesis(
+            corrected,
+            backend=ASRBackend.PARAKEET_EOU,
+            source_final=True,
+            sequence=4,
+            emitted_at=2.5,
+        ))
+
+        correction = [item for item in self.finals if item.source_correction]
+        self.assertEqual(len(correction), 1)
+        self.assertEqual(correction[0].segment_id, 1)
+        self.assertIn("model", correction[0].text)
+        self.assertNotIn("figure", correction[0].text)
+
+    def test_pause_drops_unsealed_parakeet_candidate_before_next_stream(self):
+        coordinator = self._coordinator(host_semantic_boundaries=True)
+        text = (
+            "The figure preserves the important structure of the original data "
+            "but the decoder needs additional information"
+        )
+        coordinator.accept(hypothesis(
+            text,
+            backend=ASRBackend.PARAKEET_EOU,
+            sequence=1,
+            emitted_at=1.0,
+        ))
+        coordinator.accept(hypothesis(
+            text + " for reliable reconstruction",
+            backend=ASRBackend.PARAKEET_EOU,
+            sequence=2,
+            emitted_at=1.5,
+        ))
+        coordinator.accept(ASRStreamBoundary(
+            backend=ASRBackend.PARAKEET_EOU,
+            session_generation=1,
+            stream_id=1,
+            sequence=3,
+            reason=BoundaryReason.PAUSE,
+            audio_anchor=1.0,
+            emitted_at=1.6,
+        ))
+        coordinator.accept(hypothesis(
+            "A fresh stream starts after pause.",
+            backend=ASRBackend.PARAKEET_EOU,
+            stream_id=2,
+            sequence=1,
+            emitted_at=2.0,
+        ))
+
+        self.assertEqual(self.finals, [])
+        self.assertEqual(self.partials[-1].segment_id, 3)
 
     def test_pause_boundary_seals_meaningful_remainder_without_fake_remote_final(self):
         coordinator = self._coordinator()

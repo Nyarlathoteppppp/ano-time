@@ -1,4 +1,5 @@
 import CoreGraphics
+import SubtitlePresentation
 
 private func check(_ condition: @autoclosure () -> Bool, _ message: String) {
     guard condition() else {
@@ -181,17 +182,52 @@ let fragments = [
         finalized: true,
         committedPrefixLength: 4
     ),
+    NotchFragment(
+        id: 7002,
+        original: "third",
+        translated: "第三部分",
+        finalized: true,
+        committedPrefixLength: 4
+    ),
 ]
 let fragmented = NotchRollupPlanner.reconcile(
     current: NotchPresentationState(),
     incoming: [cue(7, fragments: fragments)]
 )
 check(fragmented.allCues.count == 1, "fragments stay in one cue")
-check(fragmented.active?.displayFragments.count == 2, "fragments remain visible")
+check(fragmented.active?.displayFragments.count == 3, "fragments remain visible")
 check(
-    fragmented.active?.latestDisplayFragment.id == 7001,
-    "one notch slot paints only the newest fragment"
+    fragmented.active?.displayWindow(for: .active).fragments.map(\.id)
+        == [7001, 7002],
+    "active cue keeps the newest two fragments in source order"
 )
+check(
+    fragmented.active?.displayWindow(for: .active).hasHiddenPrefix == true,
+    "active cue marks omitted earlier context"
+)
+check(
+    fragmented.active?.displayWindow(for: .history(index: 0)).fragments.map(\.id)
+        == [7002],
+    "history cue remains one compact fragment"
+)
+let fallbackWindow = cue(8, translated: "未拆分译文").displayWindow(for: .active)
+check(
+    fallbackWindow.fragments.map(\.translated) == ["未拆分译文"],
+    "legacy cue without fragments falls back to one display row"
+)
+check(
+    fallbackWindow.hasHiddenPrefix == false,
+    "single fallback row has no hidden context marker"
+)
+
+var frameOrder = NotchFrameOrder()
+check(frameOrder.accepts(generation: 1, frameID: 1), "first frame is accepted")
+check(!frameOrder.accepts(generation: 1, frameID: 1), "duplicate frame is ignored")
+check(!frameOrder.accepts(generation: 1, frameID: 0), "older frame is ignored")
+check(frameOrder.accepts(generation: 1, frameID: 2), "newer frame is accepted")
+check(frameOrder.accepts(generation: 2, frameID: 1), "new helper generation is accepted")
+check(!frameOrder.accepts(generation: 1, frameID: 99), "old generation is ignored")
+check(frameOrder.accepts(generation: nil, frameID: nil), "legacy frame remains compatible")
 
 let expiredShort = NotchRollupPlanner.reconcile(
     current: initialPresentation,

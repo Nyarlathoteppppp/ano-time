@@ -109,6 +109,24 @@ class OverlayLayoutTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_reversible_glass_window_forwards_subtitle_double_click_request(self):
+        with patch("overlay_window.HAS_APPKIT", False):
+            window = OverlayWindow(
+                window_width=480,
+                window_height=260,
+                display_mode="glass",
+                allow_notch_switch=True,
+            )
+        requested = []
+        window.notch_requested.connect(lambda: requested.append(True))
+        try:
+            # The surface owns the subtitle area, which is the actual double-
+            # click target in the visible glass overlay.
+            window.container.mode_switch_requested.emit()
+            self.assertEqual(requested, [True])
+        finally:
+            window.close()
+
     def test_glass_window_relies_on_automatic_recording_without_manual_save(self):
         with patch("overlay_window.HAS_APPKIT", False):
             window = OverlayWindow(window_width=480, window_height=260)
@@ -117,6 +135,29 @@ class OverlayLayoutTests(unittest.TestCase):
             self.assertFalse(hasattr(window, "_save_transcript"))
             self.assertIsNotNone(window.stop_btn)
             self.assertIsNotNone(window.mode_btn)
+        finally:
+            window.close()
+
+    def test_glass_window_has_a_visible_bottom_right_resize_grip(self):
+        with patch("overlay_window.HAS_APPKIT", False):
+            window = OverlayWindow(window_width=480, window_height=260)
+        try:
+            window.resize(520, 300)
+            # Hidden Qt widgets do not consistently emit resizeEvent in the
+            # offscreen test backend, so exercise the layout method directly.
+            window._layout_resize_borders()
+
+            grip = window.resize_handle
+            self.assertFalse(grip.isHidden())
+            self.assertEqual(grip.text(), "◢")
+            self.assertEqual(grip.geometry().right(), window.width() - 5)
+            self.assertEqual(grip.geometry().bottom(), window.height() - 5)
+
+            grip._start_size = window.size()
+            grip._start_global = QtCore.QPoint(100, 100)
+            grip._resize_from_global(QtCore.QPoint(220, 180))
+            self.assertEqual(window.size().width(), 640)
+            self.assertEqual(window.size().height(), 380)
         finally:
             window.close()
 

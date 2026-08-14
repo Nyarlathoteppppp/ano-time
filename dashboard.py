@@ -908,6 +908,7 @@ class Dashboard(QWidget):
             self.home_device_combo,
             self.display_mode,
             self.asr_backend,
+            self.parakeet_eou_debounce,
             self.whisper_model,
             self.funasr_model,
             self.device_type,
@@ -926,6 +927,8 @@ class Dashboard(QWidget):
         )
         for combo in combos:
             combo.currentTextChanged.connect(self._mark_settings_dirty)
+
+        self.parakeet_adaptive_gain.toggled.connect(self._mark_settings_dirty)
 
         for spinbox in (
             self.sample_rate,
@@ -1469,6 +1472,8 @@ class Dashboard(QWidget):
         # third-party callers stable while the Dashboard becomes componentized.
         self.transcription_layout = panel.form_layout
         self.asr_backend = panel.asr_backend
+        self.parakeet_eou_debounce = panel.parakeet_eou_debounce
+        self.parakeet_adaptive_gain = panel.parakeet_adaptive_gain
         self.backend_hint = panel.backend_hint
         self.whisper_model = panel.whisper_model
         self.funasr_model = panel.funasr_model
@@ -2592,6 +2597,10 @@ class Dashboard(QWidget):
                     self.source_language.currentData()
                     or self.source_language.currentText()
                 ),
+                parakeet_eou_debounce_ms=int(
+                    self.parakeet_eou_debounce.currentText()
+                ),
+                parakeet_adaptive_gain=self.parakeet_adaptive_gain.isChecked(),
             ),
             translation=TranslationSettings(
                 workflow=workflow,

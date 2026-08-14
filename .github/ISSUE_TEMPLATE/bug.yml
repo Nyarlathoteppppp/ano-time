@@ -1,0 +1,52 @@
+name: Bug report
+description: Report a reproducible AnoTime prototype defect.
+title: "[Bug]: "
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Apple ASR / Translation
+        - Parakeet EOU experiment
+        - Native notch
+        - Glass subtitle
+        - Control + S shortcut
+        - Audio capture / permissions
+        - Translation workflow
+        - Transcript / export
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: Include source, subtitle mode, ASR backend and exact actions.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual result
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: macOS version, Mac model, branch/commit and installed app/source launch.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Safe evidence
+      description: Use timestamps, error codes or redacted Diagnostics fields only. Never paste API keys, classroom audio/text, config.ini or full private logs.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed API keys, course content, transcripts and private configuration.
+          required: true

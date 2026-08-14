@@ -12,6 +12,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+import re
 
 from finalized_text import is_meaningful_final
 from live_segmenter import IncrementalSegmenter
@@ -38,6 +39,24 @@ class ASRSemanticFinal:
     segment_started_at: float
     first_partial_at: float | None
     cut_reason: str
+    source_correction: bool = False
+
+
+@dataclass(slots=True)
+class _HostCandidate:
+    """One Parakeet-only semantic cut awaiting native confirmation."""
+
+    segment_id: int
+    text: str
+    start_word: int
+    end_word: int
+    segment_started_at: float
+    first_partial_at: float | None
+    cut_reason: str
+    created_at: float
+    stable_observations: int = 1
+    last_observation_sequence: int = 0
+    sealed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +96,9 @@ class ASRSubtitleCoordinator:
     Downstream code decides how each partial is translated and displayed.
     """
 
+    _HOST_SEAL_SECONDS = 0.35
+    _HOST_SEAL_OBSERVATIONS = 2
+
     def __init__(
         self,
         *,
@@ -113,6 +135,7 @@ class ASRSubtitleCoordinator:
         self._segmenter = IncrementalSegmenter(
             host_semantic_boundaries=self._host_semantic_boundaries,
         )
+        self._host_candidates: list[_HostCandidate] = []
 
     @property
     def session_generation(self) -> int:
@@ -179,6 +202,15 @@ class ASRSubtitleCoordinator:
                     ),
                 ))
 
+        candidate_finals: list[ASRSemanticFinal] = []
+        candidate_partials: list[ASRPartialUpdate] = []
+        if self._host_semantic_boundaries and not event.source_final:
+            candidate_finals, candidate_partials = (
+                self._observe_host_candidates_locked(
+                    event.text, stable_text, event.sequence, now,
+                )
+            )
+
         segments, remainder = self._segmenter.observe(
             event.text,
             stable_text=stable_text,
@@ -195,8 +227,45 @@ class ASRSubtitleCoordinator:
             preview_stable_text = ""
 
         cut_reasons = list(self._segmenter.last_cut_reasons)
-        finalized = []
-        for index, segment in enumerate(segments):
+        finalized = list(candidate_finals)
+        if self._host_semantic_boundaries and not event.source_final:
+            for index, segment in enumerate(segments):
+                words = self._words(segment)
+                end_word = self._segmenter.committed_words
+                candidate = _HostCandidate(
+                    segment_id=self._next_segment_id,
+                    text=segment,
+                    start_word=end_word - len(words),
+                    end_word=end_word,
+                    segment_started_at=segment_started_at,
+                    first_partial_at=first_partial_at,
+                    cut_reason=(
+                        cut_reasons[index]
+                        if index < len(cut_reasons) else "host_boundary"
+                    ),
+                    created_at=now,
+                    last_observation_sequence=event.sequence,
+                )
+                self._host_candidates.append(candidate)
+                candidate_partials.append(ASRPartialUpdate(
+                    segment_id=candidate.segment_id,
+                    text=candidate.text,
+                    stable_source_text=candidate.text,
+                    segment_started_at=candidate.segment_started_at,
+                    first_partial_at=candidate.first_partial_at or now,
+                    observed_at=now,
+                ))
+                self._next_segment_id += 1
+                segment_started_at = now
+                first_partial_at = now
+        elif event.source_final and self._host_semantic_boundaries:
+            finalized.extend(self._resolve_host_candidates_locked(event.text))
+
+        normal_segments = (
+            [] if (self._host_semantic_boundaries and not event.source_final)
+            else segments
+        )
+        for index, segment in enumerate(normal_segments):
             finalized.append(ASRSemanticFinal(
                 segment_id=self._next_segment_id,
                 text=segment,
@@ -225,7 +294,9 @@ class ASRSubtitleCoordinator:
             return callbacks
 
         if not remainder or not self._meaningful_text(remainder):
+            callbacks.extend((self._on_partial, update) for update in candidate_partials)
             return callbacks
+        callbacks.extend((self._on_partial, update) for update in candidate_partials)
         callbacks.append((
             self._on_partial,
             ASRPartialUpdate(
@@ -238,6 +309,101 @@ class ASRSubtitleCoordinator:
             ),
         ))
         return callbacks
+
+    @staticmethod
+    def _words(text: str) -> list[str]:
+        return re.findall(r"\S+", " ".join(str(text or "").split()))
+
+    @staticmethod
+    def _same_words(left: str, right: str) -> bool:
+        def normalise(value: str) -> str:
+            return re.sub(
+                r"^[^A-Za-z0-9']+|[^A-Za-z0-9']+$", "", value,
+            ).casefold()
+
+        return [normalise(item) for item in ASRSubtitleCoordinator._words(left)] == [
+            normalise(item) for item in ASRSubtitleCoordinator._words(right)
+        ]
+
+    def _candidate_text(self, words: list[str], candidate: _HostCandidate) -> str:
+        if len(words) < candidate.end_word:
+            return ""
+        return " ".join(words[candidate.start_word:candidate.end_word])
+
+    def _observe_host_candidates_locked(
+        self,
+        text: str,
+        stable_text: str,
+        sequence: int,
+        now: float,
+    ) -> tuple[list[ASRSemanticFinal], list[ASRPartialUpdate]]:
+        """Refresh unsealed Parakeet candidates from a later stable prefix."""
+        full_words = self._words(text)
+        stable_words = self._words(stable_text)
+        finals = []
+        partials = []
+        for candidate in self._host_candidates:
+            if candidate.sealed:
+                continue
+            replacement = self._candidate_text(full_words, candidate)
+            if replacement and not self._same_words(replacement, candidate.text):
+                candidate.text = replacement
+                partials.append(ASRPartialUpdate(
+                    segment_id=candidate.segment_id,
+                    text=replacement,
+                    stable_source_text="",
+                    segment_started_at=candidate.segment_started_at,
+                    first_partial_at=candidate.first_partial_at or now,
+                    observed_at=now,
+                ))
+            stable_candidate = self._candidate_text(stable_words, candidate)
+            if (
+                stable_candidate
+                and self._same_words(stable_candidate, candidate.text)
+                and candidate.last_observation_sequence != sequence
+            ):
+                candidate.stable_observations += 1
+                candidate.last_observation_sequence = sequence
+            if (
+                candidate.stable_observations >= self._HOST_SEAL_OBSERVATIONS
+                and now - candidate.created_at >= self._HOST_SEAL_SECONDS
+            ):
+                candidate.sealed = True
+                finals.append(ASRSemanticFinal(
+                    segment_id=candidate.segment_id,
+                    text=candidate.text,
+                    segment_started_at=candidate.segment_started_at,
+                    first_partial_at=candidate.first_partial_at,
+                    cut_reason=candidate.cut_reason,
+                ))
+        return finals, partials
+
+    def _resolve_host_candidates_locked(self, source_text: str) -> list[ASRSemanticFinal]:
+        """Let a native Parakeet final seal or correct host-owned segments."""
+        source_words = self._words(source_text)
+        finals = []
+        for candidate in self._host_candidates:
+            native_text = self._candidate_text(source_words, candidate) or candidate.text
+            if candidate.sealed:
+                if not self._same_words(native_text, candidate.text):
+                    finals.append(ASRSemanticFinal(
+                        segment_id=candidate.segment_id,
+                        text=native_text,
+                        segment_started_at=candidate.segment_started_at,
+                        first_partial_at=candidate.first_partial_at,
+                        cut_reason="native_final_correction",
+                        source_correction=True,
+                    ))
+                continue
+            finals.append(ASRSemanticFinal(
+                segment_id=candidate.segment_id,
+                text=native_text,
+                segment_started_at=candidate.segment_started_at,
+                first_partial_at=candidate.first_partial_at,
+                cut_reason="native_final",
+            ))
+        self._host_candidates.clear()
+        return finals
 
     def _accept_boundary_locked(self, event: ASRStreamBoundary) -> ASRBoundaryUpdate:
         self._ensure_stream_locked(event.stream_id, event.audio_anchor)
@@ -277,6 +443,7 @@ class ASRSubtitleCoordinator:
         self._segmenter = IncrementalSegmenter(
             host_semantic_boundaries=self._host_semantic_boundaries,
         )
+        self._host_candidates = []
 
     def _new_stable_tracker(self) -> StablePrefixTracker:
         return StablePrefixTracker(

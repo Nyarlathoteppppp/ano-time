@@ -145,7 +145,8 @@ class NativeNotchSourceContractTests(unittest.TestCase):
 
     def test_runtime_status_does_not_replay_subtitle_items_or_restart_same_shrink(self):
         bridge = project_path("native_notch_overlay.py").read_text(encoding="utf-8")
-        self.assertIn("self._send({})", bridge)
+        self.assertIn("payload.setdefault(\"items\", self._latest_items())", bridge)
+        self.assertIn("guard newItems != items else { return }", self.source)
         self.assertIn("pendingWidthShrinkTarget", self.source)
         self.assertIn(
             "if pendingWidthShrinkTarget == targetWidth, widthShrinkTask != nil",
@@ -169,10 +170,17 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn(
             "public var latestDisplayFragment", self.presentation_source
         )
+        self.assertIn("public struct NotchFragmentWindow", self.presentation_source)
+        self.assertIn("func displayWindow(for role: NotchCueRole)", self.presentation_source)
+        self.assertIn("let activeFragmentLimit = 2", self.presentation_source)
         self.assertIn("func visibleRows() -> [SubtitleFragment]", self.source)
         self.assertIn(
-            "visibleCues().map(\\.latestDisplayFragment)", self.source
+            "visibleSlots().flatMap { fragmentWindow(for: $0).fragments }",
+            self.source,
         )
+        self.assertIn("let window: NotchFragmentWindow", self.source)
+        self.assertIn("ForEach(window.fragments)", self.source)
+        self.assertNotIn("let fragment = cue.latestDisplayFragment", self.source)
         self.assertIn(
             "items.map(\\.semanticID) == newItems.map(\\.semanticID)",
             self.source,
@@ -187,8 +195,9 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         self.assertIn("Task.sleep(for: .seconds(0.30))", self.source)
 
     def test_modes_hide_english_only_after_translation_exists(self):
-        self.assertIn("state.displayCount == 1", self.source)
-        self.assertIn("state.displayCount == 3", self.source)
+        self.assertIn("func hidesOriginal(", self.source)
+        self.assertIn("if displayCount == 1 && slot.role == .active", self.source)
+        self.assertIn("if displayCount == 3, slot.id == slots.first?.id", self.source)
         self.assertIn(
             "guard !slot.cue.translated.isEmpty else { return false }",
             self.source,
@@ -238,6 +247,18 @@ class NativeNotchSourceContractTests(unittest.TestCase):
         )
         self.assertIn("if let items = message.items", self.source)
         self.assertIn("!items.isEmpty", self.source)
+
+    def test_transport_waits_for_ready_and_acknowledges_ordered_snapshots(self):
+        bridge = project_path("native_notch_overlay.py").read_text(encoding="utf-8")
+        self.assertIn('emitEvent("ready")', self.source)
+        self.assertIn('"applied"', self.source)
+        self.assertIn("guard state.acceptsInput(", self.source)
+        self.assertIn("generation: message.generation", self.source)
+        self.assertIn("frameID: message.frameId", self.source)
+        self.assertIn("self._native_helper_ready = True", bridge)
+        self.assertIn("self._send_snapshot()", bridge)
+        self.assertIn("generation != self._native_generation", bridge)
+        self.assertIn("public struct NotchFrameOrder", self.presentation_source)
 
     def test_pause_compacts_immediately_without_idle_delay(self):
         pause_helper = self.source.index("func compactForPause")

@@ -95,6 +95,9 @@ funasr_model = iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-py
 device = auto
 compute_type = float16
 source_language = en
+; Disabled by default. When enabled, raises only weak non-silent audio before
+; it reaches experimental Parakeet EOU; it never changes Apple/MLX input.
+parakeet_adaptive_gain = false
 transcription_workers = 4
 
 [audio]

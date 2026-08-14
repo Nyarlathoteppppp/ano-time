@@ -255,7 +255,9 @@ tail -f /tmp/realtime-ton-hotkey.log
 | `translation.ai_deadline_seconds` | 远程精修的最大有效时间 |
 | `translation.glossary_path` | TSV 术语表 |
 | `translation.asr_corrections_path` | finalized 英文纠错 TSV |
-| `transcription.backend` | `apple`、`mlx`、`whisper` 或 `funasr` |
+| `transcription.backend` | `apple`、`parakeet_eou`（实验）、`mlx`、`whisper` 或 `funasr` |
+| `transcription.parakeet_eou_debounce_ms` | Parakeet 收尾静音去抖：320 / 480 / 640 / 800 ms |
+| `transcription.parakeet_adaptive_gain` | 可选弱音量输入增强；只影响 Parakeet，默认关闭 |
 | `audio.device_index` | `system`、`auto` 或麦克风设备编号 |
 | `display.mode` | `notch` 或 `glass` |
 
@@ -660,7 +662,9 @@ mode = notch
 | `translation.ai_deadline_seconds` | Maximum useful lifetime of a remote refinement |
 | `translation.glossary_path` | TSV terminology glossary |
 | `translation.asr_corrections_path` | Optional finalized-English correction TSV |
-| `transcription.backend` | `apple`, `mlx`, `whisper`, or `funasr` |
+| `transcription.backend` | `apple`, experimental `parakeet_eou`, `mlx`, `whisper`, or `funasr` |
+| `transcription.parakeet_eou_debounce_ms` | Parakeet end-of-utterance debounce: 320 / 480 / 640 / 800 ms |
+| `transcription.parakeet_adaptive_gain` | Optional weak-audio input gain for Parakeet only; disabled by default |
 | `audio.device_index` | `system`, `auto`, or a microphone device index |
 | `audio.silence_threshold` | Voice/silence sensitivity |
 | `display.mode` | `notch` or `glass` |

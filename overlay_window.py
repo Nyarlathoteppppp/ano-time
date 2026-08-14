@@ -354,6 +354,61 @@ class ResizeBorder(QWidget):
         event.accept()
 
 
+class ResizeCornerHandle(QLabel):
+    """Visible bottom-right grip for resizing the glass subtitle window."""
+
+    _SIZE = 28
+
+    def __init__(self, parent):
+        super().__init__("◢", parent)
+        self.parent_window = parent
+        self._start_global = None
+        self._start_size = None
+        self.setFixedSize(self._SIZE, self._SIZE)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setToolTip("拖动调整窗口大小")
+        self.setStyleSheet("""
+            QLabel {
+                background-color: rgba(255, 255, 255, 38);
+                color: rgba(255, 255, 255, 215);
+                border: 1px solid rgba(255, 255, 255, 74);
+                border-radius: 10px;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QLabel:hover {
+                background-color: rgba(255, 255, 255, 68);
+            }
+        """)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._start_global = event.globalPosition().toPoint()
+            self._start_size = self.parent_window.size()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._start_global is None or self._start_size is None:
+            return
+        self._resize_from_global(event.globalPosition().toPoint())
+        event.accept()
+
+    def _resize_from_global(self, current):
+        delta = current - self._start_global
+        minimum = self.parent_window.minimumSize()
+        self.parent_window.resize(
+            max(minimum.width(), self._start_size.width() + delta.x()),
+            max(minimum.height(), self._start_size.height() + delta.y()),
+        )
+
+    def mouseReleaseEvent(self, event):
+        self._start_global = None
+        self._start_size = None
+        event.accept()
+
+
 class GlassSurface(QFrame):
     """Glass subtitle surface; double-click can request the native notch."""
     mode_switch_requested = Signal()
@@ -364,6 +419,7 @@ class GlassSurface(QFrame):
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
+
 
 class OverlayWindow(QWidget):
     stop_requested = Signal()
@@ -406,6 +462,7 @@ class OverlayWindow(QWidget):
     def showEvent(self, event):
         """Called when window is shown - set all-spaces behavior here"""
         super().showEvent(event)
+        self._layout_resize_borders()
         if HAS_APPKIT:
             self._set_all_spaces(log_ready=True)
             # Qt and macOS can both update the native window during a Space/full-
@@ -534,6 +591,7 @@ class OverlayWindow(QWidget):
                 "top_left", "top_right", "bottom_left", "bottom_right",
             )
         }
+        self.resize_handle = ResizeCornerHandle(self)
         
         # Layout
         self.root_layout = QVBoxLayout()
@@ -559,7 +617,7 @@ class OverlayWindow(QWidget):
         """)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        
+
         # Container for LogItems
         self.container = GlassSurface()
         self.container.setObjectName("glassPanel")
@@ -572,7 +630,7 @@ class OverlayWindow(QWidget):
         # Allocate alignment to top so items stack from top
         self.container_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.container.setLayout(self.container_layout)
-        
+
         self.scroll_area.setWidget(self.container)
         scrollbar = self.scroll_area.verticalScrollBar()
         scrollbar.actionTriggered.connect(self._on_scroll_action)
@@ -652,6 +710,9 @@ class OverlayWindow(QWidget):
         # Enable mouse tracking for cursor update without click
         self.setMouseTracking(True)
         self._configure_glass_mode(initial=True)
+        # A hidden QWidget may not receive resizeEvent until it is first shown.
+        # Position the visible grip now so the first glass window is usable.
+        self._layout_resize_borders()
 
     def _layout_resize_borders(self):
         edge = 8
@@ -670,6 +731,14 @@ class OverlayWindow(QWidget):
         for name, handle in self.resize_borders.items():
             handle.setGeometry(*geometries[name])
             handle.raise_()
+        handle_size = self.resize_handle.size()
+        self.resize_handle.setGeometry(
+            max(0, width - handle_size.width() - 4),
+            max(0, height - handle_size.height() - 4),
+            handle_size.width(),
+            handle_size.height(),
+        )
+        self.resize_handle.raise_()
 
     def _schedule_geometry_save(self):
         if self.display_mode == "glass" and self.isVisible():
@@ -731,6 +800,8 @@ class OverlayWindow(QWidget):
         for handle in self.resize_borders.values():
             handle.show()
             handle.raise_()
+        self.resize_handle.show()
+        self.resize_handle.raise_()
 
         self._apply_item_visibility()
         self._schedule_content_reflow()
@@ -841,14 +912,14 @@ class OverlayWindow(QWidget):
                     0,
                     min(int(committed_prefix_length or 0), len(translated_text)),
                 )
-        
+
         # Check if widget exists
         existing_widget = None
         for cid, widget in self.items:
             if cid == chunk_id:
                 existing_widget = widget
                 break
-        
+
         if existing_widget:
             # Update existing
             layout_changed = False
@@ -856,7 +927,7 @@ class OverlayWindow(QWidget):
                 layout_changed = (
                     existing_widget.update_original(original_text) or layout_changed
                 )
-            
+
             if translated_text:
                 layout_changed = (
                     existing_widget.update_translated(
@@ -867,7 +938,7 @@ class OverlayWindow(QWidget):
             existing_widget.set_finalized(finalized)
             if layout_changed:
                 self._schedule_content_reflow()
-                
+
         else:
             # Do not resurrect an old delayed final after it was trimmed from
             # the visible 40-row projection.  It remains in transcript_data
@@ -890,14 +961,14 @@ class OverlayWindow(QWidget):
                     'committed_prefix_length', 0
                 ),
             )
-            
+
             # Find insertion point
             insert_idx = len(self.items)
             for i, (cid, w) in enumerate(self.items):
                 if cid > chunk_id:
                     insert_idx = i
                     break
-            
+
             self.items.insert(insert_idx, (chunk_id, new_widget))
             self.container_layout.insertWidget(insert_idx, new_widget)
             # Bound the live widget tree during multi-hour classes. Complete

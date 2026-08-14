@@ -15,15 +15,69 @@ import threading
 import numpy as np
 
 
+class ParakeetAdaptiveGain:
+    """Raise only weak, non-silent PCM before it reaches Parakeet.
+
+    This is deliberately an input preconditioner, not an audio/VAD change. It
+    leaves silence and ordinary speech untouched, so enabling it cannot make
+    the shared capture path diverge from Apple ASR.  The values are
+    conservative and exposed for unit tests and runtime diagnostics.
+    """
+
+    silence_rms = 0.0015
+    activation_rms = 0.0200
+    target_rms = 0.0350
+    maximum_gain = 4.0
+
+    def __init__(self):
+        self.last_input_rms = 0.0
+        self.last_gain = 1.0
+
+    def process(self, audio_data):
+        samples = np.asarray(audio_data, dtype=np.float32)
+        if samples.size == 0:
+            self.last_input_rms = 0.0
+            self.last_gain = 1.0
+            return samples
+        finite_samples = np.nan_to_num(
+            samples, nan=0.0, posinf=1.0, neginf=-1.0
+        )
+        rms = float(np.sqrt(np.mean(np.square(finite_samples, dtype=np.float64))))
+        self.last_input_rms = rms
+        if rms <= self.silence_rms or rms >= self.activation_rms:
+            self.last_gain = 1.0
+            return finite_samples
+        self.last_gain = min(self.maximum_gain, self.target_rms / rms)
+        return np.clip(finite_samples * self.last_gain, -1.0, 1.0)
+
+
 class ParakeetEOUTranscriber:
     """Persistent CoreML Parakeet EOU helper emitting partial and EOU results."""
 
-    def __init__(self, language="en", sample_rate=16_000, on_result=None, on_status=None):
+    def __init__(
+        self,
+        language="en",
+        sample_rate=16_000,
+        eou_debounce_ms=640,
+        adaptive_gain_enabled=False,
+        on_result=None,
+        on_status=None,
+    ):
         if language not in (None, "", "auto", "en"):
             raise ValueError("Parakeet EOU experimental backend currently supports English only")
         if int(sample_rate) != 16_000:
             raise ValueError("Parakeet EOU experimental backend requires 16000 Hz mono PCM")
+        eou_debounce_ms = int(eou_debounce_ms)
+        if eou_debounce_ms not in (320, 480, 640, 800):
+            raise ValueError("Parakeet EOU debounce must be 320, 480, 640, or 800 ms")
         self.sample_rate = 16_000
+        self.eou_debounce_ms = eou_debounce_ms
+        self.adaptive_gain_enabled = bool(adaptive_gain_enabled)
+        self._adaptive_gain = (
+            ParakeetAdaptiveGain() if self.adaptive_gain_enabled else None
+        )
+        self.last_input_rms = 0.0
+        self.last_input_gain = 1.0
         self.on_result = on_result
         self.on_status = on_status
         self.process = None
@@ -59,7 +113,11 @@ class ParakeetEOUTranscriber:
     def start(self, timeout=180):
         self._ensure_built()
         process = subprocess.Popen(
-            [self.binary_path],
+            [
+                self.binary_path,
+                "--eou-debounce-ms",
+                str(self.eou_debounce_ms),
+            ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -136,7 +194,15 @@ class ParakeetEOUTranscriber:
             return False
         if not self.process or self.process.poll() is not None or not self.process.stdin:
             raise RuntimeError(self.error or "Parakeet EOU helper is not running")
-        pcm = np.clip(audio_data, -1.0, 1.0)
+        if self._adaptive_gain:
+            pcm = self._adaptive_gain.process(audio_data)
+            self.last_input_rms = self._adaptive_gain.last_input_rms
+            self.last_input_gain = self._adaptive_gain.last_gain
+        else:
+            pcm = np.asarray(audio_data, dtype=np.float32)
+            self.last_input_rms = float(np.sqrt(np.mean(np.square(pcm)))) if pcm.size else 0.0
+            self.last_input_gain = 1.0
+        pcm = np.clip(pcm, -1.0, 1.0)
         pcm = (pcm * 32767.0).astype("<i2", copy=False)
         try:
             with self._write_lock:

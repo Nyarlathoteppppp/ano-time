@@ -130,6 +130,43 @@ class PipelineContractTests(unittest.TestCase):
         )
         self.assertEqual(pipeline._current_finalized_context(1), "latest")
 
+    def test_source_correction_replaces_context_without_retriggering_smart_hint(self):
+        observed = []
+        scheduler = SimpleNamespace(
+            observe_finalized=observed.append,
+            snapshot=lambda: "",
+        )
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline._context_lock = threading.Lock()
+        pipeline._finalized_context = deque(maxlen=4)
+        pipeline._finalized_context_ids = deque(maxlen=4)
+        pipeline._smart_hint_scheduler = scheduler
+
+        pipeline._snapshot_finalized_context(
+            "The figure shows the baseline result.", segment_id=7,
+        )
+        pipeline._snapshot_finalized_context(
+            "The next sentence adds context.", segment_id=8,
+        )
+        correction = pipeline._snapshot_finalized_context(
+            "The model shows the baseline result.",
+            segment_id=7,
+            source_correction=True,
+        )
+
+        self.assertEqual(
+            list(pipeline._finalized_context),
+            [
+                "The model shows the baseline result.",
+                "The next sentence adds context.",
+            ],
+        )
+        self.assertEqual(observed, [
+            "The figure shows the baseline result.",
+            "The next sentence adds context.",
+        ])
+        self.assertNotIn("figure", correction.context_text)
+
     def test_pause_seals_boundary_and_resets_apple_session_in_background(self):
         boundary_called = threading.Event()
         reset_called = threading.Event()

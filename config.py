@@ -144,6 +144,17 @@ class Config:
         self.whisper_device = self._get("transcription", "device", "auto")
         self.whisper_compute_type = self._get("transcription", "compute_type", "float16")
         self.source_language = self._get("transcription", "source_language", "en")
+        configured_eou_debounce = self._getint(
+            "transcription", "parakeet_eou_debounce_ms", 640
+        )
+        self.parakeet_eou_debounce_ms = (
+            configured_eou_debounce
+            if configured_eou_debounce in (320, 480, 640, 800)
+            else 640
+        )
+        self.parakeet_adaptive_gain = self._getbool(
+            "transcription", "parakeet_adaptive_gain", False
+        )
         if self.source_language == "auto":
             self.source_language = None  # Whisper uses None for auto-detect
         self.transcription_workers = self._getint("transcription", "transcription_workers", 4)
@@ -303,6 +314,8 @@ class Config:
         print(f"  Glossary: {self.glossary_path}")
         print(f"  AI Deadline: {self.ai_deadline_seconds:.1f}s")
         print(f"  ASR Backend: {self.asr_backend}")
+        print(f"  Parakeet EOU Debounce: {self.parakeet_eou_debounce_ms} ms")
+        print(f"  Parakeet Adaptive Gain: {self.parakeet_adaptive_gain}")
         print(f"  Whisper Model: {self.whisper_model}")
         print(f"  FunASR Model: {self.funasr_model}")
         print(f"  Sample Rate: {self.sample_rate}")

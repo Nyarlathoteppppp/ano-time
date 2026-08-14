@@ -170,6 +170,30 @@ class DashboardSettingsRepositoryTests(unittest.TestCase):
                 saved.get("display", "subtitle_update_pacing"), "fluent"
             )
 
+    def test_parakeet_eou_controls_round_trip_as_constrained_opt_in_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.ini")
+            snapshot = replace(
+                make_snapshot(),
+                transcription=replace(
+                    make_snapshot().transcription,
+                    backend="parakeet_eou",
+                    parakeet_eou_debounce_ms=320,
+                    parakeet_adaptive_gain=True,
+                ),
+            )
+
+            DashboardSettingsRepository(path, keychain=FakeKeychain()).save(snapshot)
+
+            saved = configparser.ConfigParser()
+            saved.read(path)
+            self.assertEqual(
+                saved.getint("transcription", "parakeet_eou_debounce_ms"), 320
+            )
+            self.assertTrue(
+                saved.getboolean("transcription", "parakeet_adaptive_gain")
+            )
+
     def test_subtitle_display_preferences_round_trip_independently(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "config.ini")

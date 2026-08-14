@@ -18,6 +18,8 @@ class TranscriptionSettings:
     device: str
     compute_type: str
     source_language: str
+    parakeet_eou_debounce_ms: int = 640
+    parakeet_adaptive_gain: bool = False
 
 
 @dataclass(frozen=True)

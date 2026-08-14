@@ -2,6 +2,7 @@ from ui.qt import QtWidgets
 
 
 QFormLayout = QtWidgets.QFormLayout
+QCheckBox = QtWidgets.QCheckBox
 QLabel = QtWidgets.QLabel
 QMessageBox = QtWidgets.QMessageBox
 QWidget = QtWidgets.QWidget
@@ -50,6 +51,35 @@ class AsrPanel(QWidget):
         )
         self.asr_backend.currentTextChanged.connect(self.on_backend_changed)
         layout.addRow("ASR Backend（语音识别引擎）:", self.asr_backend)
+
+        self.parakeet_eou_debounce = ReadableComboBox()
+        self.parakeet_eou_debounce.addItems(["320", "480", "640", "800"])
+        configured_debounce = str(
+            getattr(self.settings, "parakeet_eou_debounce_ms", 640)
+        )
+        self.parakeet_eou_debounce.setCurrentText(
+            configured_debounce
+            if configured_debounce in {"320", "480", "640", "800"}
+            else "640"
+        )
+        self.parakeet_eou_debounce.setToolTip(
+            "Parakeet 认为一句话结束前需持续静音的时间。\n"
+            "更小：更快切段，但短停顿更容易误切；更大：更稳，但收尾更慢。\n"
+            "仅 Parakeet EOU 使用；保存后下次 Launch 生效。"
+        )
+        layout.addRow(
+            "Parakeet 收尾静音（EOU 去抖）:", self.parakeet_eou_debounce
+        )
+
+        self.parakeet_adaptive_gain = QCheckBox("低音量增强（仅输入 Parakeet）")
+        self.parakeet_adaptive_gain.setChecked(bool(
+            getattr(self.settings, "parakeet_adaptive_gain", False)
+        ))
+        self.parakeet_adaptive_gain.setToolTip(
+            "弱语音会在送入 Parakeet 前提高音量；静音和普通音量不变。\n"
+            "仅用于 Parakeet EOU，不影响 Apple 或 MLX。开启后重新 Launch 生效。"
+        )
+        layout.addRow("Parakeet 输入预处理:", self.parakeet_adaptive_gain)
 
         self.backend_hint = QLabel()
         self.backend_hint.setWordWrap(True)
@@ -137,6 +167,8 @@ class AsrPanel(QWidget):
         self.set_row_visible(self.funasr_model, is_funasr)
         self.set_row_visible(self.device_type, backend in ("whisper", "funasr"))
         self.set_row_visible(self.compute_type, backend == "whisper")
+        self.set_row_visible(self.parakeet_eou_debounce, is_parakeet)
+        self.set_row_visible(self.parakeet_adaptive_gain, is_parakeet)
         if is_parakeet:
             english_index = self.source_language.findData("en")
             if english_index >= 0:
@@ -146,7 +178,8 @@ class AsrPanel(QWidget):
             "apple": "Apple 原生实时识别：只使用原文语言，其他模型参数已隐藏。",
             "parakeet_eou": (
                 "Parakeet EOU（实验）：本地英文 CoreML 流式识别；首次需要下载约 "
-                "500 MB 模型。本机首个英文通常更快，但 CPU/内存更高，长句收尾仍需观察；默认建议 Apple。"
+                "500 MB 模型。本机首个英文通常更快，但 CPU/内存更高，长句收尾仍需观察。可用下方 EOU 去抖档位自行测试；默认建议 Apple。"
+                "低音量漏识别时，可单独开启输入预处理后重新 Launch 对比。"
             ),
             "mlx": "MLX Whisper：使用所选 Whisper 模型，并自动调用 Apple Silicon Metal。",
             "whisper": "Faster-Whisper：模型、计算设备和推理精度均会参与运行。",

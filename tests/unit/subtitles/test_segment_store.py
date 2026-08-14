@@ -108,6 +108,44 @@ class SegmentStoreTests(unittest.TestCase):
         self.assertIsNone(late)
         self.assertTrue(store.snapshot(4).finalized)
 
+    def test_corrected_final_keeps_segment_id_and_rejects_old_remote_result(self):
+        store = SegmentStore()
+        old = "The figure shows the baseline result."
+        corrected = "The model shows the baseline result."
+        store.publish(41, SubtitleStage.ASR_FINAL, old, finalized=True)
+        store.publish(
+            41,
+            SubtitleStage.AI_FINAL,
+            old,
+            "该图展示了基线结果。",
+            finalized=True,
+        )
+
+        correction = store.publish(
+            41, SubtitleStage.ASR_FINAL, corrected, finalized=True,
+        )
+        late_old = store.publish(
+            41,
+            SubtitleStage.AI_FINAL,
+            old,
+            "迟到的旧翻译。",
+            finalized=True,
+        )
+        fresh = store.publish(
+            41,
+            SubtitleStage.AI_FINAL,
+            corrected,
+            "该模型展示了基线结果。",
+            finalized=True,
+        )
+
+        self.assertEqual(correction.segment_id, 41)
+        self.assertEqual(correction.original_text, corrected)
+        self.assertEqual(correction.translated_text, "")
+        self.assertIsNone(late_old)
+        self.assertEqual(fresh.original_text, corrected)
+        self.assertEqual(fresh.translated_text, "该模型展示了基线结果。")
+
     def test_bridge_preview_does_not_finalize_or_block_new_source_hypotheses(self):
         store = SegmentStore()
         stable = "A heuristic estimates the remaining cost"

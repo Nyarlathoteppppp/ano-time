@@ -10,6 +10,11 @@ let package = Package(
     targets: [
         .target(name: "SubtitlePresentation"),
         .executableTarget(
+            name: "PlannerTests",
+            dependencies: ["SubtitlePresentation"],
+            path: "PlannerTests"
+        ),
+        .executableTarget(
             name: "RealtimeNotchHelper",
             dependencies: ["DynamicNotchKit", "SubtitlePresentation"],
             exclude: ["Resources"]

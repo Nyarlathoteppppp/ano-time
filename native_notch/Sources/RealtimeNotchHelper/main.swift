@@ -36,10 +36,18 @@ private struct InputMessage: Decodable {
     let items: [SubtitleLine]?
     let paused: Bool?
     let busyStages: [String]?
+    let generation: Int?
+    let frameId: Int?
 }
 
 private typealias SubtitleFragment = NotchFragment
 private typealias SubtitleLine = NotchCue
+
+private enum NotchVisualState: Equatable {
+    case hidden
+    case compact
+    case expanded
+}
 
 @MainActor
 private final class SubtitleState: ObservableObject {
@@ -79,6 +87,7 @@ private final class SubtitleState: ObservableObject {
     private var holdsFinalLayout = false
     private var modeTransitionTask: Task<Void, Never>?
     private var isChangingDisplayCount = false
+    private var inputFrameOrder = NotchFrameOrder()
     var onExpand: (() -> Void)?
     var onCycleSize: (() -> Void)?
     var onPause: (() -> Void)?
@@ -91,6 +100,9 @@ private final class SubtitleState: ObservableObject {
     }
 
     func replaceItems(_ newItems: [SubtitleLine]) {
+        // A status frame carries the latest complete snapshot for reliable
+        // recovery, but identical snapshots must not restart text/layout work.
+        guard newItems != items else { return }
         subtitleGeneration += 1
         let authoritativeFinalRevision = hasSameItemIdentity(as: newItems)
             && zip(items, newItems).contains { oldItem, newItem in
@@ -161,21 +173,47 @@ private final class SubtitleState: ObservableObject {
         presentation.visibleSlots(displayCount: displayCount)
     }
 
-    func visibleRows() -> [SubtitleFragment] {
-        visibleCues().map(\.latestDisplayFragment)
+    func fragmentWindow(for slot: NotchCueSlot) -> NotchFragmentWindow {
+        slot.cue.displayWindow(for: slot.role)
     }
 
-    func replaceBusyStages(_ stages: [String]) {
+    func visibleRows() -> [SubtitleFragment] {
+        visibleSlots().flatMap { fragmentWindow(for: $0).fragments }
+    }
+
+    func hidesOriginal(
+        for slot: NotchCueSlot,
+        in slots: [NotchCueSlot]
+    ) -> Bool {
+        guard !slot.cue.translated.isEmpty else { return false }
+        if displayCount == 1 && slot.role == .active {
+            return true
+        }
+        if displayCount == 3, slot.id == slots.first?.id {
+            return true
+        }
+        return false
+    }
+
+    @discardableResult
+    func replaceBusyStages(_ stages: [String]) -> Bool {
         let replacement = Set(stages)
-        guard replacement != busyStages else { return }
+        guard replacement != busyStages else { return false }
         busyStages = replacement
         activityGeneration += 1
+        return true
     }
 
-    func clearActivity() {
-        guard !busyStages.isEmpty else { return }
+    @discardableResult
+    func clearActivity() -> Bool {
+        guard !busyStages.isEmpty else { return false }
         busyStages.removeAll()
         activityGeneration += 1
+        return true
+    }
+
+    func acceptsInput(generation: Int?, frameID: Int?) -> Bool {
+        inputFrameOrder.accepts(generation: generation, frameID: frameID)
     }
 
     var hasActiveWork: Bool { !busyStages.isEmpty }
@@ -212,27 +250,21 @@ private final class SubtitleState: ObservableObject {
     }
 
     private func measuredContentWidth() -> CGFloat {
-        let visibleCues = visibleCues()
+        let slots = visibleSlots()
         let englishFont = NSFont.systemFont(ofSize: 11.5, weight: .regular)
         let translatedFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
-        let measured = visibleCues.enumerated().reduce(CGFloat(0)) {
-            longest, indexedCue in
-            let (index, cue) = indexedCue
-            let hidesOriginal = (
-                displayCount == 1 && !cue.translated.isEmpty
-            ) || (
-                displayCount == 3
-                    && index == 0
-                    && !cue.translated.isEmpty
-            )
-            let fragment = cue.latestDisplayFragment
-            let englishWidth = hidesOriginal ? 0 : (fragment.original as NSString).size(
-                withAttributes: [.font: englishFont]
-            ).width
-            let translatedWidth = (fragment.translated as NSString).size(
-                withAttributes: [.font: translatedFont]
-            ).width
-            return max(longest, max(englishWidth, translatedWidth))
+        let measured = slots.reduce(CGFloat(0)) { longest, slot in
+            let hideOriginal = hidesOriginal(for: slot, in: slots)
+            return fragmentWindow(for: slot).fragments.reduce(longest) {
+                currentLongest, fragment in
+                let englishWidth = hideOriginal ? 0 : (fragment.original as NSString).size(
+                    withAttributes: [.font: englishFont]
+                ).width
+                let translatedWidth = (fragment.translated as NSString).size(
+                    withAttributes: [.font: translatedFont]
+                ).width
+                return max(currentLongest, max(englishWidth, translatedWidth))
+            }
         }
         // Reserve equal space for the two edge mascots so subtitles remain
         // centered and never run underneath either image.
@@ -396,8 +428,14 @@ private final class SubtitleState: ObservableObject {
 
 }
 
-private func emitEvent(_ event: String) {
-    let payload = ["event": event]
+private func emitEvent(
+    _ event: String,
+    generation: Int? = nil,
+    frameID: Int? = nil
+) {
+    var payload: [String: Any] = ["event": event]
+    if let generation { payload["generation"] = generation }
+    if let frameID { payload["frameId"] = frameID }
     guard let data = try? JSONSerialization.data(withJSONObject: payload),
           var line = String(data: data, encoding: .utf8) else { return }
     line.append("\n")
@@ -498,31 +536,41 @@ private struct StableStreamingText: View {
 }
 
 private struct SubtitleCueView: View {
-    let cue: SubtitleLine
+    let window: NotchFragmentWindow
     let hidesOriginal: Bool
 
     var body: some View {
-        let fragment = cue.latestDisplayFragment
         VStack(alignment: .center, spacing: 2) {
-            if !hidesOriginal || fragment.translated.isEmpty {
-                Text(fragment.original)
-                    .font(.system(
-                        size: 11.5,
-                        weight: fragment.finalized == true ? .medium : .regular
-                    ))
-                    .foregroundStyle(
-                        .white.opacity(fragment.finalized == true ? 0.96 : 0.78)
-                    )
-                    .lineLimit(1)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, alignment: .center)
+            if window.hasHiddenPrefix {
+                Text("…")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.60))
             }
+            ForEach(window.fragments) { fragment in
+                VStack(alignment: .center, spacing: 2) {
+                    if !hidesOriginal || fragment.translated.isEmpty {
+                        Text(fragment.original)
+                            .font(.system(
+                                size: 11.5,
+                                weight: fragment.finalized == true ? .medium : .regular
+                            ))
+                            .foregroundStyle(
+                                .white.opacity(
+                                    fragment.finalized == true ? 0.96 : 0.78
+                                )
+                            )
+                            .lineLimit(1)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
 
-            if !fragment.translated.isEmpty {
-                StableStreamingText(
-                    text: fragment.translated,
-                    committedPrefixLength: fragment.committedPrefixLength ?? 0
-                )
+                    if !fragment.translated.isEmpty {
+                        StableStreamingText(
+                            text: fragment.translated,
+                            committedPrefixLength: fragment.committedPrefixLength ?? 0
+                        )
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -538,10 +586,10 @@ private struct SubtitleContent: View {
             VStack(alignment: .center, spacing: 5) {
                 ForEach(visibleSlots) { slot in
                     SubtitleCueView(
-                        cue: slot.cue,
-                        hidesOriginal: shouldHideOriginal(
-                            slot: slot,
-                            visibleSlots: visibleSlots
+                        window: state.fragmentWindow(for: slot),
+                        hidesOriginal: state.hidesOriginal(
+                            for: slot,
+                            in: visibleSlots
                         )
                     )
                     .transition(.identity)
@@ -586,20 +634,6 @@ private struct SubtitleContent: View {
         }
     }
 
-    private func shouldHideOriginal(
-        slot: NotchCueSlot,
-        visibleSlots: [NotchCueSlot]
-    ) -> Bool {
-        guard !slot.cue.translated.isEmpty else { return false }
-        if state.displayCount == 1 && slot.role == .active {
-            return true
-        }
-        if state.displayCount == 3,
-           slot.id == visibleSlots.first?.id {
-            return true
-        }
-        return false
-    }
 }
 
 private struct CompactLeading: View {
@@ -671,15 +705,23 @@ private struct RealtimeNotchHelper {
             skipIntermediateHides: true
         )
 
+        var visualState = NotchVisualState.hidden
+
         func expandActiveNotch() async {
+            guard visualState != .expanded else { return }
+            visualState = .expanded
             await notch.expand()
         }
 
         func compactActiveNotch() async {
+            guard visualState != .compact else { return }
+            visualState = .compact
             await notch.compact()
         }
 
         func hideNotch() async {
+            guard visualState != .hidden else { return }
+            visualState = .hidden
             await notch.hide()
         }
 
@@ -763,6 +805,11 @@ private struct RealtimeNotchHelper {
         }
         state.onExit = { terminate("exit") }
 
+        // Python queues state only after this event.  It then sends a full
+        // snapshot, so a helper restart can never begin with an empty/status
+        // frame that overwrites the current subtitle.
+        emitEvent("ready")
+
         DispatchQueue.global(qos: .userInitiated).async {
             while let line = readLine() {
                 guard let data = line.data(using: .utf8),
@@ -770,30 +817,55 @@ private struct RealtimeNotchHelper {
                 if message.command == "quit" { break }
                 Task { @MainActor in
                     guard !terminationInProgress else { return }
+                    guard state.acceptsInput(
+                        generation: message.generation,
+                        frameID: message.frameId
+                    ) else { return }
                     let wasPaused = state.isPaused
+                    var subtitleChanged = false
+                    var activityChanged = false
                     if let paused = message.paused {
                         state.isPaused = paused
-                        if paused { state.clearActivity() }
+                        if paused { activityChanged = state.clearActivity() }
                     }
                     if let busyStages = message.busyStages {
-                        state.replaceBusyStages(busyStages)
+                        activityChanged = state.replaceBusyStages(busyStages)
+                            || activityChanged
                     }
                     if let items = message.items {
                         let visibleItems = Array(items.suffix(3))
                         // SubtitleState animates only a genuine semantic
                         // roll-up. Text revisions remain immediate.
-                        state.replaceItems(visibleItems)
+                        if visibleItems != state.items {
+                            state.replaceItems(visibleItems)
+                            subtitleChanged = true
+                        }
                     } else if let original = message.original {
-                        state.replaceItems([SubtitleLine(
+                        let legacyItems = [SubtitleLine(
                             id: 0,
                             original: original,
                             translated: message.translated ?? "",
                             finalized: true,
                             committedPrefixLength: 0,
                             fragments: nil
-                        )])
+                        )]
+                        if legacyItems != state.items {
+                            state.replaceItems(legacyItems)
+                            subtitleChanged = true
+                        }
                     }
-                    state.compactTask?.cancel()
+                    let pauseChanged = wasPaused != state.isPaused
+                    let stateChanged = subtitleChanged || activityChanged || pauseChanged
+                    if stateChanged { state.compactTask?.cancel() }
+
+                    // Acknowledgement means the newest ordered state has been
+                    // committed on the main actor; it does not wait for the
+                    // visual animation to finish.
+                    emitEvent(
+                        "applied",
+                        generation: message.generation,
+                        frameID: message.frameId
+                    )
                     if state.isPaused {
                         // The local context-menu action already started the
                         // transition. Avoid cancelling and restarting it when
@@ -801,10 +873,10 @@ private struct RealtimeNotchHelper {
                         if !wasPaused {
                             compactForPause()
                         }
-                    } else if state.hasSubtitleContent {
+                    } else if state.hasSubtitleContent && stateChanged {
                         await expandActiveNotch()
                         scheduleAutoCompact()
-                    } else {
+                    } else if !state.hasSubtitleContent && stateChanged {
                         // Runtime status frames arrive during initialization.
                         // They must not expand an empty notch before speech.
                         await compactActiveNotch()

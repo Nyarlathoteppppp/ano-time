@@ -8,6 +8,7 @@ import unicodedata
 
 from ui.qt import QObject, QTimer, Signal
 from display_fragment_plan import DisplayFragmentPlan
+from runtime_log import log_stage
 from subtitle_record_store import SubtitleRecordStore
 
 
@@ -16,15 +17,17 @@ class NativeNotchOverlay(QObject):
 
     stop_requested = Signal()
     pause_requested = Signal(bool)
-    _event_received = Signal(str)
+    _event_received = Signal(str, int, int)
+    _native_helper_failed = Signal(int, str)
     _native_build_completed = Signal()
     _native_build_failed = Signal(str)
 
     def __init__(self, display_duration=None, window_width=800, window_height=120,
-                 display_mode="notch"):
+                 display_mode="notch", video_overlay=False):
         super().__init__()
         self.window_width = window_width
         self.window_height = window_height
+        self.video_overlay = bool(video_overlay)
         self.process = None
         self.delegate = None
         self.record_store = SubtitleRecordStore()
@@ -41,11 +44,19 @@ class NativeNotchOverlay(QObject):
         self._write_queue = queue.Queue(maxsize=1)
         self._writer_stop = threading.Event()
         self._writer_thread = None
+        self._native_generation = 0
+        self._next_frame_id = 0
+        self._native_helper_ready = False
+        self._last_applied_frame_id = -1
+        self._transport_dirty = False
+        self._native_recovery_scheduled = False
+        self._native_restart_attempts = 0
         self._native_build_lock = threading.Lock()
         self._native_build_in_progress = False
         self._visible_requested = False
-        self._display_mode = "notch"
+        self._display_mode = "notch" if display_mode == "notch" else "glass"
         self._event_received.connect(self._handle_event)
+        self._native_helper_failed.connect(self._handle_native_helper_failure)
         self._native_build_completed.connect(self._on_native_build_completed)
         self._native_build_failed.connect(self._on_native_build_failed)
 
@@ -83,6 +94,9 @@ class NativeNotchOverlay(QObject):
 
     def show(self):
         self._visible_requested = True
+        if self._display_mode == "glass":
+            self._show_glass_overlay()
+            return
         if self.process and self.process.poll() is None:
             return
         if self._needs_native_build():
@@ -131,19 +145,28 @@ class NativeNotchOverlay(QObject):
         if not os.path.exists(self.binary_path):
             self._start_native_build_async()
             return
-        self.process = subprocess.Popen(
+        process = subprocess.Popen(
             [self.binary_path],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0,
         )
-        threading.Thread(target=self._read_stdout, daemon=True).start()
-        threading.Thread(target=self._read_stderr, daemon=True).start()
+        self.process = process
+        self._native_generation += 1
+        generation = self._native_generation
+        self._native_helper_ready = False
+        self._last_applied_frame_id = -1
+        self._transport_dirty = True
+        threading.Thread(
+            target=self._read_stdout, args=(process, generation), daemon=True
+        ).start()
+        threading.Thread(
+            target=self._read_stderr, args=(process, generation), daemon=True
+        ).start()
         self._start_writer()
-        print("[Native Notch] DynamicNotchKit helper started")
-        self._last_native_items = self._latest_items()
-        self._send({"items": self._last_native_items})
+        print(f"[Native Notch] DynamicNotchKit helper started (generation={generation})")
+        self._log_transport("started", generation=generation)
 
     def _start_writer(self):
         if self._writer_thread and self._writer_thread.is_alive():
@@ -159,22 +182,56 @@ class NativeNotchOverlay(QObject):
     def _writer_loop(self):
         while not self._writer_stop.is_set():
             try:
-                line = self._write_queue.get(timeout=0.1)
+                generation, frame_id, kind, line = self._write_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
             process = self.process
-            if not process or process.poll() is not None or not process.stdin:
+            if (
+                generation != self._native_generation
+                or not process
+                or process.poll() is not None
+                or not process.stdin
+            ):
+                self._log_transport(
+                    "dropped",
+                    detail="stale helper or unavailable pipe",
+                    generation=generation,
+                    frame_id=frame_id,
+                    kind=kind,
+                )
                 continue
             try:
                 with self._write_lock:
+                    if (
+                        generation != self._native_generation
+                        or process is not self.process
+                        or process.poll() is not None
+                    ):
+                        self._log_transport(
+                            "dropped",
+                            detail="helper changed before pipe write",
+                            generation=generation,
+                            frame_id=frame_id,
+                            kind=kind,
+                        )
+                        continue
                     process.stdin.write(line)
                     process.stdin.flush()
-            except (BrokenPipeError, OSError):
-                pass
+                self._log_transport(
+                    "written", generation=generation, frame_id=frame_id, kind=kind
+                )
+            except (BrokenPipeError, OSError) as exc:
+                self._log_transport(
+                    "pipe_error",
+                    detail=str(exc),
+                    generation=generation,
+                    frame_id=frame_id,
+                    kind=kind,
+                )
+                self._native_helper_failed.emit(generation, "pipe write failed")
 
-    def _read_stdout(self):
-        process = self.process
-        if not process or not process.stdout:
+    def _read_stdout(self, process, generation):
+        if not process.stdout:
             return
         for raw_line in iter(process.stdout.readline, b""):
             try:
@@ -182,17 +239,54 @@ class NativeNotchOverlay(QObject):
             except Exception:
                 continue
             if event.get("event"):
-                self._event_received.emit(event["event"])
+                self._event_received.emit(
+                    str(event["event"]), generation, int(event.get("frameId", -1))
+                )
+        if self._is_current_native_process(process, generation):
+            self._native_helper_failed.emit(generation, "helper stdout closed")
 
-    def _read_stderr(self):
-        process = self.process
-        if not process or not process.stderr:
+    def _read_stderr(self, process, generation):
+        if not process.stderr:
             return
         for raw_line in iter(process.stderr.readline, b""):
-            print(f"[Native Notch] {raw_line.decode('utf-8', errors='replace').rstrip()}")
+            print(
+                f"[Native Notch g{generation}] "
+                f"{raw_line.decode('utf-8', errors='replace').rstrip()}"
+            )
 
-    def _handle_event(self, event):
+    def _is_current_native_process(self, process, generation):
+        return self.process is process and generation == self._native_generation
+
+    def _handle_event(self, event, generation=None, frame_id=-1):
+        if generation is None:
+            generation = self._native_generation
+        if generation != self._native_generation:
+            return
+        if event == "ready":
+            process = self.process
+            if (
+                not self._visible_requested
+                or self._display_mode != "notch"
+                or not process
+                or process.poll() is not None
+            ):
+                return
+            self._native_helper_ready = True
+            self._native_restart_attempts = 0
+            self._log_transport("ready", generation=generation)
+            self._send_snapshot()
+            return
+        if event == "applied":
+            if frame_id > self._last_applied_frame_id:
+                self._last_applied_frame_id = frame_id
+                if frame_id == self._next_frame_id:
+                    self._transport_dirty = False
+                self._log_transport(
+                    "applied", generation=generation, frame_id=frame_id
+                )
+            return
         if event == "exit":
+            self._visible_requested = False
             QTimer.singleShot(0, self.stop_requested.emit)
         elif event == "pause":
             self._paused = True
@@ -201,16 +295,52 @@ class NativeNotchOverlay(QObject):
             self._paused = False
             QTimer.singleShot(0, lambda: self.pause_requested.emit(False))
         elif event == "glass":
-            QTimer.singleShot(0, self._show_glass_overlay)
+            # Mark the display mode synchronously.  The helper intentionally
+            # exits after this event; its stdout reader must not mistake that
+            # expected close for a failed notch that should be restarted.
+            self._show_glass_overlay()
+
+    def _handle_native_helper_failure(self, generation, detail):
+        """Recreate only the current visible notch helper and replay its snapshot."""
+        if (
+            generation != self._native_generation
+            or not self._visible_requested
+            or self._display_mode != "notch"
+            or self.delegate is not None
+            or self._native_recovery_scheduled
+        ):
+            return
+        self._native_helper_ready = False
+        self._transport_dirty = True
+        self._last_native_items = None
+        self._discard_pending_frames()
+        self._log_transport(
+            "restart_requested", detail=detail, generation=generation
+        )
+        self._retire_native_process()
+        self._native_recovery_scheduled = True
+        self._native_restart_attempts += 1
+        delay_ms = min(1600, 200 * (2 ** min(self._native_restart_attempts - 1, 3)))
+        QTimer.singleShot(delay_ms, self._restart_native_helper_after_failure)
+
+    def _restart_native_helper_after_failure(self):
+        self._native_recovery_scheduled = False
+        if (
+            self._visible_requested
+            and self._display_mode == "notch"
+            and self.delegate is None
+        ):
+            self.show()
 
     def _show_glass_overlay(self):
         if self.delegate:
+            self.delegate.show()
             return
         # The Swift helper emits `glass` before its closing animation exits.
         # Detach it immediately so a quick switch back cannot mistake that
         # terminating process for a live notch renderer.
         self._display_mode = "glass"
-        self._visible_requested = False
+        self._visible_requested = True
         self._retire_native_process()
         from overlay_window import OverlayWindow
 
@@ -219,6 +349,7 @@ class NativeNotchOverlay(QObject):
             window_height=self.window_height,
             display_mode="glass",
             allow_notch_switch=True,
+            video_overlay=self.video_overlay,
         )
         self.delegate.stop_requested.connect(
             lambda: QTimer.singleShot(0, self.stop_requested.emit)
@@ -245,12 +376,11 @@ class NativeNotchOverlay(QObject):
             self.delegate.close()
             self.delegate = None
         self._discard_pending_frames()
-        self.show()
         # A newly started helper has no knowledge of the previous frame even
         # when the semantic subtitle projection itself is unchanged.
         self._last_native_items = None
-        if self.record_store:
-            self._send({"items": self._latest_items()})
+        self._transport_dirty = True
+        self.show()
 
     def _discard_pending_frames(self):
         while True:
@@ -265,6 +395,7 @@ class NativeNotchOverlay(QObject):
         if process is None:
             return
         self.process = None
+        self._native_helper_ready = False
         self._discard_pending_frames()
 
         def reap():
@@ -301,7 +432,7 @@ class NativeNotchOverlay(QObject):
         # still retained in record_store, but must not perturb the notch.
         if latest_items != self._last_native_items:
             self._last_native_items = latest_items
-            self._send({"items": latest_items})
+            self._send({"items": latest_items}, kind="subtitle")
 
     def update_event(self, event):
         record = self.record_store.update(
@@ -320,7 +451,7 @@ class NativeNotchOverlay(QObject):
         latest_items = self._latest_items()
         if latest_items != self._last_native_items:
             self._last_native_items = latest_items
-            self._send({"items": latest_items})
+            self._send({"items": latest_items}, kind="subtitle")
 
     def update_runtime_status(self, stage, status, detail):
         """Forward coarse activity state without sending diagnostic details."""
@@ -338,10 +469,10 @@ class NativeNotchOverlay(QObject):
             self._busy_stages.add(activity_stage)
         else:
             self._busy_stages.discard(activity_stage)
-        # Runtime activity is independent from subtitles. Sending the current
-        # items again makes SwiftUI re-run presentation reconciliation and can
-        # repeatedly cancel the notch's deliberate shrink cooldown.
-        self._send({})
+        # Status goes through the reliable state channel. `_send` includes the
+        # current bounded snapshot; Swift ignores an unchanged snapshot so
+        # activity ticks cannot restart a layout cooldown.
+        self._send({}, kind="status")
 
     def _latest_items(self):
         # Display fragments are an ephemeral projection. They never enter the
@@ -474,7 +605,7 @@ class NativeNotchOverlay(QObject):
         latest_items = self._latest_items()
         if latest_items != self._last_native_items:
             self._last_native_items = latest_items
-            self._send({"items": latest_items})
+            self._send({"items": latest_items}, kind="subtitle")
 
     @staticmethod
     def _split_finalized_source(text, max_words):
@@ -615,27 +746,74 @@ class NativeNotchOverlay(QObject):
             for i in range(count)
         ]
 
-    def _send(self, payload):
+    def _log_transport(self, status, detail="", **metrics):
+        """Best-effort IPC telemetry; it is a no-op outside Diagnostics."""
+        log_stage("notch_transport", status=status, detail=detail, **metrics)
+
+    def _send_snapshot(self):
+        """Replay the complete bounded projection after helper readiness."""
+        self._last_native_items = self._latest_items()
+        self._send({"items": self._last_native_items}, kind="snapshot")
+
+    def _send(self, payload, *, kind="state"):
         process = self.process
         if not process or process.poll() is not None or not process.stdin:
-            return
+            self._transport_dirty = True
+            return False
         payload = dict(payload)
+        is_command = payload.get("command") == "quit"
+        if not self._native_helper_ready and not is_command:
+            self._transport_dirty = True
+            return False
         payload.setdefault("paused", self._paused)
         payload.setdefault("busyStages", sorted(self._busy_stages))
+        # Every state frame carries a complete bounded snapshot.  A restart or
+        # latest-wins queue replacement must never leave Swift with a pure
+        # activity update but no subtitle items.
+        if not is_command:
+            payload.setdefault("items", self._latest_items())
+        self._next_frame_id += 1
+        frame_id = self._next_frame_id
+        generation = self._native_generation
+        payload["generation"] = generation
+        payload["frameId"] = frame_id
         line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+        frame = (generation, frame_id, kind, line)
         # The UI thread never writes to the subprocess. Keep only the newest
         # complete frame so a slow SwiftUI helper cannot create visual backlog.
         try:
-            self._write_queue.put_nowait(line)
+            self._write_queue.put_nowait(frame)
         except queue.Full:
             try:
-                self._write_queue.get_nowait()
+                dropped_generation, dropped_frame_id, dropped_kind, _dropped_line = (
+                    self._write_queue.get_nowait()
+                )
+                self._log_transport(
+                    "dropped",
+                    detail="superseded by latest snapshot",
+                    generation=dropped_generation,
+                    frame_id=dropped_frame_id,
+                    kind=dropped_kind,
+                )
             except queue.Empty:
                 pass
             try:
-                self._write_queue.put_nowait(line)
+                self._write_queue.put_nowait(frame)
             except queue.Full:
-                pass
+                self._transport_dirty = True
+                self._log_transport(
+                    "dropped",
+                    detail="latest queue remained full",
+                    generation=generation,
+                    frame_id=frame_id,
+                    kind=kind,
+                )
+                return False
+        self._transport_dirty = True
+        self._log_transport(
+            "queued", generation=generation, frame_id=frame_id, kind=kind
+        )
+        return True
 
     def set_paused(self, paused):
         self._paused = bool(paused)
@@ -644,10 +822,11 @@ class NativeNotchOverlay(QObject):
         payload = {"paused": self._paused}
         if self.record_store:
             payload["items"] = self._latest_items()
-        self._send(payload)
+        self._send(payload, kind="pause")
 
     def close(self):
         self._visible_requested = False
+        self._native_helper_ready = False
         if self.delegate:
             self.delegate.close()
             self.delegate = None

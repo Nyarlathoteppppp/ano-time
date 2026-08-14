@@ -1,9 +1,8 @@
-"""Single construction path for glass and native-notch subtitle windows."""
+"""Single construction path for the reversible glass/notch presentation pair."""
 
 from dataclasses import dataclass
 
 from native_notch_overlay import NativeNotchOverlay
-from overlay_window import OverlayWindow
 
 
 @dataclass(frozen=True)
@@ -16,7 +15,14 @@ class OverlaySpec:
 
 
 def create_overlay(spec):
-    """Create one overlay without leaking mode-specific options to the other."""
+    """Create one presentation owner for either initial display mode.
+
+    ``NativeNotchOverlay`` owns the semantic record store and can project it to
+    either the Swift notch helper or a Qt glass delegate.  Starting directly in
+    glass must still use that owner; a bare ``OverlayWindow`` cannot return to
+    the native notch without rebuilding the Pipeline and losing its live
+    presentation state.
+    """
     mode = "notch" if spec.display_mode == "notch" else "glass"
     common = {
         "display_duration": spec.display_duration,
@@ -26,4 +32,7 @@ def create_overlay(spec):
     }
     if mode == "notch":
         return NativeNotchOverlay(**common)
-    return OverlayWindow(video_overlay=bool(spec.system_audio), **common)
+    return NativeNotchOverlay(
+        video_overlay=bool(spec.system_audio),
+        **common,
+    )

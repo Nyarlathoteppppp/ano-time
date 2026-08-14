@@ -1,6 +1,7 @@
 # Anotime runtime handoff
 
-Last verified: `d7dbc30` (`translation: centralize bounded context policy`).
+Last verified baseline: `310c7f8` (`docs: define mac app store mvp plan`),
+2026-08-14.  The active runtime uses the PySide6 `.venv-pyside` environment.
 
 This document exists so future agents can safely continue work without
 re-learning the real-time constraints from the codebase or changing a fast
@@ -108,13 +109,16 @@ audio → Apple ASR partial → Apple Translation draft → visible subtitle
 ### Always
 
 ```bash
-python3 -m py_compile main.py translator.py translation_context.py translation_preview/*.py
-QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -q
+./.venv-pyside/bin/python -m py_compile main.py dashboard.py translator.py translation_context.py translation_preview/*.py asr_pipeline/*.py
+./tools/run_tests.sh
 git diff --check
+./.venv-pyside/bin/python tools/release_audit.py .
 ```
 
-The suite was 403 tests at the last verification. Do not weaken or delete
-contracts just to make a refactor pass; move them to the matching domain.
+The native-notch and Parakeet verification checkpoint was 485 tests; the current
+suite is 486 after the glass resize-grip regression contract.
+Do not weaken or delete contracts just to make a refactor pass; move them to
+the matching domain.
 
 ### When touching the live path
 
@@ -140,6 +144,12 @@ Chinese text in notch and glass modes, fullscreen video overlay, live mode
 switching, and closing/returning to the control center. These behaviors cannot
 be fully reproduced in headless unit tests.
 
+For glass mode, also drag the visible lower-right `◢` grip, test a minimum-size
+resize, and restart once to confirm `glass/geometry` is restored. The glass
+renderer is a single chronological scroll projection: do not reintroduce a
+fixed current-cue stage or a separately reflowed history region without a
+real-macOS visual acceptance result.
+
 ## Known design boundaries (not automatically bugs)
 
 - Apple Speech/Translation and ScreenCaptureKit require supported macOS
@@ -152,6 +162,18 @@ be fully reproduced in headless unit tests.
 - The notch and glass layouts deliberately perform presentation-side smoothing.
   Do not “fix” visual motion by withholding Apple drafts or serializing remote
   translation work.
+- Native notch keeps complete subtitle records in Python and renders a bounded
+  Swift fragment projection. `NotchCue.displayWindow(for:)` shows the active
+  cue's two newest fragments in source order (with a hidden-prefix marker) and
+  a history cue's newest one; the SwiftUI layout must measure that same window.
+  Do not treat display fragments as transcript records or semantic segments.
+  Read `docs/development/NOTCH_LONG_TRANSLATION_DISPLAY_PLAN.md` before
+  changing the window size, measurement, or Python IPC payload.
+- Native notch transport is a separate live-path contract: helper startup must
+  handshake before receiving a snapshot; frames require a generation and
+  monotonic ID, and an unacknowledged helper restart must replay the current
+  projection. Read `docs/development/NOTCH_TRANSPORT_RELIABILITY_PLAN.md`
+  before changing the bridge, input loop, or notch animation triggers.
 - Local ASR experiment: `native/parakeet_eou/` is an explicit FluidAudio
   CoreML/ANE **experimental** helper. On the 2026-08-13 same-audio benchmark
   its formal 50 ms-input helper produced the first English partial faster than
@@ -159,9 +181,21 @@ be fully reproduced in headless unit tests.
   over an uninterrupted 89.65-second lecture. Never make it the default or
   fallback automatically. Read `docs/LOCAL_ASR_BENCHMARK_2026-08-13.md` before
   changing ASR selection.
+- `transcription.parakeet_adaptive_gain` is an explicit, default-off Parakeet
+  input preconditioner. It only raises weak non-silent PCM before the Parakeet
+  helper and never starts Apple ASR, changes Apple/MLX audio, VAD, translation
+  or capture. Keep Apple and Parakeet sequential for comparisons; do not add
+  a concurrent Apple fallback without a new benchmark and plan.
 - Existing MLX Whisper is a rolling re-transcription backend, not native
   token-streaming. It has better controlled SML/AI Planning term coverage but
   materially higher latency and memory use than Apple Speech.
+- A Parakeet host semantic boundary is a candidate, not an immediate semantic
+  final. It seals only after two stable observations and 350 ms. A later native
+  source-final can correct a sealed segment under the same ID; SegmentStore and
+  Pipeline must keep rejecting old-source translations and replace, rather than
+  append, finalized context. The implementation currently supports same-segment
+  token replacements only; use a trace and new tests before attempting
+  cross-boundary insertions/deletions.
 
 ## Update this handoff when
 
@@ -172,6 +206,15 @@ Update this file in the same commit whenever you change:
 - Provider routing/fallback/deadline semantics.
 - Keychain/config persistence behavior.
 - Required test commands or real-device release checks.
+
+## Maintenance record
+
+Use [`docs/development/MAINTENANCE_PROTOCOL.md`](development/MAINTENANCE_PROTOCOL.md)
+for every development batch. Append the verified result to
+`docs/development/CHANGELOG.md`; do not put user-local settings, logs,
+credentials, or lecture text in either document.
+For branch, Issue, PR, Actions and release rules, also follow
+[`docs/development/GITHUB_WORKFLOW.md`](development/GITHUB_WORKFLOW.md).
 # Current engineering handoff
 
 ## Unified ASR event pipeline
@@ -192,6 +235,10 @@ Update this file in the same commit whenever you change:
   copying MLX code; create their adapter contract and real-audio baseline first.
 - Native Apple and Parakeet helpers have process-generation guards. Preserve
   them whenever changing their reset/start lifecycle.
+- Native notch helper startup is also an acknowledged snapshot protocol:
+  `ready` → latest complete `generation` / `frameId` snapshot → `applied`.
+  Status frames intentionally carry the same bounded snapshot, and Swift must
+  ignore equal snapshots without restarting layout or notch transitions.
 
 ## Verification performed
 
@@ -203,9 +250,23 @@ Update this file in the same commit whenever you change:
 - MLX replay smoke test using captured system audio: seven ASR partials, two
   ASR finals, seven Apple drafts and two Apple finals across two segments; no
   Pipeline error.
+- 2026-08-14 current batch: full PySide6 suite 485/485, native-notch targeted
+  contracts 53/53, release `RealtimeNotchHelper` build, Swift planner target,
+  `git diff --check` and release secret audit passed. The new native IPC and
+  Parakeet weak-input path still require device validation; no classroom audio
+  or user-local configuration is recorded in this repository.
 
 ## Next safe step
 
-Phase 4 only after real-device acceptance: document the support matrix and
-remove unreachable MLX-specific subtitle code if it is genuinely unused. Do
-not modify the legacy Whisper/FunASR output path opportunistically.
+Run the native-notch 60–120 second device scenario in
+[`docs/development/NOTCH_TRANSPORT_RELIABILITY_PLAN.md`](development/NOTCH_TRANSPORT_RELIABILITY_PLAN.md),
+checking `notch_transport` ready / queued / written / applied events through
+notch → glass → notch. Then continue Parakeet work with Phase 3 then Phase 4 in
+[`docs/development/PARAKEET_RELIABILITY_PLAN.md`](development/PARAKEET_RELIABILITY_PLAN.md).
+Do not tune EOU or host-boundary thresholds without the prescribed replay
+measurements, and do not promote Parakeet beyond experimental status before
+the real-device acceptance criteria pass. The correction implementation covers
+same-segment word replacements only. Phase 4 of the unified migration remains
+limited to real-device acceptance, a support matrix, and removal of genuinely
+unreachable MLX-specific subtitle code. Do not modify the legacy
+Whisper/FunASR output path opportunistically.

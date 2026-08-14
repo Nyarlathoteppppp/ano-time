@@ -14,6 +14,7 @@ class ConfigContractTests(unittest.TestCase):
                 loaded = config_module.Config(path)
 
         self.assertEqual(loaded.asr_backend, "apple")
+        self.assertFalse(loaded.parakeet_adaptive_gain)
         self.assertEqual(loaded.source_language, "en")
         self.assertEqual(loaded.fast_translation_backend, "apple")
         self.assertEqual(loaded.display_mode, "notch")

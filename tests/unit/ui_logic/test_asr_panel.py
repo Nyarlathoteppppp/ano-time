@@ -21,6 +21,8 @@ def settings(**overrides):
         "whisper_device": "auto",
         "whisper_compute_type": "float16",
         "source_language": "en",
+        "parakeet_eou_debounce_ms": 640,
+        "parakeet_adaptive_gain": False,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -38,6 +40,8 @@ class AsrPanelTests(unittest.TestCase):
         self.assertTrue(panel.whisper_model.isHidden())
         self.assertTrue(panel.funasr_model.isHidden())
         self.assertTrue(panel.device_type.isHidden())
+        self.assertTrue(panel.parakeet_eou_debounce.isHidden())
+        self.assertTrue(panel.parakeet_adaptive_gain.isHidden())
         self.assertTrue(panel.compute_type.isHidden())
         self.assertFalse(panel.source_language.isHidden())
         self.assertIn("Apple 原生实时识别", panel.backend_hint.text())
@@ -50,9 +54,34 @@ class AsrPanelTests(unittest.TestCase):
 
         self.assertTrue(panel.whisper_model.isHidden())
         self.assertTrue(panel.device_type.isHidden())
+        self.assertFalse(panel.parakeet_eou_debounce.isHidden())
+        self.assertFalse(panel.parakeet_adaptive_gain.isHidden())
+        self.assertEqual(panel.parakeet_eou_debounce.currentText(), "640")
         self.assertFalse(panel.source_language.isEnabled())
         self.assertEqual(panel.source_language.currentData(), "en")
         self.assertIn("实验", panel.backend_hint.text())
+
+    def test_parakeet_adaptive_gain_uses_saved_opt_in_value(self):
+        panel = AsrPanel(settings(parakeet_adaptive_gain=True))
+        self.addCleanup(panel.close)
+
+        panel.asr_backend.setCurrentText("parakeet_eou")
+
+        self.assertTrue(panel.parakeet_adaptive_gain.isChecked())
+        self.assertIn("弱语音", panel.parakeet_adaptive_gain.toolTip())
+
+    def test_parakeet_eou_debounce_uses_the_saved_experiment_value(self):
+        panel = AsrPanel(settings(parakeet_eou_debounce_ms=320))
+        self.addCleanup(panel.close)
+
+        panel.asr_backend.setCurrentText("parakeet_eou")
+
+        choices = [
+            panel.parakeet_eou_debounce.itemText(index)
+            for index in range(panel.parakeet_eou_debounce.count())
+        ]
+        self.assertEqual(choices, ["320", "480", "640", "800"])
+        self.assertEqual(panel.parakeet_eou_debounce.currentText(), "320")
 
     def test_only_installed_user_ready_asr_backends_are_selectable(self):
         panel = AsrPanel(settings())

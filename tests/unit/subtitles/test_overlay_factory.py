@@ -16,8 +16,8 @@ class OverlayFactoryTests(unittest.TestCase):
         values.update(changes)
         return OverlaySpec(**values)
 
-    @patch("overlay_factory.OverlayWindow")
-    def test_microphone_glass_uses_normal_glass_window(self, overlay_class):
+    @patch("overlay_factory.NativeNotchOverlay")
+    def test_microphone_glass_uses_reversible_presentation_owner(self, overlay_class):
         created = create_overlay(self.spec())
 
         self.assertIs(created, overlay_class.return_value)
@@ -29,8 +29,8 @@ class OverlayFactoryTests(unittest.TestCase):
             video_overlay=False,
         )
 
-    @patch("overlay_factory.OverlayWindow")
-    def test_system_audio_glass_uses_video_overlay(self, overlay_class):
+    @patch("overlay_factory.NativeNotchOverlay")
+    def test_system_audio_glass_preserves_video_overlay_mode(self, overlay_class):
         create_overlay(self.spec(system_audio=True))
 
         self.assertTrue(overlay_class.call_args.kwargs["video_overlay"])
@@ -52,7 +52,7 @@ class OverlayFactoryTests(unittest.TestCase):
             },
         )
 
-    @patch("overlay_factory.OverlayWindow")
+    @patch("overlay_factory.NativeNotchOverlay")
     def test_unknown_mode_fails_safe_to_glass(self, overlay_class):
         create_overlay(self.spec(display_mode="unknown"))
 

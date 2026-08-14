@@ -63,11 +63,22 @@ public struct NotchCue: Codable, Identifiable, Equatable {
         )]
     }
 
-    /// A notch size slot represents one semantic cue. Long-cue fragments are
-    /// retained for transcript/layout state, but only the newest fragment is
-    /// painted in that slot so 1/2/3 modes remain visually bounded.
+    /// Compatibility accessor for compact history rendering. Active cues use
+    /// ``displayWindow(for:)`` so a long translation retains recent context.
     public var latestDisplayFragment: NotchFragment {
         displayFragments.last!
+    }
+}
+
+/// A bounded, ordered projection of one semantic cue. It is presentation-only:
+/// every fragment continues to belong to its parent ``NotchCue.semanticID``.
+public struct NotchFragmentWindow: Equatable {
+    public let fragments: [NotchFragment]
+    public let hasHiddenPrefix: Bool
+
+    public init(fragments: [NotchFragment], hasHiddenPrefix: Bool) {
+        self.fragments = fragments
+        self.hasHiddenPrefix = hasHiddenPrefix
     }
 }
 
@@ -115,6 +126,27 @@ public enum NotchCueRole: Equatable {
     case active
 }
 
+public extension NotchCue {
+    /// Keep current speech readable without allowing one long cue to consume
+    /// the entire DynamicNotch. History remains compact; the active cue keeps
+    /// two ordered fragments and explicitly signals omitted earlier context.
+    func displayWindow(for role: NotchCueRole) -> NotchFragmentWindow {
+        let allFragments = displayFragments
+        guard case .active = role else {
+            return NotchFragmentWindow(
+                fragments: [allFragments.last!],
+                hasHiddenPrefix: false
+            )
+        }
+        let activeFragmentLimit = 2
+        let start = max(0, allFragments.count - activeFragmentLimit)
+        return NotchFragmentWindow(
+            fragments: Array(allFragments[start...]),
+            hasHiddenPrefix: start > 0
+        )
+    }
+}
+
 /// A stable semantic cue plus its current presentation role. Identity follows
 /// the cue, not the slot, so SwiftUI can move an existing cue instead of
 /// destroying it when it rolls from active into history.
@@ -127,6 +159,44 @@ public struct NotchCueSlot: Identifiable, Equatable {
     public init(cue: NotchCue, role: NotchCueRole) {
         self.cue = cue
         self.role = role
+    }
+}
+
+/// Monotonic ordering for frames received from the Python native-notch bridge.
+/// A helper restart creates a new generation; within that generation only a
+/// strictly newer frame may change the rendered state.  The type deliberately
+/// lives in this framework so the transport rule can be tested without AppKit.
+public struct NotchFrameOrder: Equatable {
+    public private(set) var generation: Int?
+    public private(set) var frameID: Int?
+
+    public init() {}
+
+    /// Accept a legacy frame with no transport metadata for compatibility.
+    /// Metadata-bearing frames must be newer than the last accepted frame.
+    public mutating func accepts(generation: Int?, frameID: Int?) -> Bool {
+        guard let generation, let frameID else { return true }
+
+        guard let acceptedGeneration = self.generation else {
+            self.generation = generation
+            self.frameID = frameID
+            return true
+        }
+        if generation < acceptedGeneration {
+            return false
+        }
+        if generation > acceptedGeneration {
+            self.generation = generation
+            self.frameID = frameID
+            return true
+        }
+        guard let acceptedFrameID = self.frameID else {
+            self.frameID = frameID
+            return true
+        }
+        guard frameID > acceptedFrameID else { return false }
+        self.frameID = frameID
+        return true
     }
 }
 
