@@ -4,6 +4,12 @@
 
 ## 2026-08-14
 
+- `model handoff snapshot (2026-08-21)`：交接基线已明确为已提交的 `ed66411`，分支为 `codex/pyside6-migration`；后续模型必须保留未提交的玻璃字幕平滑批次及其 `AGENTS.md` / 交接文档，不得为清理工作区而回退。该批次仅改玻璃展示层、对应 layout 测试与维护文档，自动验证为 targeted 50/50、全量 489/489、编译、release audit、`git diff --check` 通过。遗留：完整重启后做 60–120 秒 macOS 玻璃模式实测，用户验收后才能独立提交；`AnoTime-macOS` 不在维护范围。
+
+- `glass subtitle smoothing`：在单一时间顺序滚动列表内实施主观平滑，不再强制每次 reflow 滚到底。partial 记录高度单调增长、临时变短时保留行高，final 才立即收紧；透明 trailing cushion 在最新 partial 下提供 52 px 增长空间；tail-following 只在当前句越过下方安全线后按 overflow + slack 前进。普通 partial 布局最多每 100 ms 一次，新 segment、final 与用户缩放立即布局。测量前解除 QLabel 的旧 fixed-height min/max，修复 final 无法可靠收紧的问题。新增 `GLASS_SUBTITLE_SMOOTHING_PLAN.md` 和 partial/cushion/anchor 回归。验证：字幕/刘海 targeted 50 项、全量 489 项、release audit、编译和 `git diff --check` 通过；实机仍需连续 60–120 秒验收。
+
+- `glass fixed-stage isolation (failed, reverted)`：此前的“固定当前句舞台 + 历史隔离”已确认失败并回退。它造成当前/历史交接时的大块空白、阅读顺序不连续，仍不能消除整体移动，并扩大透明度、关闭、缩放和模式桥接回归面。失败原因、禁止复用条件和替代设计已记录在 `GLASS_SUBTITLE_SMOOTHING_PLAN.md`；后续不得在没有真实 macOS 对照验收的情况下恢复该结构。
+
 - `glass subtitle resize`：玻璃字幕保持单一、按时间顺序的滚动投影；未保留试验性的“当前句固定舞台/历史区隔离”布局，避免新增字幕时整块历史区重新排版。恢复 70% 不透明的圆角玻璃背景和原字号，并新增右下角可见 `◢` 拖拽把手；原有 8px 边缘/角落缩放仍保留。把手在初始化及 `showEvent` 都显式定位，规避隐藏 QWidget 首次显示前不发 `resizeEvent` 而落在 `(0,0)` 的 Qt 行为；尺寸继续保存至 `glass/geometry`，受最小 320×140 约束。未使用 `QSizeGrip` 或自定义 cursor（macOS 26 / Qt 6.11 切换模式时存在崩溃路径）。验证：玻璃/刘海 targeted 47 项、全量 486 项、release audit 与 `git diff --check` 通过；仍需实机拖动右下角并重启确认尺寸恢复。
 
 - `native notch transport reliability`：修复“玻璃字幕持续更新而物理刘海停在旧帧/不显示”的 Python ↔ Swift helper 传输边界。helper 先发 `ready`，Python 再重放完整有界快照；每帧携带 helper generation 与单调 `frameId`，Swift 丢弃旧帧并在主线程提交状态后发 `applied`。状态帧也携带完整快照，避免 latest-only queue 以空 status 覆盖字幕；helper stdout/pipe 失败会按退避重启并在下一次 ready 重放。原生侧只在真实内容/暂停/活动状态变化时触发展开或收起，重复状态不重启动画或布局收缩。未改 ASR、翻译、glass semantic record 或 fragment 策略。验证：刘海 targeted 53 项、全量 485 项、release helper build、Swift planner、release audit 与 `git diff --check` 通过。遗留：必须在真实 Mac 连续系统音频下验收刘海 → 玻璃 → 刘海、暂停/恢复与长中文，并核对 `notch_transport` ack。

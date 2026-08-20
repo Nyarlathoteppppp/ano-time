@@ -26,6 +26,7 @@
 | [PARAKEET_RELIABILITY_PLAN.md](./PARAKEET_RELIABILITY_PLAN.md) | 连续课堂语音下的 Parakeet 候选段、native-final 对账、低音量预处理与 EOU 实验计划 | Phase 0–2、低音量预处理已实施；等待回放参数实验与实机验收 |
 | [NOTCH_LONG_TRANSLATION_DISPLAY_PLAN.md](./NOTCH_LONG_TRANSLATION_DISPLAY_PLAN.md) | 原生刘海中长中文译文的连续 fragment 展示与布局一致性修复 | 已实施；等待 macOS 实机视觉验收 |
 | [NOTCH_TRANSPORT_RELIABILITY_PLAN.md](./NOTCH_TRANSPORT_RELIABILITY_PLAN.md) | Python ↔ Swift 刘海快照握手、帧序与故障重放 | 自动验收通过；等待 macOS 实机验证 |
+| [GLASS_SUBTITLE_SMOOTHING_PLAN.md](./GLASS_SUBTITLE_SMOOTHING_PLAN.md) | 统一滚动玻璃字幕的 partial 高度单调、增长缓冲、锚点滚动与失败方案记录 | 自动验收通过；等待 macOS 实机视觉验收 |
 | [DECISIONS.md](./DECISIONS.md) | 需要长期遵守的技术与产品决策 | 持续维护 |
 | [CHANGELOG.md](./CHANGELOG.md) | 面向后续开发 Agent 的近期变更摘要 | 持续维护 |
 

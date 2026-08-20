@@ -12,7 +12,9 @@ QApplication = QtWidgets.QApplication
 QScrollBar = QtWidgets.QScrollBar
 
 from overlay_window import (
+    GLASS_CURRENT_GROWTH_CUSHION,
     GLASS_PANEL_BACKGROUND,
+    GLASS_TAIL_SCROLL_SLACK,
     MAX_VISIBLE_TRANSCRIPT_ITEMS,
     LogItem,
     OverlayWindow,
@@ -191,6 +193,54 @@ class OverlayLayoutTests(unittest.TestCase):
         self.assertIn('color:#d7dbe5', rendered)
         self.assertIn("稳定前缀", rendered)
         self.assertEqual(item._committed_prefix_length, 4)
+
+    def test_partial_record_does_not_shrink_until_final(self):
+        item = LogItem(
+            4,
+            "00:00:00",
+            "source",
+            "这是会在窄玻璃字幕窗口内换成多行的临时翻译。" * 5,
+        )
+        item.resize(220, 400)
+        item.refresh_layout()
+        provisional_height = item.height()
+
+        item.update_translated("短句", preserve_partial_height=True)
+        item.refresh_layout(preserve_partial_height=True)
+        self.assertEqual(item.height(), provisional_height)
+
+        self.assertTrue(item.set_finalized(True))
+        item.refresh_layout(preserve_partial_height=False)
+        self.assertLess(item.height(), provisional_height)
+
+    def test_current_partial_uses_a_trailing_growth_cushion(self):
+        with patch("overlay_window.HAS_APPKIT", False):
+            window = OverlayWindow(window_width=480, window_height=260)
+        try:
+            window.update_text(1, "source", "draft", "partial")
+            self.assertEqual(
+                window._growth_cushion.height(),
+                GLASS_CURRENT_GROWTH_CUSHION,
+            )
+            self.assertEqual(
+                window.container_layout.indexOf(window._growth_cushion),
+                window.container_layout.count() - 1,
+            )
+
+            window.update_text(1, "source", "final", "final")
+            self.assertEqual(window._growth_cushion.height(), 0)
+        finally:
+            window.close()
+
+    def test_tail_anchor_waits_for_growth_cushion_before_scrolling(self):
+        self.assertEqual(
+            OverlayWindow._tail_scroll_target(40, 200, 180, 200),
+            40,
+        )
+        self.assertEqual(
+            OverlayWindow._tail_scroll_target(40, 200, 220, 200),
+            40 + 32 + GLASS_TAIL_SCROLL_SLACK,
+        )
 
     def test_visible_history_is_capped_without_deleting_transcript_records(self):
         class Widget:

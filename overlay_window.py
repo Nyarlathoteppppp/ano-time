@@ -32,6 +32,13 @@ MAX_VISIBLE_TRANSCRIPT_ITEMS = 40
 # Keep the subtitle panel readable over video without turning it into an opaque
 # black block. 179/255 is roughly 70% opaque (30% transparent).
 GLASS_PANEL_BACKGROUND = "rgba(0, 0, 0, 179)"
+# Partial translations may revise their tail several times per second. Keep a
+# small visual runway below the active record, then move the viewport in larger
+# steps instead of snapping every wrapped line to the bottom.
+GLASS_CURRENT_GROWTH_CUSHION = 52
+GLASS_PARTIAL_REFLOW_INTERVAL_MS = 100
+GLASS_TAIL_SAFE_MARGIN = 12
+GLASS_TAIL_SCROLL_SLACK = 28
 
 
 def clamp_window_rect(rect, available_rects, minimum_width=320,
@@ -140,6 +147,19 @@ class LogItem(QFrame):
     def _clamp_committed_prefix(length, text):
         return max(0, min(int(length or 0), len(text)))
 
+    @staticmethod
+    def _natural_label_height(label, available_width):
+        """Measure text without inheriting the previous fixed layout height."""
+        # setFixedHeight() also pins QLabel's minimum/maximum heights. Clear
+        # those constraints before asking heightForWidth(), otherwise a final
+        # short revision can never compact a previously wrapped partial.
+        label.setMinimumHeight(0)
+        label.setMaximumHeight(16777215)
+        return max(
+            label.fontMetrics().height(),
+            label.heightForWidth(available_width),
+        )
+
     def _render_translation(self):
         if not self._translated_text:
             self.translated_label.clear()
@@ -181,7 +201,12 @@ class LogItem(QFrame):
         )
         self._render_translation()
 
-    def update_translated(self, text, committed_prefix_length=0):
+    def update_translated(
+        self,
+        text,
+        committed_prefix_length=0,
+        preserve_partial_height=True,
+    ):
         text = str(text or "")
         committed_prefix_length = self._clamp_committed_prefix(
             committed_prefix_length,
@@ -203,47 +228,61 @@ class LogItem(QFrame):
         if any(span.changed for span in self._revision.spans):
             self._revision_highlight_timer.start()
         available_width = max(1, self.width())
-        next_height = max(
-            self.translated_label.fontMetrics().height(),
-            self.translated_label.heightForWidth(available_width),
+        next_height = self._natural_label_height(
+            self.translated_label,
+            available_width,
         )
+        if preserve_partial_height:
+            next_height = max(next_height, previous_height)
         if next_height != previous_height:
-            self.refresh_layout()
             return True
         self.translated_label.update()
         return False
 
-    def update_original(self, text):
+    def update_original(self, text, preserve_partial_height=True):
         if text == self.original_label.text():
             return False
         previous_height = self.original_label.height()
         self.original_label.setText(text)
         available_width = max(1, self.width())
-        next_height = max(
-            self.original_label.fontMetrics().height(),
-            self.original_label.heightForWidth(available_width),
+        next_height = self._natural_label_height(
+            self.original_label,
+            available_width,
         )
+        if preserve_partial_height:
+            next_height = max(next_height, previous_height)
         if next_height != previous_height:
-            self.refresh_layout()
             return True
         self.original_label.update()
         return False
 
-    def refresh_layout(self):
+    def refresh_layout(self, preserve_partial_height=False):
         """Recompute wrapped-label heights after text or width changes."""
         margins = self.layout.contentsMargins()
         available_width = max(
             1,
             self.width() - margins.left() - margins.right(),
         )
-        original_height = max(
-            self.original_label.fontMetrics().height(),
-            self.original_label.heightForWidth(available_width),
+        previous_original_height = self.original_label.height()
+        previous_translated_height = self.translated_label.height()
+        original_height = self._natural_label_height(
+            self.original_label,
+            available_width,
         )
-        translated_height = max(
-            self.translated_label.fontMetrics().height(),
-            self.translated_label.heightForWidth(available_width),
+        translated_height = self._natural_label_height(
+            self.translated_label,
+            available_width,
         )
+        if preserve_partial_height:
+            # A provisional ASR/translation revision can become shorter before
+            # it grows again. Retaining the previous line allocation stops the
+            # rows below it from bouncing up and down. A final result is always
+            # allowed to compact the record once.
+            original_height = max(original_height, previous_original_height)
+            translated_height = max(
+                translated_height,
+                previous_translated_height,
+            )
         self.original_label.setFixedHeight(original_height)
         self.translated_label.setFixedHeight(translated_height)
 
@@ -260,8 +299,10 @@ class LogItem(QFrame):
 
     def set_finalized(self, finalized):
         # ASR state is monotonic: remote/late updates cannot make final text provisional.
+        became_final = not self.finalized and bool(finalized)
         self.finalized = self.finalized or bool(finalized)
         self._apply_original_style()
+        return became_final
 
     def _apply_original_style(self):
         if self.finalized:
@@ -447,6 +488,8 @@ class OverlayWindow(QWidget):
         self._content_reflow_timer = QTimer(self)
         self._content_reflow_timer.setSingleShot(True)
         self._content_reflow_timer.timeout.connect(self._reflow_content)
+        self._last_content_reflow_at = 0.0
+        self._force_content_reflow = False
         self._follow_scroll_tail = True
         self._programmatic_scroll = False
         self._topmost_timer = QTimer(self)
@@ -630,6 +673,13 @@ class OverlayWindow(QWidget):
         # Allocate alignment to top so items stack from top
         self.container_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.container.setLayout(self.container_layout)
+        self._growth_cushion = QWidget()
+        self._growth_cushion.setObjectName("subtitleGrowthCushion")
+        self._growth_cushion.setFixedHeight(0)
+        self._growth_cushion.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents,
+        )
+        self.container_layout.addWidget(self._growth_cushion)
 
         self.scroll_area.setWidget(self.container)
         scrollbar = self.scroll_area.verticalScrollBar()
@@ -765,7 +815,7 @@ class OverlayWindow(QWidget):
             self._layout_resize_borders()
             self._schedule_geometry_save()
         if hasattr(self, "_content_reflow_timer"):
-            self._schedule_content_reflow()
+            self._schedule_content_reflow(immediate=True, force=True)
 
     def moveEvent(self, event):
         super().moveEvent(event)
@@ -804,25 +854,38 @@ class OverlayWindow(QWidget):
         self.resize_handle.raise_()
 
         self._apply_item_visibility()
-        self._schedule_content_reflow()
+        self._schedule_content_reflow(immediate=True, force=True)
         if HAS_APPKIT and self.isVisible():
             self._set_all_spaces()
 
-    def _schedule_content_reflow(self):
-        # Coalesce rapid ASR partials while still refreshing on the next event loop.
-        self._content_reflow_timer.start(0)
+    def _schedule_content_reflow(self, immediate=False, force=False):
+        """Bound partial layout churn without delaying the first/final result."""
+        self._force_content_reflow = self._force_content_reflow or bool(force)
+        if immediate:
+            self._content_reflow_timer.start(0)
+            return
+        if self._content_reflow_timer.isActive():
+            return
+        elapsed_ms = (time.monotonic() - self._last_content_reflow_at) * 1000
+        delay_ms = max(0, int(GLASS_PARTIAL_REFLOW_INTERVAL_MS - elapsed_ms))
+        self._content_reflow_timer.start(delay_ms)
 
     def _reflow_content(self):
+        force = self._force_content_reflow
+        self._force_content_reflow = False
+        self._last_content_reflow_at = time.monotonic()
         for _, widget in self.items:
             if widget.isVisible():
-                widget.refresh_layout()
+                widget.refresh_layout(
+                    preserve_partial_height=not force and not widget.finalized,
+                )
         self.container_layout.invalidate()
         self.container_layout.activate()
         self.container.updateGeometry()
         self.scroll_area.widget().updateGeometry()
-        self._scroll_to_bottom()
+        self._maintain_tail_anchor()
         # The scroll range is finalized one layout pass later on macOS/Qt.
-        QTimer.singleShot(0, self._scroll_to_bottom)
+        QTimer.singleShot(0, self._maintain_tail_anchor)
 
     def _on_scroll_position_changed(self, value):
         if self._programmatic_scroll:
@@ -840,11 +903,63 @@ class OverlayWindow(QWidget):
         )
 
     def _on_scroll_range_changed(self, _minimum, _maximum):
-        # A long draft can become much shorter when the final model replaces it.
-        # Keep tail-following users attached to valid content after that reflow,
-        # but leave manually reviewed history exactly where it is.
+        # Do not snap every growing partial to the bottom. Tail-following keeps
+        # the active record inside a lower safe margin; manual history review is
+        # still left exactly where the user placed it.
         if self._follow_scroll_tail:
-            QTimer.singleShot(0, self._scroll_to_bottom)
+            QTimer.singleShot(0, self._maintain_tail_anchor)
+
+    @staticmethod
+    def _tail_scroll_target(current, maximum, latest_bottom, viewport_height):
+        """Return the next bounded scroll value for the active-record anchor."""
+        safe_bottom = max(0, viewport_height - GLASS_TAIL_SAFE_MARGIN)
+        overflow = max(0, latest_bottom - safe_bottom)
+        if not overflow:
+            return current
+        return min(
+            maximum,
+            current + overflow + GLASS_TAIL_SCROLL_SLACK,
+        )
+
+    def _maintain_tail_anchor(self):
+        if not self._follow_scroll_tail or not self.items:
+            return
+        latest_widget = max(self.items, key=lambda item: item[0])[1]
+        if latest_widget.finalized:
+            self._scroll_to_bottom()
+            return
+        viewport = self.scroll_area.viewport()
+        latest_bottom = latest_widget.mapTo(
+            viewport,
+            QPoint(0, latest_widget.height()),
+        ).y()
+        scrollbar = self.scroll_area.verticalScrollBar()
+        target = self._tail_scroll_target(
+            scrollbar.value(),
+            scrollbar.maximum(),
+            latest_bottom,
+            viewport.height(),
+        )
+        if target == scrollbar.value():
+            return
+        self._programmatic_scroll = True
+        try:
+            scrollbar.setValue(target)
+        finally:
+            self._programmatic_scroll = False
+
+    def _update_growth_cushion(self):
+        if not self.items:
+            desired_height = 0
+        else:
+            latest_widget = max(self.items, key=lambda item: item[0])[1]
+            desired_height = (
+                0 if latest_widget.finalized else GLASS_CURRENT_GROWTH_CUSHION
+            )
+        if self._growth_cushion.height() == desired_height:
+            return False
+        self._growth_cushion.setFixedHeight(desired_height)
+        return True
 
     def _apply_item_visibility(self):
         if not self.items:
@@ -925,7 +1040,10 @@ class OverlayWindow(QWidget):
             layout_changed = False
             if original_text:
                 layout_changed = (
-                    existing_widget.update_original(original_text) or layout_changed
+                    existing_widget.update_original(
+                        original_text,
+                        preserve_partial_height=not finalized,
+                    ) or layout_changed
                 )
 
             if translated_text:
@@ -933,11 +1051,12 @@ class OverlayWindow(QWidget):
                     existing_widget.update_translated(
                         translated_text,
                         committed_prefix_length,
+                        preserve_partial_height=not finalized,
                     ) or layout_changed
                 )
-            existing_widget.set_finalized(finalized)
-            if layout_changed:
-                self._schedule_content_reflow()
+            if existing_widget.set_finalized(finalized):
+                existing_widget.refresh_layout(preserve_partial_height=False)
+                layout_changed = True
 
         else:
             # Do not resurrect an old delayed final after it was trimmed from
@@ -975,9 +1094,19 @@ class OverlayWindow(QWidget):
             # records are persisted independently by SessionTranscriptRecorder.
             self._trim_visible_items()
 
-            # Scroll to bottom
-            QTimer.singleShot(10, self._scroll_to_bottom)
+            layout_changed = True
 
+        cushion_changed = self._update_growth_cushion()
+        if layout_changed or cushion_changed:
+            self._schedule_content_reflow(
+                immediate=finalized or existing_widget is None,
+                force=existing_widget is None,
+            )
+        if existing_widget is None:
+            # A new semantic record is a deliberate transition: reveal it once
+            # with the growth cushion visible, then preserve its screen anchor
+            # while partials extend it.
+            QTimer.singleShot(10, self._scroll_to_bottom)
         self._apply_item_visibility()
 
     def _scroll_to_bottom(self):

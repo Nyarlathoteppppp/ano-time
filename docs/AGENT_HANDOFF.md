@@ -1,7 +1,48 @@
 # Anotime runtime handoff
 
-Last verified baseline: `310c7f8` (`docs: define mac app store mvp plan`),
-2026-08-14.  The active runtime uses the PySide6 `.venv-pyside` environment.
+Committed baseline: `ed66411` (`feat: harden classroom subtitle runtime`),
+2026-08-14. The active runtime uses the PySide6 `.venv-pyside` environment.
+
+## Model takeover snapshot — 2026-08-21
+
+The repository is on `codex/pyside6-migration`. `ed66411` is the last committed
+checkpoint and is a known automated-test baseline. It includes the native notch
+transport handshake/replay work, Parakeet candidate/final reliability controls,
+low-volume input option, glass resize grip, and maintenance/GitHub files.
+
+The working tree additionally has one deliberately uncommitted batch: glass
+subtitle smoothing plus its takeover documentation. It consists of
+`overlay_window.py`, its layout tests, `AGENTS.md`, this handoff, the
+development index/changelog/maintenance protocol, and
+`GLASS_SUBTITLE_SMOOTHING_PLAN.md`. It passed targeted 50/50 and full 489/489
+tests, compile, diff check, and release audit. It is **not** a completed product
+acceptance: restart the app and perform the glass real-device test before
+committing it. Do not discard it merely to obtain a clean worktree.
+
+### Current user-facing behavior to preserve
+
+- Glass subtitles are a single chronological scroll list with 70% opaque black
+  surface, original readable type size, stop control, glass ↔ physical-notch
+  switching, and lower-right `◢` resize grip. Geometry persists as
+  `glass/geometry`.
+- The failed fixed-current-cue/history-isolation experiment is reverted. Do not
+  recreate it: it produced large blank space, disrupted reading order, still
+  moved as a block, and regressed controls/appearance.
+- The current uncommitted alternative is presentation-only: provisional record
+  height is monotonic, the newest partial has a trailing growth cushion, and
+  tail scrolling advances only after its safe lower boundary is crossed. It
+  must never delay ASR, Apple translation, remote previews, transcript records,
+  or native-notch frames.
+
+### First safe action for the next model
+
+Do not tune constants or change layout structure first. Fully restart, enable
+Diagnostics if useful, then run 60–120 seconds of continuous system audio in
+glass mode. Check long Chinese wrapping, partial-to-final shortening, new
+segments, manual history scrolling, resize persistence, glass → notch → glass,
+and Stop. A passing result means history stays still through most partial
+updates; movement is allowed when the cushion is consumed, a final compacts, or
+a new segment begins. Only then commit the exact smoothing batch separately.
 
 This document exists so future agents can safely continue work without
 re-learning the real-time constraints from the codebase or changing a fast
@@ -116,7 +157,7 @@ git diff --check
 ```
 
 The native-notch and Parakeet verification checkpoint was 485 tests; the current
-suite is 486 after the glass resize-grip regression contract.
+suite is 489 after the glass resize-grip and smoothing regression contracts.
 Do not weaken or delete contracts just to make a refactor pass; move them to
 the matching domain.
 
@@ -149,6 +190,12 @@ resize, and restart once to confirm `glass/geometry` is restored. The glass
 renderer is a single chronological scroll projection: do not reintroduce a
 fixed current-cue stage or a separately reflowed history region without a
 real-macOS visual acceptance result.
+
+Glass partials use monotonic record height, a trailing growth cushion and a
+tail anchor rather than forced bottom scrolling. Preserve this presentation-only
+boundary: ASR/translation events and transcript records must remain immediate
+and complete. `GLASS_SUBTITLE_SMOOTHING_PLAN.md` records why the earlier
+fixed-stage isolation experiment failed and was reverted.
 
 ## Known design boundaries (not automatically bugs)
 
