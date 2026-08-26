@@ -13,14 +13,18 @@ class PySideInstallerContractTests(unittest.TestCase):
         self.assertNotIn("PyQt6.", source)
         self.assertIn("from ui.qt import", source)
 
-    def test_install_and_hotkey_scripts_use_the_same_pyside_environment(self):
+    def test_install_uses_pyside_and_legacy_hotkey_installer_only_disables(self):
         installer = (PROJECT_ROOT / "install_mac.sh").read_text(encoding="utf-8")
         hotkey = (PROJECT_ROOT / "install_hotkey_agent.sh").read_text(
             encoding="utf-8"
         )
         starter = (PROJECT_ROOT / "start_mac.sh").read_text(encoding="utf-8")
         self.assertIn('VENV_DIR=".venv-pyside"', installer)
-        self.assertIn(".venv-pyside/bin/python", hotkey)
+        self.assertIn("launchctl bootout", hotkey)
+        self.assertNotIn("launchctl bootstrap", hotkey)
+        self.assertNotIn("hotkey_daemon.py", hotkey)
+        self.assertNotIn("/bin/mv", hotkey)
+        self.assertNotIn("/bin/rm", hotkey)
         self.assertIn(".venv-pyside/bin/python", starter)
 
     def test_developer_test_entrypoints_default_to_the_pyside_environment(self):

@@ -95,7 +95,8 @@ After automated tests, verify on a real Mac:
 
 1. Microphone recognition and Apple partial subtitles.
 2. ScreenCaptureKit browser-video capture.
-3. `Control + S` launch, pause and resume.
+3. Control-center Launch, Pause/Resume and Stop buttons; verify `Control + S`
+   remains available to the foreground editor.
 4. Physical notch and glass modes.
 5. Long Chinese text, resizing and fullscreen overlay.
 6. Exit returns to the control center and releases capture.

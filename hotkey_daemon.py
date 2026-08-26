@@ -82,18 +82,12 @@ class HotkeyAgent:
 
 
 def main():
+    # Retained as an inert process for machines that still have the historical
+    # KeepAlive LaunchAgent. Staying alive avoids a launchd restart loop while
+    # deliberately registering no keyboard shortcut.
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
-    try:
-        from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
-
-        NSApplication.sharedApplication().setActivationPolicy_(
-            NSApplicationActivationPolicyAccessory
-        )
-    except Exception as exc:
-        print(f"[Hotkey Agent] Unable to hide Dock icon: {exc}", flush=True)
-    agent = HotkeyAgent()
-    agent.start()
+    print("[Hotkey Agent] Retired; Control + S is no longer registered", flush=True)
     return app.exec()
 
 

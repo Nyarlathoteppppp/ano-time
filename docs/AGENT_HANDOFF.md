@@ -180,10 +180,11 @@ path.
 
 ### Manual UI release gate
 
-Check microphone and system audio, `Control + S` launch/pause/resume, long
-Chinese text in notch and glass modes, fullscreen video overlay, live mode
-switching, and closing/returning to the control center. These behaviors cannot
-be fully reproduced in headless unit tests.
+Check microphone and system audio, Dashboard launch/pause/resume/stop controls,
+that `Control + S` remains available to the foreground editor, long Chinese
+text in notch and glass modes, fullscreen video overlay, live mode switching,
+and closing/returning to the control center. These behaviors cannot be fully
+reproduced in headless unit tests.
 
 For glass mode, also drag the visible lower-right `◢` grip, test a minimum-size
 resize, and restart once to confirm `glass/geometry` is restored. The glass

@@ -19,7 +19,6 @@ from dashboard import ModelListWorker
 from dashboard_support.workers import SmartHintTestWorker
 import dashboard as dashboard_module
 from keychain_store import store as keychain_store
-from shortcut_controller import ShortcutController
 from tests.fixtures.dashboard_config import make_dashboard_config
 
 
@@ -40,9 +39,6 @@ class DashboardWorkflowTests(unittest.TestCase):
         config_patcher = patch.object(dashboard_module, "config", test_config)
         config_patcher.start()
         self.addCleanup(config_patcher.stop)
-        patcher = patch.object(ShortcutController, "start", lambda _self: None)
-        patcher.start()
-        self.addCleanup(patcher.stop)
         bridge_default = patch.object(dashboard_module.config, "bridge_provider", "off")
         bridge_default.start()
         self.addCleanup(bridge_default.stop)
@@ -68,6 +64,11 @@ class DashboardWorkflowTests(unittest.TestCase):
             ],
             ["Home", "Audio", "ASR · 语音识别", "AI · 翻译"],
         )
+
+    def test_dashboard_does_not_own_a_global_shortcut(self):
+        self.assertFalse(hasattr(self.dashboard, "shortcut_btn"))
+        self.assertFalse(hasattr(self.dashboard, "shortcut_controller"))
+        self.assertFalse(hasattr(self.dashboard, "global_shortcut"))
         self.assertTrue(
             all(
                 not self.dashboard.tabs.tabIcon(index).isNull()

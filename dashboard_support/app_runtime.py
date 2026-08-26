@@ -101,7 +101,6 @@ def run_dashboard(dashboard_factory, config):
     instance_server = start_instance_server(
         activate_dashboard,
         window.request_full_quit,
-        window.on_global_shortcut,
     )
     if instance_server is None:
         notify_existing_instance()

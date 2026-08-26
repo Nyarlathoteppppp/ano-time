@@ -43,7 +43,6 @@ from config import config
 from runtime_version import current_version
 from permission_controller import PermissionController
 from session_controller import SessionController
-from shortcut_controller import ShortcutController
 from api_test_controller import ApiTestController
 from dashboard_support.app_runtime import (
     notify_existing_instance,
@@ -116,9 +115,6 @@ class Dashboard(QWidget):
         if model_refresh_worker and model_refresh_worker.isRunning():
             model_refresh_worker.requestInterruption()
             model_refresh_worker.wait(5500)
-        shortcut_controller = getattr(self, "shortcut_controller", None)
-        if shortcut_controller:
-            shortcut_controller.stop()
         # Exit after Qt has finished dispatching this close event. Immediate
         # teardown here can destroy the shared QApplication re-entrantly.
         QTimer.singleShot(0, QApplication.quit)
@@ -286,11 +282,6 @@ class Dashboard(QWidget):
                 generation, session_settings
             )
         )
-        self.shortcut_controller = ShortcutController(self, STYLESHEET)
-        # Compatibility for callers that inspect the underlying native object.
-        self.global_shortcut = self.shortcut_controller.shortcut
-        self.shortcut_controller.start()
-        
         # Footer Actions
         footer = QHBoxLayout()
         self.build_label = QLabel(f"Build {current_version()}")
@@ -650,10 +641,6 @@ class Dashboard(QWidget):
             "保存后重新 Launch 生效，不进入字幕实时路径。"
         )
 
-        self.shortcut_btn = QPushButton("⌃S Shortcut Settings")
-        self.shortcut_btn.setFixedSize(240, 38)
-        self.shortcut_btn.clicked.connect(self.open_shortcut_settings)
-        
         btn_layout.addWidget(self.start_btn)
         btn_layout.addWidget(self.pause_btn)
         btn_layout.addWidget(self.stop_btn)
@@ -663,7 +650,6 @@ class Dashboard(QWidget):
         layout.addWidget(self.transcript_recording_checkbox)
         layout.addLayout(record_row)
         layout.addWidget(self.usage_tracking_checkbox)
-        layout.addWidget(self.shortcut_btn)
         
         info = QLabel("The translator will open as an overlay window.\nYou can minimize this dashboard.")
         info.setStyleSheet("color: #6c7086; font-style: italic;")
@@ -730,19 +716,8 @@ class Dashboard(QWidget):
                 "ready" if enabled else "off"
             )
 
-    def _update_shortcut_button(self):
-        controller = getattr(self, "shortcut_controller", None)
-        if controller:
-            controller.update_button()
-
-    def open_shortcut_settings(self):
-        self.shortcut_controller.open_settings()
-
     def open_accessibility_settings(self):
         self.permission_controller.open_accessibility_settings()
-
-    def on_global_shortcut(self):
-        self.shortcut_controller.activated()
 
     def toggle_pipeline_pause(self):
         if self.pipeline:

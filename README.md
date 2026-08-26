@@ -60,7 +60,7 @@ Anotime 已经不只是原项目的界面换皮，而是围绕 macOS 课堂使�
 - Single Model 支持 Qwen-MT、DeepSeek、SiliconFlow、OpenAI、Gemini、Groq、OpenRouter 和自定义 OpenAI-compatible 接口。
 - 每个 Single Model 服务可独立保存 Key、Base URL、当前模型和自定义模型列表，切换后自动恢复。
 - 开发者 Smart Hybrid 使用 Groq → Cerebras 桥接轮换、免费 GLM 额度管理与 Gemini 3.5 Flash-Lite 付费主翻译；Qwen-MT 仅保留为可选 Single Model。
-- `Control + S` 全局快捷键可启动、暂停和恢复刘海翻译，无需辅助功能或输入监控权限。
+- 启动、暂停和恢复仅由控制中心按钮负责，不占用编辑器常用的 `Control + S`。
 
 #### 可用的免费模型
 
@@ -102,17 +102,16 @@ brew install ffmpeg
 
 安装脚本会创建项目内的 `.venv-pyside`、安装 Python 依赖、构建 Apple Speech 与原生刘海 helper，并从示例生成 `config.ini`。
 
-#### 安装桌面应用和快捷键
+#### 安装桌面应用
 
 ```bash
-chmod +x install_desktop_app.sh install_hotkey_agent.sh
+chmod +x install_desktop_app.sh
 ./install_desktop_app.sh
-./install_hotkey_agent.sh
 ```
 
 完成后可以像普通 Mac 应用一样打开 **Anotime.app**。应用采用单实例机制，重复打开只会激活已有控制中心，不会产生多个翻译窗口。
 
-`Control + S` 在停止状态下启动物理刘海翻译，在运行时暂停，在暂停时恢复。快捷键由常驻 LaunchAgent 注册，不需要辅助功能或输入监控权限。
+AnoTime 不再注册全局 `Control + S`。启动、暂停和恢复使用控制中心按钮。旧安装曾创建热键 LaunchAgent；升级后可运行一次 `./install_hotkey_agent.sh`，它只停止旧 agent，不安装新 agent，也不删除或移动 plist。
 
 普通 Python 源码更新不需要重新安装桌面应用。只有首次安装或 launcher 本身发生变化时才运行 `install_desktop_app.sh`；重新签名可能导致 macOS 再次要求隐私权限。
 
@@ -168,27 +167,21 @@ python3 tools/release_audit.py .
 
 启用 **Anotime**，然后重启应用。正常的 ScreenCaptureKit 系统音频路径不需要 BlackHole。
 
-#### 全局快捷键
+#### 停止旧版全局快捷键 agent
 
-安装常驻快捷键 agent：
+仅从曾安装快捷键 agent 的旧版本升级时运行：
 
 ```bash
 ./install_hotkey_agent.sh
 ```
 
-检查运行状态：
+该兼容脚本只执行可逆的 `launchctl bootout`，保留原 plist。确认它已停止：
 
 ```bash
 launchctl print "gui/$(id -u)/com.nyarlathotep.realtime-ton.hotkey"
-tail -f /tmp/realtime-ton-hotkey.log
 ```
 
-成功启动会显示：
-
-```text
-[Shortcut] Registered Control + S via Carbon
-[Hotkey Agent] Ready
-```
+若显示 `Could not find service`，说明 `Control + S` 已释放。
 
 ### 字幕模式
 
@@ -290,16 +283,9 @@ finalized ASR 纠错使用相同格式。纠错只作用于 finalized 文本，�
 
 确认“录屏与系统录音”中的 **Anotime**、**Realtime Translator Audio** 和 **Python** 均已启用，然后完整重启 Dashboard。排查权限时不要反复运行 `install_desktop_app.sh`，因为重新签名可能使刚刚授予的权限失效。
 
-#### `Control + S` 没有反应
+#### `Control + S` 仍被 AnoTime 占用
 
-检查常驻 agent：
-
-```bash
-launchctl print "gui/$(id -u)/com.nyarlathotep.realtime-ton.hotkey"
-tail -30 /tmp/realtime-ton-hotkey.log
-```
-
-agent 不存在时重新运行 `./install_hotkey_agent.sh`。
+运行一次 `./install_hotkey_agent.sh` 停止旧版常驻 agent，然后重新启动 AnoTime。脚本不删除或移动现有 plist。
 
 #### 手机播放有识别，浏览器视频没有识别
 
@@ -412,7 +398,7 @@ Anotime is no longer a cosmetic fork. Its runtime has been reorganized around la
 - **Failure-safe model routing**: rate limits and timeouts fall through without removing the Apple draft or blocking newer sentences.
 - **Latest-wins refinement queue**: stale work is dropped so subtitles cannot accumulate seconds behind the speaker.
 - **Runtime latency log** for audio, ASR, local draft, bridge model, and final refinement stages.
-- **Native `Control + S` global shortcut** backed by a resident macOS agent: launch the notch, pause, and resume without Accessibility or Input Monitoring permission.
+- **Control-center-owned session controls** leave `Control + S` available to editors and other applications.
 
 ### Free model options
 
@@ -457,23 +443,16 @@ The installer creates a project-local `.venv-pyside`, installs Python dependenci
 ### Optional desktop launcher
 
 ```bash
-chmod +x install_desktop_app.sh install_hotkey_agent.sh
+chmod +x install_desktop_app.sh
 ./install_desktop_app.sh
-./install_hotkey_agent.sh
 ```
 
 This installs **Anotime.app** so the control center can be opened like a normal Mac application. The app is single-instance: opening it again activates the existing control center instead of creating duplicate translator windows.
 
-The second command installs a per-user LaunchAgent named
-`com.nyarlathotep.realtime-ton.hotkey`. It owns the native `Control + S`
-shortcut independently of the control-center process, so the shortcut can
-reopen the app after the Dashboard has been closed.
-
-`Control + S` launches Physical MacBook Notch mode when stopped, pauses a
-running session, and resumes a paused session. It uses Carbon
-`RegisterEventHotKey`, so it does **not** require Accessibility or Input
-Monitoring permission. macOS uses `Command + S` for Save, so the standard Save
-command is unaffected.
+AnoTime no longer registers global `Control + S`; use the control-center
+buttons to launch, pause, resume, and stop. Upgrades from an older installation
+may run `./install_hotkey_agent.sh` once. Despite its historical filename, the
+script now only stops the old LaunchAgent and leaves its plist unchanged.
 
 The launcher fingerprints the checked-out source. After an update it closes the loaded Dashboard and starts the new code; otherwise it activates the existing instance. The control-center title shows the loaded Git revision.
 
@@ -536,27 +515,23 @@ Enable **Anotime**, then restart it.
 
 BlackHole is not required for the normal ScreenCaptureKit system-audio path. It remains available for custom routing on older or unusual setups.
 
-### Global shortcut
+### Retiring the legacy global shortcut
 
-No privacy permission is required. Install the resident agent once:
+Only upgrades that previously installed the resident agent need this command:
 
 ```bash
 ./install_hotkey_agent.sh
 ```
 
-Verify it is running:
+The compatibility script performs a reversible `launchctl bootout`; it does
+not install a replacement and does not delete or move the plist. Verify that
+the old service is absent:
 
 ```bash
 launchctl print "gui/$(id -u)/com.nyarlathotep.realtime-ton.hotkey"
-tail -f /tmp/realtime-ton-hotkey.log
 ```
 
-A successful startup includes:
-
-```text
-[Shortcut] Registered Control + S via Carbon
-[Hotkey Agent] Ready
-```
+`Could not find service` means `Control + S` has been released.
 
 ## Subtitle modes
 
@@ -729,24 +704,16 @@ Do not repeatedly run `install_desktop_app.sh` while troubleshooting. It
 rebuilds and re-signs the local launcher, which can invalidate the permission
 you just granted.
 
-### `Control + S` does nothing
+### AnoTime still captures `Control + S`
 
-Check the resident agent rather than Accessibility/Input Monitoring settings:
-
-```bash
-launchctl print "gui/$(id -u)/com.nyarlathotep.realtime-ton.hotkey"
-tail -30 /tmp/realtime-ton-hotkey.log
-```
-
-If the agent is missing or stopped, reinstall it:
+Stop the legacy resident agent once, then restart AnoTime:
 
 ```bash
 ./install_hotkey_agent.sh
 ```
 
-Each press should add `[Shortcut] Activated Control + S`. The agent is the only
-hotkey owner; the Dashboard deliberately avoids a duplicate handler, preventing
-a single press from pausing and immediately resuming.
+The script leaves the existing plist unchanged. Current AnoTime builds do not
+register a replacement shortcut; session state is controlled from Dashboard.
 
 ### Speech works from a phone but not from a browser video
 

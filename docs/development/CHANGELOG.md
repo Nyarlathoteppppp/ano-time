@@ -2,6 +2,10 @@
 
 这里只记录对后续开发判断有帮助的事实，不复制完整 Git 日志。
 
+## 2026-08-26
+
+- `global Control+S retired (2026-08-26)`：AnoTime 不再注册或处理全局 `Control + S`，启动、暂停、恢复和停止只由控制中心按钮负责。Dashboard 已移除快捷键控制器、设置按钮、状态提示和单实例 `toggle` 回调；旧 `hotkey_daemon.py` 保留为不注册按键的惰性兼容进程，避免历史 `KeepAlive` plist 形成重启循环。历史名称 `install_hotkey_agent.sh` 现只对精确 LaunchAgent 执行可逆 `bootout`，不 bootstrap、不删除或移动 plist。旧 `[shortcut]` 配置字段暂时保留作向后兼容，但运行时忽略。targeted Dashboard/controller/installer 68 项通过；仍需在当前 Mac 停止旧 agent 后确认编辑器收到 `Control + S`。
+
 ## 2026-08-14
 
 - `model handoff snapshot (2026-08-21)`：交接基线已明确为已提交的 `ed66411`，分支为 `codex/pyside6-migration`；后续模型必须保留未提交的玻璃字幕平滑批次及其 `AGENTS.md` / 交接文档，不得为清理工作区而回退。该批次仅改玻璃展示层、对应 layout 测试与维护文档，自动验证为 targeted 50/50、全量 489/489、编译、release audit、`git diff --check` 通过。遗留：完整重启后做 60–120 秒 macOS 玻璃模式实测，用户验收后才能独立提交；`AnoTime-macOS` 不在维护范围。

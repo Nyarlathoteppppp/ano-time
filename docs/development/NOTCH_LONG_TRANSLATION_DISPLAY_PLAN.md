@@ -90,7 +90,7 @@ macOS 实机验收：
 2. 接收 AI Final：同一 `segmentID` 原位替换，不能额外滚入历史或闪空。
 3. 分别检查刘海 1 / 2 / 3 条模式：当前段连续、历史紧凑、没有英文/中文跨 segment 配对。
 4. 切到玻璃后，完整中文仍在对应 semantic record；切回刘海后继续采用窗口，不丢文稿。
-5. 在全屏视频、pause/resume 与 `Control + S` 后重复一次，确认 helper 重启不会恢复旧 fragment window。
+5. 在全屏视频及控制中心 pause/resume 后重复一次，确认 helper 重启不会恢复旧 fragment window。`Control + S` 验收项已于 2026-08-26 随全局快捷键退役而删除。
 
 ## 明确不做
 

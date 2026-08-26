@@ -221,12 +221,12 @@ class SessionController:
         ):
             view.overlay_window.set_paused(paused)
         if paused:
-            view.status_label.setText("Paused · ⌃S to resume")
+            view.status_label.setText("Paused")
             view.status_label.setStyleSheet("font-size: 16px; color: #f9e2af;")
             if hasattr(view, "pause_btn"):
                 view.pause_btn.setText("▶ Resume Translator")
         else:
-            view.status_label.setText("Running · ⌃S to pause")
+            view.status_label.setText("Running")
             view.status_label.setStyleSheet("font-size: 16px; color: #a6e3a1;")
             if hasattr(view, "pause_btn"):
                 view.pause_btn.setText("⏸ Pause Translator")

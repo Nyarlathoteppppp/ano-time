@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 from permission_controller import PermissionController
 from session_controller import SessionController
-from shortcut_controller import ShortcutController
 
 
 class FakeWidget:
@@ -196,25 +195,6 @@ class ControllerTests(unittest.TestCase):
             controller.handle_runtime_status("ASR", "active", "after stop")
             set_active.assert_not_called()
         self.assertEqual(len(updates), 2)
-
-    def test_shortcut_idle_launches_notch_through_existing_view_api(self):
-        calls = []
-        display_mode = SimpleNamespace(
-            findData=lambda value: 2 if value == "notch" else -1,
-            setCurrentIndex=lambda index: calls.append(("mode", index)),
-        )
-        view = SimpleNamespace(
-            shortcut_enabled=True,
-            _session_state="idle",
-            display_mode=display_mode,
-            status_label=FakeWidget(),
-            on_start=lambda: calls.append("start"),
-            pipeline=None,
-        )
-        controller = ShortcutController.__new__(ShortcutController)
-        controller.view = view
-        controller.activated()
-        self.assertEqual(calls, [("mode", 2), "start"])
 
     def test_permission_result_restores_button_and_surfaces_silence(self):
         view = SimpleNamespace(
