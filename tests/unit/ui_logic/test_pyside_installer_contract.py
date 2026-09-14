@@ -13,19 +13,22 @@ class PySideInstallerContractTests(unittest.TestCase):
         self.assertNotIn("PyQt6.", source)
         self.assertIn("from ui.qt import", source)
 
-    def test_install_uses_pyside_and_legacy_hotkey_installer_only_disables(self):
+    def test_install_uses_pyside_and_legacy_hotkey_cleanup_is_recoverable(self):
         installer = (PROJECT_ROOT / "install_mac.sh").read_text(encoding="utf-8")
-        hotkey = (PROJECT_ROOT / "install_hotkey_agent.sh").read_text(
+        hotkey = (PROJECT_ROOT / "uninstall_legacy_hotkey_agent.sh").read_text(
             encoding="utf-8"
         )
         starter = (PROJECT_ROOT / "start_mac.sh").read_text(encoding="utf-8")
         self.assertIn('VENV_DIR=".venv-pyside"', installer)
         self.assertIn("launchctl bootout", hotkey)
         self.assertNotIn("launchctl bootstrap", hotkey)
-        self.assertNotIn("hotkey_daemon.py", hotkey)
-        self.assertNotIn("/bin/mv", hotkey)
+        self.assertIn("Library/LaunchAgents/Disabled", hotkey)
+        self.assertIn("Library/Application Support/Anotime", hotkey)
+        self.assertIn("/bin/mv", hotkey)
         self.assertNotIn("/bin/rm", hotkey)
         self.assertIn(".venv-pyside/bin/python", starter)
+        self.assertFalse((PROJECT_ROOT / "hotkey_daemon.py").exists())
+        self.assertFalse((PROJECT_ROOT / "install_hotkey_agent.sh").exists())
 
     def test_developer_test_entrypoints_default_to_the_pyside_environment(self):
         runner = (PROJECT_ROOT / "tools" / "run_tests.sh").read_text(

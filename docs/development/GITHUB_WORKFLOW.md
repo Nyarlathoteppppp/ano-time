@@ -8,7 +8,7 @@
 - `.github/pull_request_template.md`：要求描述行为变化、未改范围、自动测试、实机验收与回滚方案。
 - `.github/ISSUE_TEMPLATE/bug.yml`：收集可复现的 ASR、刘海、玻璃、快捷键、权限与翻译缺陷，并在表单内禁止粘贴密钥、课堂文本、`config.ini` 或完整私有日志。
 
-CI 只验证可自动化的合同；它**不能**替代真实 Mac 上的 ScreenCaptureKit 权限、物理刘海、全屏置顶、确认 `Control + S` 未被占用或低音量识别验收。
+CI 只验证可自动化的合同；它**不能**替代真实 Mac 上的 ScreenCaptureKit 权限、物理刘海、全屏置顶、确认 `Control + S` 未被 AnoTime 占用或低音量识别验收。
 
 ## 远端一次性设置
 

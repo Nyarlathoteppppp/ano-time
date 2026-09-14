@@ -47,6 +47,12 @@ class DashboardWorkflowTests(unittest.TestCase):
         )
         pacing_default.start()
         self.addCleanup(pacing_default.stop)
+        gateway_key = patch(
+            "api_test_controller.load_local_gateway_client_key",
+            return_value="test-client-key",
+        )
+        gateway_key.start()
+        self.addCleanup(gateway_key.stop)
         self.dashboard = Dashboard()
         self.addCleanup(self.dashboard.close)
 
@@ -75,6 +81,17 @@ class DashboardWorkflowTests(unittest.TestCase):
                 for index in range(self.dashboard.tabs.count())
             )
         )
+
+    def test_home_translation_style_round_trips_into_settings_snapshot(self):
+        selector = self.dashboard.translation_interpretation_mode
+        self.assertEqual(selector.currentData(), "contextual")
+        selector.setCurrentIndex(selector.findData("standard"))
+
+        snapshot = self.dashboard.collect_settings()
+
+        self.assertEqual(snapshot.translation.interpretation_mode, "standard")
+        self._choose_workflow("apple_only")
+        self.assertFalse(selector.isEnabled())
 
     def test_asr_panel_keeps_legacy_dashboard_control_aliases(self):
         self.assertIs(self.dashboard.asr_backend, self.dashboard.asr_panel.asr_backend)
@@ -154,14 +171,14 @@ class DashboardWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(self.dashboard.bridge_provider.currentData(), "off")
         self.assertIn("主翻译：", self.dashboard.workflow_preview.text())
-        self.assertIn("GLM 接管", self.dashboard.workflow_preview.text())
+        self.assertIn("本机 free-pool", self.dashboard.workflow_preview.text())
         self.assertGreaterEqual(self.dashboard.workflow_preview.minimumHeight(), 48)
         self.assertTrue(self.dashboard.workflow_preview.wordWrap())
         self.assertTrue(self.dashboard.provider.isHidden())
         self.assertFalse(self.dashboard.smart_hybrid_final_provider.isHidden())
-        self.assertIn(
+        self.assertEqual(
             self.dashboard.smart_hybrid_final_provider.currentData(),
-            {"gemini", "groq_cerebras"},
+            "groq_cerebras",
         )
         uses_groq_cerebras = (
             self.dashboard.smart_hybrid_final_provider.currentData()
@@ -172,11 +189,9 @@ class DashboardWorkflowTests(unittest.TestCase):
             self.dashboard.api_test_provider.itemData(index)
             for index in range(self.dashboard.api_test_provider.count())
         ]
-        self.assertIn("glm", targets)
-        self.assertTrue(
-            {"gemini"}.issubset(targets)
-            or {"groq", "cerebras"}.issubset(targets)
-        )
+        self.assertNotIn("glm", targets)
+        self.assertIn("local_pool", targets)
+        self.assertEqual(targets, ["groq", "cerebras", "local_pool"])
 
     def test_hybrid_final_selector_exposes_combined_groq_cerebras_pool(self):
         self._choose_workflow("smart_hybrid")
@@ -191,7 +206,7 @@ class DashboardWorkflowTests(unittest.TestCase):
                 self.dashboard.api_test_provider.itemData(index)
                 for index in range(self.dashboard.api_test_provider.count())
             ],
-            ["groq", "cerebras", "glm"],
+            ["groq", "cerebras", "local_pool"],
         )
 
     def test_hybrid_final_selector_updates_home_summary_and_visible_keys(self):

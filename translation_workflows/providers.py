@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 from translator import Translator
 from course_profiles import (
     do_not_translate_paths,
@@ -8,6 +11,29 @@ from course_profiles import (
 
 GROQ_NAME = "Groq GPT-OSS 20B"
 CEREBRAS_NAME = "Cerebras GPT-OSS 120B"
+LOCAL_GATEWAY_NAME = "Local LiteLLM Free Pool"
+LOCAL_GATEWAY_BASE_URL = "http://localhost:4000/v1"
+LOCAL_GATEWAY_MODEL = "free-pool"
+LOCAL_GATEWAY_ENV = Path.home() / "litellm-gateway" / ".env"
+
+
+def load_local_gateway_client_key(env_path=LOCAL_GATEWAY_ENV):
+    """Read only the local Gateway client credential without exporting it."""
+    configured = os.environ.get("LITELLM_CLIENT_KEY", "").strip()
+    if configured:
+        return configured
+    try:
+        lines = Path(env_path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    for line in lines:
+        name, separator, value = line.partition("=")
+        if separator and name.strip() == "LITELLM_CLIENT_KEY":
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            return value
+    return ""
 
 
 def translator_options(config, include_course_topic=False):
@@ -20,6 +46,9 @@ def translator_options(config, include_course_topic=False):
         domain_prompt = f"Current lecture topic: {course_topic}."
     return {
         "target_lang": config.target_lang,
+        "interpretation_mode": getattr(
+            config, "translation_interpretation_mode", "contextual"
+        ),
         "domain_prompt": domain_prompt,
         "deadline_seconds": config.ai_deadline_seconds,
         "glossary_path": glossary_paths(
@@ -65,6 +94,27 @@ def cerebras_provider(config, options, *, priority=4, name_suffix=""):
         # Selected after Groq is unavailable, quota-limited, or cooling down.
         "priority": priority,
         "failure_cooldown_seconds": 3.0,
+    }
+
+
+def local_gateway_provider(config, options, *, priority=20):
+    """Build the maintainer-local LiteLLM free-pool fallback when available."""
+    api_key = getattr(config, "local_gateway_api_key", None)
+    if api_key is None:
+        api_key = load_local_gateway_client_key()
+    if not api_key:
+        return None
+    return {
+        "name": LOCAL_GATEWAY_NAME,
+        "translator": Translator(
+            base_url=LOCAL_GATEWAY_BASE_URL,
+            api_key=api_key,
+            model=LOCAL_GATEWAY_MODEL,
+            **options,
+        ),
+        "priority": priority,
+        "failure_cooldown_seconds": 3.0,
+        "pricing_known": True,
     }
 
 

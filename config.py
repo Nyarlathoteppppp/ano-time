@@ -43,6 +43,14 @@ class Config:
             "translation", "output_price_per_million", 0.0
         )
         self.target_lang = self._get("translation", "target_lang", "Chinese")
+        configured_interpretation = self._get(
+            "translation", "interpretation_mode", "contextual"
+        ).strip().lower()
+        self.translation_interpretation_mode = (
+            configured_interpretation
+            if configured_interpretation in ("standard", "contextual")
+            else "contextual"
+        )
         self.translation_domain = self._get(
             "translation",
             "domain",
@@ -79,12 +87,12 @@ class Config:
             configured_bridge = "off"
         self.bridge_provider = configured_bridge
         configured_hybrid_final = self._get(
-            "translation", "smart_hybrid_final_provider", "gemini"
+            "translation", "smart_hybrid_final_provider", "groq_cerebras"
         ).strip().lower()
         self.smart_hybrid_final_provider = (
             configured_hybrid_final
             if configured_hybrid_final in ("gemini", "groq_cerebras")
-            else "gemini"
+            else "groq_cerebras"
         )
         self.single_provider = self._get(
             "translation", "single_provider", ""

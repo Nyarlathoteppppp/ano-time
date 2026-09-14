@@ -3,7 +3,11 @@ from translator import Translator
 from translation_usage import MeteredTranslator
 
 from .contracts import HybridTranslatorView, TranslationWorkflow
-from .providers import bridge_providers, translator_options
+from .providers import (
+    bridge_providers,
+    local_gateway_provider,
+    translator_options,
+)
 
 
 def _gemini_translator(config, options):
@@ -25,7 +29,7 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
     gemini_preview = None
     bridge_enabled = config.bridge_provider == "groq"
     final_pool = str(
-        getattr(config, "smart_hybrid_final_provider", "gemini")
+        getattr(config, "smart_hybrid_final_provider", "groq_cerebras")
     ).lower()
     use_fast_final_pool = final_pool == "groq_cerebras"
 
@@ -43,34 +47,13 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
         if use_fast_final_pool else []
     )
     final_providers.extend(final_fast_pool)
-    if config.cloudflare_account_id and config.cloudflare_api_token:
-        final_providers.append({
-            "name": "Cloudflare GLM-4.7-Flash",
-            "translator": Translator(
-                base_url=(
-                    "https://api.cloudflare.com/client/v4/accounts/"
-                    f"{config.cloudflare_account_id}/ai/v1"
-                ),
-                api_key=config.cloudflare_api_token,
-                model="@cf/zai-org/glm-4.7-flash",
-                **final_options,
-            ),
-            "daily_neuron_limit": 10000,
-            "neuron_input_per_million": 5500,
-            "neuron_output_per_million": 36400,
-            "daily_timezone": "UTC",
-            # GLM is a fast final fallback.  Reserving the last second avoids
-            # an unavailable Gemini leaving only an Apple draft on screen.
-            "priority": 50,
-            "terminal_fallback": True,
-            "fallback_reserve_seconds": 1.0,
-            "failure_cooldown_seconds": 3.0,
-            "pricing_known": True,
-        })
+    local_gateway = local_gateway_provider(config, final_options)
+    if local_gateway:
+        final_providers.append(local_gateway)
     if config.gemini_api_key and not use_fast_final_pool:
         # Final and Preview have independent clients.  A stalled Preview must
         # not monopolize Final's connection pool or interfere with its
-        # Gemini → GLM recovery path.
+        # Gemini → local free-pool recovery path.
         gemini_final = _gemini_translator(config, final_options)
         gemini_preview = _gemini_translator(config, final_options)
         final_providers.append({
@@ -102,7 +85,8 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
     # Preview intentionally bypasses HybridTranslator.  It still uses the
     # same Gemini transport and is metered like every other remote request,
     # but its disposable timeout/failure can no longer mutate the final
-    # Gemini → GLM router's cooldown, provider status, or failover state.
+    # Gemini → local free-pool route's cooldown, provider status, or failover
+    # state.
     # ProgressiveTranslationPreview already owns a separate one-active plus
     # one-latest-pending coordinator, so this lane cannot occupy Final's
     # executor workers.
@@ -137,16 +121,18 @@ def build_smart_hybrid(config, usage_path, status_callback=None):
     if bridge_router is not None:
         bridge_router.status_callback = status_callback
     bridge_view = HybridTranslatorView(bridge_router) if bridge_router else None
+    final_route = [
+        "Groq → Cerebras Final" if use_fast_final_pool else "Gemini Paid"
+    ]
+    if local_gateway:
+        final_route.append("Local free-pool")
     return TranslationWorkflow(
         name="smart_hybrid",
         final_translator=final,
         bridge_translator=bridge_view,
-        final_label=(
-            "Groq → Cerebras Final → GLM fallback"
-            if use_fast_final_pool else "Gemini Paid → GLM fallback"
-        ),
-        # Preview is disposable: never wait for GLM after a Gemini miss. The
-        # final route below remains Gemini -> GLM for correctness.
+        final_label=" → ".join(final_route),
+        # Preview is disposable: never wait for the local pool after a Gemini
+        # miss. Final keeps its independent fallback route.
         preview_translator=preview,
         bridge_label="Groq → Cerebras" if bridge_view else "Off",
         final_status_managed=True,

@@ -36,7 +36,6 @@ M5_NOTCH_MODULES = (
 M6_LEGACY_ENTRY_MODULES = (
     "launcher.py",
     "settings_window.py",
-    "hotkey_daemon.py",
 )
 
 

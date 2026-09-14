@@ -126,18 +126,33 @@ audio → Apple ASR partial → Apple Translation draft → visible subtitle
 - `latest-wins` only discards stale remote work. Do not apply it in a way that
   drops ordinary Apple partials; Apple calls are free and visual cadence is a
   product feature.
-- Preview failures must not cool down or block the final Gemini → GLM/Qwen
-  fallback route. Final failures may invoke the existing fallback rules.
+- Preview failures must not cool down or block the Final primary → local
+  `free-pool` route. Final failures may invoke the existing fallback rules.
 - The hard remote deadline is a visibility boundary. A late answer can be
   saved to a transcript only if it cannot reclaim the currently visible newer
   subtitle.
 - Smart Hybrid is maintainer-specific. Keep its credentials, quota management,
   and provider ordering isolated from portable Single Model behavior.
+- Smart Hybrid Final adds the maintainer-local LiteLLM Gateway `free-pool` at
+  priority 20 after the selected primary. Groq → Cerebras is the default;
+  Gemini remains selectable. AnoTime has no direct GLM provider; the external
+  Gateway may independently include GLM inside `free-pool`. AnoTime reads only
+  `LITELLM_CLIENT_KEY` from the process environment
+  or `~/litellm-gateway/.env`; it must not copy that value into AnoTime config,
+  Keychain, logs, tests, or documentation. Preview, Bridge, Single Model and
+  Apple Only do not use this provider. See
+  `development/LOCAL_LITELLM_FREE_POOL_INTEGRATION.md`.
+- LiteLLM Gateway administration is out of scope for this project and this
+  agent context. Do not edit its configuration, restart its containers, or
+  change its credentials. Treat `free-pool` as an opaque API alias.
 
 ## Settings and secret handling
 
 - API secrets belong in macOS Keychain. `config.ini` and provider profiles store
   Keychain references, not plaintext credentials.
+- The maintainer-local LiteLLM client key is the narrow exception: it remains
+  in the Gateway's mode-600 `.env` and is read in memory for Smart Hybrid Final.
+  AnoTime must not persist or display it.
 - Runtime settings are captured at Launch. UI changes made while running must
   state “next Launch applies”; do not mutate a running Pipeline silently.
 - Course topic is intentionally session-scoped and starts blank on a fresh app
@@ -197,6 +212,22 @@ tail anchor rather than forced bottom scrolling. Preserve this presentation-only
 boundary: ASR/translation events and transcript records must remain immediate
 and complete. `GLASS_SUBTITLE_SMOOTHING_PLAN.md` records why the earlier
 fixed-stage isolation experiment failed and was reverted.
+
+Global shortcuts are retired: Dashboard must not construct `ShortcutController`
+or register `MacCarbonHotkeyShortcut`. The retired `hotkey_daemon.py` and its
+installer were deleted on 2026-09-01. Upgraded machines must run
+`uninstall_legacy_hotkey_agent.sh` once; it unloads the exact historical label
+and moves both plist copies into an Application Support backup. There must be
+no resident `hotkey_daemon.py` process and no replacement main-process hotkey.
+Launch, pause, resume and stop remain control-center actions.
+
+Remote translators use the Home-selected interpretation contract documented in
+`TRANSLATION_INTERPRETATION_MODES.md`. Standard mode retains conservative,
+silent correction of obvious ASR errors; contextual mode uses stronger lecture
+context and returns only its inferred translation. Neither mode emits
+alternatives or explanatory parentheses. Do not implement either mode with
+source rewriting or output regexes. Apple Only cannot receive the LLM prompt;
+the English ASR record must remain untouched.
 
 ## Known design boundaries (not automatically bugs)
 

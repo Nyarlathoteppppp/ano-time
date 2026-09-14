@@ -70,7 +70,7 @@
 | --- | --- | --- | --- |
 | `launcher.py` | 旧依赖安装 GUI | 当前桌面启动器不走它 | 先确认是否删除/归档；不应混入主迁移 |
 | `settings_window.py` | 旧独立设置窗口 | 当前控制中心不走它 | 先确认是否删除/归档 |
-| `hotkey_daemon.py` | 旧 LaunchAgent 热键守护进程 | 当前主路径以 Control+S / 控制中心为准 | 单独评估；不可因迁移重启 LaunchAgent |
+| `hotkey_daemon.py` | 旧 LaunchAgent 热键守护进程 | 2026-09-01 已删除 | 不允许恢复 daemon 或主 App 全局快捷键 |
 
 ## 3. 已知 API 差异
 
@@ -179,9 +179,9 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 ### M6：旧入口决策
 
-明确 `launcher.py`、`settings_window.py`、`hotkey_daemon.py` 是删除、归档还是迁移。它们不进入可安装 Beta 前，必须有清晰的主入口说明。
+明确 `launcher.py`、`settings_window.py` 等旧入口是删除、归档还是迁移。它们不进入可安装 Beta 前，必须有清晰的主入口说明。
 
-**审计结论**：当前用户路径是 `Anotime.app` → `launch_desktop.sh` → `dashboard.py`；三者均不在日常上课主路径。为完成单一绑定闭环，三个旧入口只完成机械 Qt 导入迁移，不新增启动入口、不启用旧依赖安装 UI，也不变更既有 Control+S 逻辑。之后的 Beta 清理再决定归档或删除。
+**审计结论**：当前用户路径是 `Anotime.app` → `launch_desktop.sh` → `dashboard.py`。迁移时三个旧入口仅完成机械 Qt 导入；2026-09-01 后续清理已删除 `hotkey_daemon.py`，Dashboard 也不再构造快捷键控制器，`Control + S` 完全交还前台应用。`launcher.py` 与 `settings_window.py` 仍不进入日常上课主路径。
 
 ### M7：原子切换与全环境验收
 
@@ -214,7 +214,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 - 建立 `codex/pyside6-migration` 分支和独立 worktree；其虚拟环境只安装 PySide6，不与当前 `.venv` 共用。
 - 每个迁移提交必须可以静态审计；完全可运行只在“活动依赖闭包全部迁移”后要求。
 - 切换前必须执行 `rg 'PyQt6'` 审计：主运行路径、`requirements.txt`、启动脚本和测试不得残留 PyQt6。
-- 老旧 `launcher.py`、`settings_window.py`、`hotkey_daemon.py` 不允许悄悄进主路径；先完成 M6 的删除/归档决策。
+- 老旧 `launcher.py`、`settings_window.py` 不允许悄悄进主路径；已删除的 `hotkey_daemon.py` 不得恢复。
 
 禁止：
 

@@ -23,6 +23,8 @@ class ConfigContractTests(unittest.TestCase):
         self.assertIsNone(loaded.device_index)
         self.assertTrue(loaded.auto_save_transcripts)
         self.assertEqual(loaded.single_streaming_mode, "auto")
+        self.assertEqual(loaded.translation_interpretation_mode, "contextual")
+        self.assertEqual(loaded.smart_hybrid_final_provider, "groq_cerebras")
         self.assertEqual(loaded.subtitle_presentation_policy, "realtime")
         self.assertEqual(loaded.subtitle_update_pacing, "fluent")
 
@@ -40,6 +42,16 @@ class ConfigContractTests(unittest.TestCase):
 
         self.assertEqual(loaded.subtitle_presentation_policy, "realtime")
         self.assertEqual(loaded.subtitle_update_pacing, "fluent")
+
+    def test_invalid_translation_interpretation_mode_falls_back_to_contextual(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.ini")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("[translation]\ninterpretation_mode = unknown\n")
+            with patch.object(config_module.keychain, "resolve", return_value=""):
+                loaded = config_module.Config(path)
+
+        self.assertEqual(loaded.translation_interpretation_mode, "contextual")
 
     def test_saved_single_endpoint_overrides_openai_environment_fallback(self):
         with tempfile.TemporaryDirectory() as directory:

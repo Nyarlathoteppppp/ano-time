@@ -4,6 +4,11 @@ from ui.qt import QThread, Signal
 
 from config import config
 from course_profiles import do_not_translate_paths, glossary_paths, profile_domain
+from translation_workflows.providers import (
+    LOCAL_GATEWAY_BASE_URL,
+    LOCAL_GATEWAY_MODEL,
+    load_local_gateway_client_key,
+)
 
 
 class ApiSpeedTestWorker(QThread):
@@ -88,7 +93,8 @@ class ApiTestController:
                     targets.append(("Groq GPT-OSS 20B（桥接）", "groq"))
                     targets.append(("Cerebras GPT-OSS 120B（桥接兜底）", "cerebras"))
                 targets.append(("Gemini 3.5 Flash-Lite Paid（主翻译）", "gemini"))
-            targets.append(("Cloudflare GLM-4.7-Flash（最终兜底）", "glm"))
+            if load_local_gateway_client_key():
+                targets.append(("Local LiteLLM Free Pool（免费兜底）", "local_pool"))
         elif workflow == "single_model":
             targets.append((
                 f"Current Final Model（当前最终模型） · {view.provider.currentText()}",
@@ -169,18 +175,13 @@ class ApiTestController:
                     view.single_streaming_mode.currentData() or "auto"
                 ),
             },
+            "local_pool": {
+                "label": "Local LiteLLM Free Pool",
+                "base_url": LOCAL_GATEWAY_BASE_URL,
+                "api_key": load_local_gateway_client_key(),
+                "model": LOCAL_GATEWAY_MODEL,
+            },
         }
-        if target == "glm":
-            account = view.cloudflare_account_id.text().strip()
-            specs["glm"] = {
-                "label": "Cloudflare GLM-4.7-Flash",
-                "base_url": (
-                    "https://api.cloudflare.com/client/v4/accounts/"
-                    f"{account}/ai/v1" if account else ""
-                ),
-                "api_key": view.cloudflare_api_token.text().strip(),
-                "model": "@cf/zai-org/glm-4.7-flash",
-            }
         selected = specs.get(target)
         return {**common, **selected} if selected else None
 

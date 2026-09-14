@@ -1,7 +1,5 @@
 """Global shortcut lifecycle and settings, isolated from Dashboard layout code."""
 
-import os
-
 from ui.qt import QtWidgets
 
 
@@ -26,13 +24,8 @@ class ShortcutController:
         self.shortcut.activated.connect(self.activated)
 
     def start(self):
-        hotkey_agent_plist = os.path.expanduser(
-            "~/Library/LaunchAgents/com.nyarlathotep.realtime-ton.hotkey.plist"
-        )
-        if os.path.exists(hotkey_agent_plist):
-            print("[Shortcut] External hotkey agent owns Control + S", flush=True)
-        else:
-            self.shortcut.start()
+        # Global shortcuts are retired. Keep this lifecycle method inert for
+        # compatibility with old callers; Dashboard no longer constructs it.
         self.update_button()
 
     def stop(self):

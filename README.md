@@ -51,6 +51,7 @@ Anotime 已经不只是原项目的界面换皮，而是围绕 macOS 课堂使�
 - Apple Speech 实时识别，并用透明度区分临时英文与 finalized 英文。
 - 通过 ScreenCaptureKit 直接翻译浏览器视频、网课、Zoom 和其他应用音频。
 - Apple 草稿走独立快速路径，远程模型限时执行，不阻塞后续字幕。
+- Home 页可选择`原样翻译（常规 ASR 纠错）`或`语境推测（增强上下文纠错）`；两档都只输出中文译文，不附加解释括号。
 - 三种独立流程：普通用户优先使用通用 Single Model，也可选择完全本地 Apple Only；Smart Hybrid 仅供维护者的固定 API 池使用，修改 Single Model 不会改变它。
 - Single Model 的 Key、URL、模型、课程主题、目标语言、实时返回、桥接、价格和测速均由控制中心统一配置；`Auto` 会在服务不支持流式返回时自动退回完整译文。
 - 内置 API 测速：发送五条固定技术语句，显示首字延迟和平均单次总耗时。
@@ -59,8 +60,8 @@ Anotime 已经不只是原项目的界面换皮，而是围绕 macOS 课堂使�
 - 支持可选 TSV 术语表和 finalized ASR 纠错表；新用户默认不会加载维护者的课程术语。
 - Single Model 支持 Qwen-MT、DeepSeek、SiliconFlow、OpenAI、Gemini、Groq、OpenRouter 和自定义 OpenAI-compatible 接口。
 - 每个 Single Model 服务可独立保存 Key、Base URL、当前模型和自定义模型列表，切换后自动恢复。
-- 开发者 Smart Hybrid 使用 Groq → Cerebras 桥接轮换、免费 GLM 额度管理与 Gemini 3.5 Flash-Lite 付费主翻译；Qwen-MT 仅保留为可选 Single Model。
-- 启动、暂停和恢复仅由控制中心按钮负责，不占用编辑器常用的 `Control + S`。
+- 开发者 Smart Hybrid 默认使用 Groq → Cerebras 主翻译，失败后进入本机 LiteLLM `free-pool`；Gemini 可选。AnoTime 不直接调用 GLM，`free-pool` 的内部成员由外部 Gateway 管理。Qwen-MT 仅保留为可选 Single Model。
+- 启动、暂停和恢复仅由控制中心按钮负责；AnoTime 不注册全局 `Control + S`，也不运行独立快捷键守护进程。
 
 #### 可用的免费模型
 
@@ -68,7 +69,6 @@ Anotime 已经不只是原项目的界面换皮，而是围绕 macOS 课堂使�
 - GPT-OSS 20B：[Groq Console](https://console.groq.com/)。
 - GPT-OSS 120B：[Cerebras Inference](https://cloud.cerebras.ai/)。
 - Gemini 3.5 Flash-Lite：[Google AI Studio](https://aistudio.google.com/)。
-- GLM-4.7-Flash：[Cloudflare Dashboard](https://dash.cloudflare.com/)。
 - Qwen-MT Flash：[阿里云百炼](https://bailian.console.aliyun.com/)。
 
 免费额度和模型可用性可能变化，正式上课前应在对应平台确认。
@@ -111,7 +111,7 @@ chmod +x install_desktop_app.sh
 
 完成后可以像普通 Mac 应用一样打开 **Anotime.app**。应用采用单实例机制，重复打开只会激活已有控制中心，不会产生多个翻译窗口。
 
-AnoTime 不再注册全局 `Control + S`。启动、暂停和恢复使用控制中心按钮。旧安装曾创建热键 LaunchAgent；升级后可运行一次 `./install_hotkey_agent.sh`，它只停止旧 agent，不安装新 agent，也不删除或移动 plist。
+AnoTime 不再注册全局 `Control + S`，启动、暂停和恢复使用控制中心按钮。旧安装曾创建 KeepAlive LaunchAgent；升级后运行一次 `./uninstall_legacy_hotkey_agent.sh`，脚本会卸载旧服务并把两个历史 plist 移到可恢复的备份目录。
 
 普通 Python 源码更新不需要重新安装桌面应用。只有首次安装或 launcher 本身发生变化时才运行 `install_desktop_app.sh`；重新签名可能导致 macOS 再次要求隐私权限。
 
@@ -167,21 +167,21 @@ python3 tools/release_audit.py .
 
 启用 **Anotime**，然后重启应用。正常的 ScreenCaptureKit 系统音频路径不需要 BlackHole。
 
-#### 停止旧版全局快捷键 agent
+#### 移除旧版全局快捷键 agent
 
 仅从曾安装快捷键 agent 的旧版本升级时运行：
 
 ```bash
-./install_hotkey_agent.sh
+./uninstall_legacy_hotkey_agent.sh
 ```
 
-该兼容脚本只执行可逆的 `launchctl bootout`，保留原 plist。确认它已停止：
+脚本只处理精确的旧服务标识，并将活动 plist 与 `Disabled/` 历史副本备份到 `~/Library/Application Support/Anotime/LaunchAgent Backups/`。确认旧服务已停止：
 
 ```bash
 launchctl print "gui/$(id -u)/com.nyarlathotep.realtime-ton.hotkey"
 ```
 
-若显示 `Could not find service`，说明 `Control + S` 已释放。
+若显示 `Could not find service`，说明旧守护进程已移除，`Control + S` 已完全交还前台应用。
 
 ### 字幕模式
 
@@ -207,12 +207,12 @@ launchctl print "gui/$(id -u)/com.nyarlathotep.realtime-ton.hotkey"
 控制中心提供三种互相独立的流程：
 
 - **Single Model（普通用户推荐）**：Apple 草稿 → 可选 Groq/Cerebras 桥接池 → 用户指定的常见服务或自定义 OpenAI-compatible 模型。
-- **Smart Hybrid（开发者专用）**：使用 Apple → Groq/Cerebras 桥接池 → GLM 免费额度 → Gemini 3.5 Flash-Lite 付费主翻译路由。
+- **Smart Hybrid（开发者专用）**：使用 Apple 草稿，可选 Groq/Cerebras 桥接；Final 默认 Groq → Cerebras，失败后进入本机 LiteLLM `free-pool`。Gemini 可作为替代主翻译。
 - **Apple Only（普通用户，无需 API）**：完全使用 Apple ASR 和 Apple Translation，不发送远程请求。
 
 桥接模型和最终模型分别配置。修改 Single Model 不会改变 Smart Hybrid 的路由或额度状态。
 
-> Smart Hybrid 目前不是通用工作流：它依赖项目开发者固定的 Groq、Cerebras、Gemini 与 Cloudflare Workers AI 账号组合及额度规则。其他用户应优先使用 Single Model；Qwen-MT 仍可作为独立 Single Model 使用。
+> Smart Hybrid 目前不是通用工作流：它依赖项目开发者固定的本机 LiteLLM Gateway 以及 Groq、Cerebras 和可选 Gemini 账号组合及额度规则。其他用户应优先使用 Single Model；Qwen-MT 仍可作为独立 Single Model 使用。
 
 填写密钥后，选择 **Test Target** 并点击 **Test API · 5 Requests**。应用会在后台发送五条固定的计算机/AI 技术语句，逐条显示首字延迟、总耗时和译文，最后显示成功率与平均单次总耗时。测速会消耗对应 API 的五次真实请求，但不会进入课堂字幕或对话上下文。
 
@@ -285,7 +285,7 @@ finalized ASR 纠错使用相同格式。纠错只作用于 finalized 文本，�
 
 #### `Control + S` 仍被 AnoTime 占用
 
-运行一次 `./install_hotkey_agent.sh` 停止旧版常驻 agent，然后重新启动 AnoTime。脚本不删除或移动现有 plist。
+运行一次 `./uninstall_legacy_hotkey_agent.sh` 清理旧版常驻 agent，然后完整重启 AnoTime。当前版本不会注册替代快捷键。
 
 #### 手机播放有识别，浏览器视频没有识别
 
@@ -394,11 +394,12 @@ Anotime is no longer a cosmetic fork. Its runtime has been reorganized around la
 - **Optional terminology profiles** through editable TSV glossaries and finalized-ASR correction files; no maintainer-specific course vocabulary is enabled for new users.
 - **Portable Single Model providers**, including Qwen-MT, DeepSeek, SiliconFlow, OpenAI, Gemini, Groq, OpenRouter, and custom OpenAI-compatible endpoints.
 - **Per-provider profiles** retain each service's Keychain credential, URL, selected model, and custom model list.
-- **Developer-only Smart Hybrid pool** with Groq → Cerebras bridge failover, minute/day/token accounting, cooldown recovery, and paid Gemini final translation.
+- **Developer-only Smart Hybrid pool** with Groq → Cerebras bridge failover, a local LiteLLM `free-pool` final fallback, quota accounting, cooldown recovery, and the selected paid Gemini or fast direct final route.
 - **Failure-safe model routing**: rate limits and timeouts fall through without removing the Apple draft or blocking newer sentences.
+- **Selectable translation interpretation** on Home: standard translation retains conservative ASR correction, while contextual inference uses stronger lecture context; neither mode emits explanatory parentheses.
 - **Latest-wins refinement queue**: stale work is dropped so subtitles cannot accumulate seconds behind the speaker.
 - **Runtime latency log** for audio, ASR, local draft, bridge model, and final refinement stages.
-- **Control-center-owned session controls** leave `Control + S` available to editors and other applications.
+- **Control-center-owned session controls** leave `Control + S` available to editors and other applications; no resident hotkey helper is used.
 
 ### Free model options
 
@@ -406,7 +407,6 @@ Anotime is no longer a cosmetic fork. Its runtime has been reorganized around la
 - **GPT-OSS 20B** — GroqCloud free API tier: [Groq Console](https://console.groq.com/).
 - **GPT-OSS 120B** — Cerebras paid bridge fallback: [Cerebras Inference](https://cloud.cerebras.ai/).
 - **Gemini 3.5 Flash-Lite** — free tier: [Google AI Studio](https://aistudio.google.com/).
-- **GLM-4.7-Flash** — Workers AI daily free allocation: [Cloudflare Dashboard](https://dash.cloudflare.com/).
 - **Qwen-MT Flash** — Model Studio trial/new-user quota and fallback: [Alibaba Cloud Model Studio](https://bailian.console.aliyun.com/).
 
 Free quotas and model availability can change; check each provider's console before relying on them for a full class.
@@ -449,10 +449,11 @@ chmod +x install_desktop_app.sh
 
 This installs **Anotime.app** so the control center can be opened like a normal Mac application. The app is single-instance: opening it again activates the existing control center instead of creating duplicate translator windows.
 
-AnoTime no longer registers global `Control + S`; use the control-center
-buttons to launch, pause, resume, and stop. Upgrades from an older installation
-may run `./install_hotkey_agent.sh` once. Despite its historical filename, the
-script now only stops the old LaunchAgent and leaves its plist unchanged.
+AnoTime does not register global `Control + S`; use the control-center buttons
+to launch, pause, resume, and stop. It does not use a resident hotkey daemon.
+Upgrades from an older installation should run
+`./uninstall_legacy_hotkey_agent.sh` once to unload the old KeepAlive service
+and move both historical plist files into a recoverable backup directory.
 
 The launcher fingerprints the checked-out source. After an update it closes the loaded Dashboard and starts the new code; otherwise it activates the existing instance. The control-center title shows the loaded Git revision.
 
@@ -515,23 +516,25 @@ Enable **Anotime**, then restart it.
 
 BlackHole is not required for the normal ScreenCaptureKit system-audio path. It remains available for custom routing on older or unusual setups.
 
-### Retiring the legacy global shortcut
+### Removing the legacy hotkey daemon
 
 Only upgrades that previously installed the resident agent need this command:
 
 ```bash
-./install_hotkey_agent.sh
+./uninstall_legacy_hotkey_agent.sh
 ```
 
-The compatibility script performs a reversible `launchctl bootout`; it does
-not install a replacement and does not delete or move the plist. Verify that
-the old service is absent:
+The cleanup script targets only the historical service label. It unloads the
+service and moves the active and `Disabled/` plist copies to
+`~/Library/Application Support/Anotime/LaunchAgent Backups/`. Verify that the
+old service is absent:
 
 ```bash
 launchctl print "gui/$(id -u)/com.nyarlathotep.realtime-ton.hotkey"
 ```
 
-`Could not find service` means `Control + S` has been released.
+`Could not find service` means the daemon is gone and `Control + S` is fully
+available to the foreground application.
 
 ## Subtitle modes
 
@@ -557,13 +560,13 @@ launchctl print "gui/$(id -u)/com.nyarlathotep.realtime-ton.hotkey"
 The control center exposes three independent workflows:
 
 - **Single Model (recommended for regular users)** — Apple drafts followed by an optional Groq/Cerebras bridge pool and one explicitly selected common provider or custom OpenAI-compatible endpoint.
-- **Smart Hybrid (developer only)** — uses Apple → Groq/Cerebras bridge failover → free GLM quota → paid Gemini 3.5 Flash-Lite routing.
+- **Smart Hybrid (developer only)** — keeps the Apple draft and optional Groq/Cerebras bridge; Final defaults to direct Groq → Cerebras and then the local LiteLLM `free-pool`. Gemini remains an alternate primary.
 - **Apple Only (regular users, no API required)** — fully local Apple ASR and Apple Translation with no remote requests.
 
 The bridge is configured separately from the final translator. Changing a
 single-model provider cannot alter the Smart Hybrid routing or quota state.
 
-> Smart Hybrid is not currently a portable workflow. It depends on the project developer's fixed Groq, Cerebras, Gemini, and Cloudflare Workers AI accounts and quota policy. Other users should prefer Single Model; Qwen-MT remains available there as an independent provider.
+> Smart Hybrid is not currently a portable workflow. It depends on the maintainer's local LiteLLM Gateway plus fixed Groq, Cerebras, and optional Gemini accounts and quota policy. Other users should prefer Single Model; Qwen-MT remains available there as an independent provider.
 
 After entering a credential, select **Test Target** and click
 **Test API · 5 Requests**. Anotime sends five fixed Computer Science/AI
@@ -604,6 +607,7 @@ Secret values remain in macOS Keychain. A safe template is provided in
 ```ini
 [translation]
 target_lang = Chinese
+interpretation_mode = contextual
 domain = Postgraduate Computer Science–AI coursework. Preserve standard terminology in AI, machine learning, probability and statistics, linear algebra, optimization, and software engineering.
 ai_deadline_seconds = 3.0
 fast_backend = apple
@@ -709,11 +713,11 @@ you just granted.
 Stop the legacy resident agent once, then restart AnoTime:
 
 ```bash
-./install_hotkey_agent.sh
+./uninstall_legacy_hotkey_agent.sh
 ```
 
-The script leaves the existing plist unchanged. Current AnoTime builds do not
-register a replacement shortcut; session state is controlled from Dashboard.
+The script backs up and removes both legacy plist locations. Fully restart
+AnoTime afterward. Current builds do not register a replacement shortcut.
 
 ### Speech works from a phone but not from a browser video
 

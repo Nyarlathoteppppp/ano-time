@@ -9,9 +9,26 @@ from math_subtitles import safe_normalize_math_subtitles
 from translation_context import estimate_tokens
 
 class Translator:
+    STANDARD_ASR_CORRECTION_PROMPT = (
+        "The source comes from ASR and may contain recognition errors. Correct "
+        "an obvious ASR error conservatively when the intended wording is clear "
+        "from CURRENT and the lecture domain; otherwise translate the recognized "
+        "wording. Output only the translation, without alternatives, uncertainty "
+        "notes, or explanatory parentheses."
+    )
+    CONTEXTUAL_ASR_CORRECTION_PROMPT = (
+        "The source comes from ASR and may contain recognition errors. Infer the "
+        "speaker's intended meaning when recognized wording is likely wrong, using "
+        "CURRENT, the lecture domain, supplied CONTEXT, course topic, and required "
+        "terminology. Prefer a coherent lecture meaning but never invent content "
+        "unsupported by those signals. Output only the inferred translation, "
+        "without alternatives, uncertainty notes, or explanatory parentheses."
+    )
+
     def __init__(self, api_key=None, base_url=None, model="MBZUAI-IFM/K2-Think-nothink",
                  target_lang="Chinese", domain_prompt=None, deadline_seconds=3.0,
-                 glossary_path=None, do_not_translate_path=None):
+                 glossary_path=None, do_not_translate_path=None,
+                 interpretation_mode="contextual"):
         """
         Translates text using an LLM.
         
@@ -30,8 +47,16 @@ class Translator:
             "in AI, machine learning, probability and statistics, linear algebra, "
             "optimization, and software engineering."
         )
+        configured_interpretation = str(interpretation_mode or "").lower()
+        self.interpretation_mode = (
+            configured_interpretation
+            if configured_interpretation in ("standard", "contextual")
+            else "contextual"
+        )
         self.asr_correction_prompt = (
-            "The source comes from ASR and may contain recognition errors."
+            self.STANDARD_ASR_CORRECTION_PROMPT
+            if self.interpretation_mode == "standard"
+            else self.CONTEXTUAL_ASR_CORRECTION_PROMPT
         )
         paths = (
             glossary_path

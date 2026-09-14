@@ -164,6 +164,9 @@ class DashboardSettingsRepositoryTests(unittest.TestCase):
                 saved.get("translation", "single_streaming_mode"), "auto"
             )
             self.assertEqual(
+                saved.get("translation", "interpretation_mode"), "contextual"
+            )
+            self.assertEqual(
                 saved.get("display", "subtitle_presentation_policy"), "realtime"
             )
             self.assertEqual(

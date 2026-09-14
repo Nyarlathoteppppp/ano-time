@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from permission_controller import PermissionController
 from session_controller import SessionController
+from shortcut_controller import ShortcutController
 
 
 class FakeWidget:
@@ -30,6 +31,16 @@ class FakeWidget:
 
 
 class ControllerTests(unittest.TestCase):
+    def test_retired_shortcut_controller_never_registers_global_hotkey(self):
+        calls = []
+        controller = ShortcutController.__new__(ShortcutController)
+        controller.shortcut = SimpleNamespace(start=lambda: calls.append("start"))
+        controller.update_button = lambda: calls.append("button")
+
+        controller.start()
+
+        self.assertEqual(calls, ["button"])
+
     def test_running_start_only_reveals_existing_overlay(self):
         calls = []
         view = SimpleNamespace(

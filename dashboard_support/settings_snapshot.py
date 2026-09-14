@@ -38,7 +38,8 @@ class TranslationSettings:
     output_price_per_million: float = 0.0
     streaming_mode: str = "auto"
     course_profile_id: str = ""
-    smart_hybrid_final_provider: str = "gemini"
+    smart_hybrid_final_provider: str = "groq_cerebras"
+    interpretation_mode: str = "contextual"
 
 
 @dataclass(frozen=True)

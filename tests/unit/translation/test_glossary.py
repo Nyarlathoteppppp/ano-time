@@ -218,6 +218,64 @@ class CourseGlossaryTests(unittest.TestCase):
             "Use Simplified Chinese characters only; never output Traditional Chinese.",
             system_prompt,
         )
+        self.assertIn("Infer the speaker's intended meaning", system_prompt)
+        self.assertIn("course topic", system_prompt)
+        self.assertIn("never invent content", system_prompt)
+        self.assertIn("without alternatives", system_prompt)
+        self.assertIn("explanatory parentheses", system_prompt)
+
+    def test_standard_mode_keeps_conservative_asr_correction(self):
+        translator = Translator(
+            api_key="test-key",
+            base_url="https://example.invalid/v1",
+            model="generic-fast-model",
+            interpretation_mode="standard",
+        )
+        translator.client = _RecordingClient()
+        translator.translate(
+            "The bread first search is complete.",
+            use_context=False,
+            remember_context=False,
+        )
+
+        system_prompt = translator.client.chat.completions.options[
+            "messages"
+        ][0]["content"]
+        self.assertIn("Correct an obvious ASR error conservatively", system_prompt)
+        self.assertIn("otherwise translate the recognized wording", system_prompt)
+        self.assertNotIn("Infer the speaker's intended meaning", system_prompt)
+        self.assertIn("without alternatives", system_prompt)
+        self.assertIn("explanatory parentheses", system_prompt)
+
+    def test_invalid_interpretation_mode_falls_back_to_contextual(self):
+        translator = Translator(
+            api_key="test-key",
+            base_url="https://example.invalid/v1",
+            model="generic-fast-model",
+            interpretation_mode="unknown",
+        )
+        self.assertEqual(translator.interpretation_mode, "contextual")
+
+    def test_qwen_mt_receives_contextual_asr_policy_in_domains(self):
+        translator = Translator(
+            api_key="test-key",
+            base_url="https://example.invalid/v1",
+            model="qwen-mt-flash",
+            target_lang="Chinese",
+        )
+        translator.client = _RecordingClient()
+        translator.translate(
+            "The cash is invalidated.",
+            use_context=False,
+            remember_context=False,
+        )
+
+        domains = translator.client.chat.completions.options[
+            "extra_body"
+        ]["translation_options"]["domains"]
+        self.assertIn("Infer the speaker's intended meaning", domains)
+        self.assertIn("without alternatives", domains)
+        self.assertIn("explanatory parentheses", domains)
 
     def test_context_prompt_forbids_notes_and_returns_current_translation_only(self):
         translator = Translator(

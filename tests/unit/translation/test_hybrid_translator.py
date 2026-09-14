@@ -4,7 +4,12 @@ import time
 import unittest
 from unittest.mock import patch
 
-from hybrid_translator import HybridTranslator
+from hybrid_translator import (
+    ASR_CORRECTION_PROMPT_TOKENS,
+    BASE_TRANSLATION_PROMPT_TOKENS,
+    FIXED_TRANSLATION_PROMPT_TOKENS,
+    HybridTranslator,
+)
 from translation_usage import TranslationUsageMeter
 
 
@@ -55,6 +60,15 @@ class HybridTranslatorTests(unittest.TestCase):
             providers,
             usage_path=os.path.join(directory, "usage.json"),
         )
+
+    def test_quota_reservation_includes_longest_asr_correction_prompt(self):
+        self.assertGreater(ASR_CORRECTION_PROMPT_TOKENS, 0)
+        self.assertEqual(
+            FIXED_TRANSLATION_PROMPT_TOKENS,
+            BASE_TRANSLATION_PROMPT_TOKENS + ASR_CORRECTION_PROMPT_TOKENS,
+        )
+        estimated = HybridTranslator._estimate_tokens(("short sentence",), {})
+        self.assertGreater(estimated, FIXED_TRANSLATION_PROMPT_TOKENS)
 
     def test_round_robins_without_double_sending(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -324,7 +338,9 @@ class HybridTranslatorTests(unittest.TestCase):
                     {
                         "name": "glm",
                         "translator": glm,
-                        "daily_neuron_limit": 4,
+                        # Keep room for one actual 0.98-neuron result plus the
+                        # next conservative reservation, including fixed prompt.
+                        "daily_neuron_limit": 5,
                         "neuron_input_per_million": 5500,
                         "neuron_output_per_million": 36400,
                         "priority": 0,

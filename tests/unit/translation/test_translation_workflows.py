@@ -2,8 +2,10 @@ import os
 import tempfile
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from translation_workflows import build_translation_workflow
+from translation_workflows.providers import load_local_gateway_client_key
 
 
 class _NamedTranslator:
@@ -25,9 +27,11 @@ class _FailingTranslator(_NamedTranslator):
 def workflow_config(**overrides):
     values = {
         "translation_workflow": "smart_hybrid",
+        "smart_hybrid_final_provider": "gemini",
         "bridge_provider": "groq",
         "single_provider": "Alibaba Cloud Qwen-MT",
         "target_lang": "Chinese",
+        "translation_interpretation_mode": "contextual",
         "translation_domain": "Computer Science–AI coursework.",
         "current_course_topic": "Regularisation and bias-variance trade-off",
         "course_profile_id": "",
@@ -38,6 +42,7 @@ def workflow_config(**overrides):
         "gemini_api_key": "gemini-key",
         "cloudflare_account_id": "cloudflare-account",
         "cloudflare_api_token": "cloudflare-token",
+        "local_gateway_api_key": "",
         "qwen_mt_api_key": "qwen-key",
         "qwen_mt_base_url": "https://qwen.example/v1",
         "api_base_url": "https://custom.example/v1",
@@ -52,6 +57,18 @@ def workflow_config(**overrides):
 
 
 class TranslationWorkflowTests(unittest.TestCase):
+    def test_local_gateway_key_loader_reads_only_requested_variable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env_path = os.path.join(directory, ".env")
+            with open(env_path, "w", encoding="utf-8") as handle:
+                handle.write("UNRELATED_SECRET=do-not-use\n")
+                handle.write("LITELLM_CLIENT_KEY='local-client-key'\n")
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(
+                    load_local_gateway_client_key(env_path),
+                    "local-client-key",
+                )
+
     def _build(self, config):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -59,6 +76,25 @@ class TranslationWorkflowTests(unittest.TestCase):
             config,
             os.path.join(directory.name, "usage.json"),
         )
+
+    def test_selected_interpretation_mode_reaches_all_remote_lanes(self):
+        workflow = self._build(workflow_config(
+            translation_interpretation_mode="standard"
+        ))
+        final_translators = [
+            provider["translator"]
+            for provider in workflow.final_translator.router.providers
+        ]
+        bridge_translators = [
+            provider["translator"]
+            for provider in workflow.bridge_translator.router.providers
+        ]
+        self.assertTrue(final_translators)
+        self.assertTrue(bridge_translators)
+        self.assertTrue(all(
+            translator.interpretation_mode == "standard"
+            for translator in final_translators + bridge_translators
+        ))
 
     def test_selected_profile_changes_default_domain_but_not_explicit_topic(self):
         profile_only = self._build(workflow_config(
@@ -84,7 +120,7 @@ class TranslationWorkflowTests(unittest.TestCase):
         )
         self.assertGreater(len(topic_translator.glossary), 0)
 
-    def test_smart_hybrid_uses_paid_gemini_before_glm_fallback(self):
+    def test_smart_hybrid_uses_paid_gemini_without_glm(self):
         workflow = self._build(workflow_config())
         router = workflow.final_translator.router
         providers = {item["name"]: item for item in router.providers}
@@ -97,28 +133,25 @@ class TranslationWorkflowTests(unittest.TestCase):
             workflow.bridge_translator.router,
         )
         gemini = providers["Gemini 3.5 Flash-Lite Paid"]
-        glm = providers["Cloudflare GLM-4.7-Flash"]
         self.assertEqual(gemini["priority"], 1)
-        self.assertEqual(glm["priority"], 50)
         self.assertFalse(gemini["terminal_fallback"])
-        self.assertTrue(glm["terminal_fallback"])
         self.assertIs(workflow.warmup_translator.translator, gemini["translator"])
         self.assertEqual(gemini["input_price_per_million"], 0.30)
         self.assertEqual(gemini["output_price_per_million"], 2.50)
-        self.assertEqual(glm["fallback_reserve_seconds"], 1.0)
         self.assertIsNone(gemini["rpm_limit"])
         self.assertIsNone(gemini["tpm_limit"])
         self.assertIsNone(gemini["daily_limit"])
         self.assertIn(
             "Current lecture topic: Regularisation and bias-variance trade-off",
-            providers["Cloudflare GLM-4.7-Flash"]["translator"].domain_prompt,
+            gemini["translator"].domain_prompt,
         )
         self.assertNotIn(
             "Computer Science–AI coursework",
-            providers["Cloudflare GLM-4.7-Flash"]["translator"].domain_prompt,
+            gemini["translator"].domain_prompt,
         )
+        self.assertNotIn("Cloudflare GLM-4.7-Flash", providers)
         self.assertNotIn("Qwen-MT Flash fallback", providers)
-        self.assertEqual(workflow.final_label, "Gemini Paid → GLM fallback")
+        self.assertEqual(workflow.final_label, "Gemini Paid")
         self.assertIsNot(
             workflow.preview_translator.translator,
             gemini["translator"],
@@ -151,8 +184,60 @@ class TranslationWorkflowTests(unittest.TestCase):
         self.assertIn("Groq GPT-OSS 20B", bridge_names)
         self.assertIn("Cerebras GPT-OSS 120B", bridge_names)
         self.assertFalse(workflow.final_translator.only)
-        self.assertEqual(workflow.final_label, "Groq → Cerebras Final → GLM fallback")
+        self.assertEqual(workflow.final_label, "Groq → Cerebras Final")
         self.assertIsNotNone(workflow.preview_translator)
+
+    def test_smart_hybrid_missing_primary_setting_defaults_to_groq_cerebras(self):
+        config = workflow_config(bridge_provider="off")
+        del config.smart_hybrid_final_provider
+
+        workflow = self._build(config)
+        final_names = {
+            item["name"] for item in workflow.final_translator.router.providers
+        }
+
+        self.assertIn("Groq GPT-OSS 20B · Final", final_names)
+        self.assertIn("Cerebras GPT-OSS 120B · Final", final_names)
+        self.assertNotIn("Gemini 3.5 Flash-Lite Paid", final_names)
+        self.assertEqual(workflow.final_label, "Groq → Cerebras Final")
+
+    def test_smart_hybrid_adds_local_gateway_after_primary(self):
+        workflow = self._build(workflow_config(local_gateway_api_key="client-key"))
+        providers = {
+            item["name"]: item
+            for item in workflow.final_translator.router.providers
+        }
+
+        local = providers["Local LiteLLM Free Pool"]
+        self.assertEqual(local["priority"], 20)
+        self.assertEqual(local["translator"].base_url, "http://localhost:4000/v1")
+        self.assertEqual(local["translator"].model, "free-pool")
+        self.assertLess(
+            providers["Gemini 3.5 Flash-Lite Paid"]["priority"],
+            local["priority"],
+        )
+        self.assertNotIn("Cloudflare GLM-4.7-Flash", providers)
+        self.assertEqual(
+            workflow.final_label,
+            "Gemini Paid → Local free-pool",
+        )
+
+    def test_local_gateway_fallback_runs_after_primary_failure(self):
+        workflow = self._build(workflow_config(local_gateway_api_key="client-key"))
+        providers = {
+            item["name"]: item
+            for item in workflow.final_translator.router.providers
+        }
+        gemini = _FailingTranslator("gemini")
+        local = _NamedTranslator("local free-pool")
+        providers["Gemini 3.5 Flash-Lite Paid"]["translator"] = gemini
+        providers["Local LiteLLM Free Pool"]["translator"] = local
+
+        self.assertEqual(
+            workflow.final_translator.translate("final"),
+            "local free-pool",
+        )
+        self.assertEqual((gemini.calls, local.calls), (1, 1))
 
     def test_fast_final_pool_uses_cerebras_after_groq_failure(self):
         workflow = self._build(workflow_config(
@@ -173,27 +258,33 @@ class TranslationWorkflowTests(unittest.TestCase):
         self.assertEqual(workflow.final_translator.translate("final"), "cerebras")
         self.assertEqual((groq.calls, cerebras.calls), (1, 1))
 
-    def test_preview_never_falls_through_to_glm_but_final_does(self):
-        workflow = self._build(workflow_config(bridge_provider="off"))
+    def test_preview_never_falls_through_to_local_pool_but_final_does(self):
+        workflow = self._build(workflow_config(
+            bridge_provider="off",
+            local_gateway_api_key="client-key",
+        ))
         providers = {
             item["name"]: item
             for item in workflow.final_translator.router.providers
         }
         gemini = _FailingTranslator("gemini")
-        glm = _NamedTranslator("glm")
+        local = _NamedTranslator("local free-pool")
         providers["Gemini 3.5 Flash-Lite Paid"]["translator"] = gemini
         workflow.preview_translator.translator = gemini
-        providers["Cloudflare GLM-4.7-Flash"]["translator"] = glm
+        providers["Local LiteLLM Free Pool"]["translator"] = local
 
         with self.assertRaises(TimeoutError):
             workflow.preview_translator.translate(
                 "partial",
                 failure_scope="preview",
             )
-        self.assertEqual((gemini.calls, glm.calls), (1, 0))
+        self.assertEqual((gemini.calls, local.calls), (1, 0))
 
-        self.assertEqual(workflow.final_translator.translate("final"), "glm")
-        self.assertEqual((gemini.calls, glm.calls), (2, 1))
+        self.assertEqual(
+            workflow.final_translator.translate("final"),
+            "local free-pool",
+        )
+        self.assertEqual((gemini.calls, local.calls), (2, 1))
 
     def test_preview_failure_cannot_cool_down_or_skip_final_gemini(self):
         workflow = self._build(workflow_config(bridge_provider="off"))
@@ -211,7 +302,7 @@ class TranslationWorkflowTests(unittest.TestCase):
             )
 
         # A preview failure has no router state to cool down.  The next final
-        # request still starts with Gemini and only then falls back to GLM.
+        # request still starts with Gemini; Preview never mutates Final state.
         final_gemini = _NamedTranslator("gemini final")
         providers["Gemini 3.5 Flash-Lite Paid"]["translator"] = final_gemini
         self.assertEqual(workflow.final_translator.translate("final"), "gemini final")

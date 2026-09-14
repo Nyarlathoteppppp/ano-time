@@ -2,7 +2,17 @@
 
 这里只记录对后续开发判断有帮助的事实，不复制完整 Git 日志。
 
+## 2026-09-04
+
+- `local LiteLLM free-pool fallback`：按 `my-token` 客户端合同，将本机 `http://localhost:4000/v1` 的公开别名 `free-pool` 接入 Smart Hybrid Final。默认主翻译改为 Groq → Cerebras，Gemini 保留为可选主翻译；主翻译失败后才进入 `Local LiteLLM Free Pool`。AnoTime Smart Hybrid 已移除直接 GLM provider，但将 `free-pool` 视为不透明的外部 alias，其内部可由 Gateway 独立包含 GLM。客户端凭据只从进程环境或 `~/litellm-gateway/.env` 的 `LITELLM_CLIENT_KEY` 读取，不复制到 AnoTime `config.ini`、Keychain、日志或文档。没有新增启动健康门禁；Gateway 不可用时复用现有 request-time cooldown/failover。Preview、Bridge、Single Model、Apple Only 均不变。Gateway 配置、容器和凭据不属于本项目维护权限。设计与验收见 `LOCAL_LITELLM_FREE_POOL_INTEGRATION.md`。
+
+## 2026-09-01
+
+- `legacy hotkey daemon removal`：保持 2026-08-26 的产品决定，AnoTime 不再持有任何全局 `Control + S`；Dashboard 不构造 `ShortcutController`，启动、暂停、恢复和停止只由控制中心负责。删除 `hotkey_daemon.py` 与 `install_hotkey_agent.sh`，新增一次性 `uninstall_legacy_hotkey_agent.sh`：只 bootout 精确历史 label，并把活动 plist 与 `Disabled/` 副本移到 `~/Library/Application Support/Anotime/LaunchAgent Backups/`，不直接删除。本机两个 plist 已备份，launchd 服务与常驻进程均不存在。自动测试覆盖 Dashboard 无快捷键所有权和可恢复清理合同；仍需重启 AnoTime 后确认编辑器正常收到 `Control + S`。
+
 ## 2026-08-26
+
+- `translation interpretation modes`：Home 页新增`原样翻译（常规 ASR 纠错）`与`语境推测（增强上下文纠错）`。原样翻译不是机械直译，仍会在证据明确时静默纠正明显错词；语境推测可更积极使用课程主题、上下文和术语恢复原意。两档都只输出译文，不再采用此前讨论的`推测（ASR 字面翻译）`括号设计。选择保存为 `translation.interpretation_mode`，经 session snapshot 传入 Smart Hybrid/Single Model/Qwen-MT；Apple Only 禁用该控件。TPM/neuron 预留按较长提示词估算，不修改英文 ASR、correction 表、segment、文稿或展示层。targeted 127 项、全量 496 项、编译、release audit 和 diff 检查通过；仍需同一课堂音频双档对照验收。详见 `TRANSLATION_INTERPRETATION_MODES.md`。
 
 - `global Control+S retired (2026-08-26)`：AnoTime 不再注册或处理全局 `Control + S`，启动、暂停、恢复和停止只由控制中心按钮负责。Dashboard 已移除快捷键控制器、设置按钮、状态提示和单实例 `toggle` 回调；旧 `hotkey_daemon.py` 保留为不注册按键的惰性兼容进程，避免历史 `KeepAlive` plist 形成重启循环。历史名称 `install_hotkey_agent.sh` 现只对精确 LaunchAgent 执行可逆 `bootout`，不 bootstrap、不删除或移动 plist。旧 `[shortcut]` 配置字段暂时保留作向后兼容，但运行时忽略。targeted Dashboard/controller/installer 68 项通过；仍需在当前 Mac 停止旧 agent 后确认编辑器收到 `Control + S`。
 

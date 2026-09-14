@@ -33,7 +33,7 @@ def make_dashboard_config(config_path):
     # than the current developer's persisted choice.
     settings.translation_provider = "Fast Free Pool → Qwen-MT"
     settings.translation_workflow = "smart_hybrid"
-    settings.smart_hybrid_final_provider = "gemini"
+    settings.smart_hybrid_final_provider = "groq_cerebras"
     settings.bridge_provider = "off"
     settings.single_provider = "Alibaba Cloud Qwen-MT"
     settings.model = "qwen-mt-flash"

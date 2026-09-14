@@ -7,7 +7,19 @@ from datetime import date, datetime
 from math import ceil
 from zoneinfo import ZoneInfo
 
+from translation_context import estimate_tokens
 from translation_usage import session_usage_meter
+from translator import Translator
+
+
+BASE_TRANSLATION_PROMPT_TOKENS = 220
+ASR_CORRECTION_PROMPT_TOKENS = max(
+    estimate_tokens(Translator.STANDARD_ASR_CORRECTION_PROMPT),
+    estimate_tokens(Translator.CONTEXTUAL_ASR_CORRECTION_PROMPT),
+)
+FIXED_TRANSLATION_PROMPT_TOKENS = (
+    BASE_TRANSLATION_PROMPT_TOKENS + ASR_CORRECTION_PROMPT_TOKENS
+)
 
 
 class HybridTranslator:
@@ -304,7 +316,10 @@ class HybridTranslator:
         non_cjk = max(0, len(combined) - cjk)
         input_tokens = cjk + ceil(non_cjk / 4)
         output_reserve = min(160, max(48, ceil(len(text) / 3)))
-        return max(1, input_tokens + 220 + output_reserve)
+        return max(
+            1,
+            input_tokens + FIXED_TRANSLATION_PROMPT_TOKENS + output_reserve,
+        )
 
     @staticmethod
     def _estimate_neurons(provider, args, kwargs):
@@ -312,7 +327,11 @@ class HybridTranslator:
         context = str(kwargs.get("context_text") or "")
         combined = text + context
         cjk = sum("\u3400" <= char <= "\u9fff" for char in combined)
-        input_tokens = cjk + ceil(max(0, len(combined) - cjk) / 4) + 220
+        input_tokens = (
+            cjk
+            + ceil(max(0, len(combined) - cjk) / 4)
+            + FIXED_TRANSLATION_PROMPT_TOKENS
+        )
         output_tokens = min(160, max(48, ceil(len(text) / 3)))
         return (
             input_tokens * provider.get("neuron_input_per_million", 0)

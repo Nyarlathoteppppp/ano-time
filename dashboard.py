@@ -367,6 +367,30 @@ class Dashboard(QWidget):
         topic_row.addWidget(self.current_course_topic, 1)
         layout.addLayout(topic_row)
 
+        interpretation_row = QHBoxLayout()
+        interpretation_label = QLabel("Translation Style（翻译方式）:")
+        interpretation_label.setMinimumWidth(270)
+        interpretation_row.addWidget(interpretation_label)
+        self.translation_interpretation_mode = ReadableComboBox()
+        self.translation_interpretation_mode.addItem(
+            "原样翻译（常规 ASR 纠错）", "standard"
+        )
+        self.translation_interpretation_mode.addItem(
+            "语境推测（增强上下文纠错）", "contextual"
+        )
+        interpretation_index = self.translation_interpretation_mode.findData(
+            getattr(config, "translation_interpretation_mode", "contextual")
+        )
+        self.translation_interpretation_mode.setCurrentIndex(
+            interpretation_index if interpretation_index >= 0 else 1
+        )
+        self.translation_interpretation_mode.setToolTip(
+            "原样翻译保留常规的明显 ASR 错词纠正；语境推测会更积极结合课程主题、"
+            "上下文和术语推断说话者原意。两种模式都只输出中文，不显示解释括号。"
+        )
+        interpretation_row.addWidget(self.translation_interpretation_mode, 1)
+        layout.addLayout(interpretation_row)
+
         self.apply_hint = QLabel(
             "生效规则：启动/暂停/停止立即生效；普通设置保存后重新 Launch 生效；"
             "Diagnostics 保存后重启 App 生效。"
@@ -858,9 +882,9 @@ class Dashboard(QWidget):
                 )
                 final_pool = self.smart_hybrid_final_provider.currentData()
                 final_text = (
-                    "Groq/Cerebras 主翻译｜GLM 兜底"
+                    "Groq/Cerebras 主翻译｜本机 free-pool"
                     if final_pool == "groq_cerebras"
-                    else "Gemini 主翻译｜GLM 兜底"
+                    else "Gemini 主翻译｜本机 free-pool"
                 )
                 bridge_text = "Groq/Cerebras 桥接｜" if bridge == "groq" else ""
                 model = f"{draft_text}{bridge_text}{final_text}"
@@ -899,6 +923,7 @@ class Dashboard(QWidget):
             self.subtitle_presentation_policy,
             self.subtitle_update_pacing,
             self.course_profile,
+            self.translation_interpretation_mode,
         )
         for combo in combos:
             combo.currentTextChanged.connect(self._mark_settings_dirty)
@@ -1744,23 +1769,22 @@ class Dashboard(QWidget):
 
         # Smart Hybrid has a deliberately narrow final selector.  It does not
         # reuse Single Model's arbitrary endpoint selector, keeping the two
-        # workflows isolated while allowing the maintained fast pool to be
-        # evaluated against Gemini.
+        # workflows isolated while retaining Gemini as an alternate final.
         self.smart_hybrid_final_provider = ReadableComboBox()
         self.smart_hybrid_final_provider.addItem(
-            "Gemini 3.5 Flash-Lite（默认主翻译）", "gemini"
+            "Groq → Cerebras（默认主翻译）", "groq_cerebras"
         )
         self.smart_hybrid_final_provider.addItem(
-            "Groq → Cerebras（自动接管主翻译）", "groq_cerebras"
+            "Gemini 3.5 Flash-Lite（可选主翻译）", "gemini"
         )
         final_provider_index = self.smart_hybrid_final_provider.findData(
-            getattr(config, "smart_hybrid_final_provider", "gemini")
+            getattr(config, "smart_hybrid_final_provider", "groq_cerebras")
         )
         self.smart_hybrid_final_provider.setCurrentIndex(
             max(0, final_provider_index)
         )
         self.smart_hybrid_final_provider.setToolTip(
-            "仅影响 Smart Hybrid。Groq 优先，限流、额度不足或失败时 Cerebras 接管；GLM 仍是最后兜底。"
+            "仅影响 Smart Hybrid 主翻译。所选主模型失败后尝试本机 LiteLLM free-pool；不再使用 GLM。"
         )
         self.smart_hybrid_final_provider.currentIndexChanged.connect(
             self._on_translation_workflow_changed
@@ -2305,7 +2329,7 @@ class Dashboard(QWidget):
             self.gemini_api_key, smart and not smart_final_pool
         )
         for widget in (self.cloudflare_account_id, self.cloudflare_api_token):
-            self._set_translation_row_visible(widget, smart)
+            self._set_translation_row_visible(widget, False)
         # Smart Hint is an independent context helper. It can support either
         # portable Single Model or the developer-only Smart Hybrid workflow.
         self._set_translation_row_visible(self.smart_hint_card, not apple_only)
@@ -2320,6 +2344,7 @@ class Dashboard(QWidget):
         ):
             self._set_translation_row_visible(widget, not apple_only)
         self.fast_translation_backend.setEnabled(not apple_only)
+        self.translation_interpretation_mode.setEnabled(not apple_only)
         if apple_only:
             self.fast_translation_backend.setCurrentText("apple")
             preview = "语音识别：Apple｜翻译：Apple（完全本地）"
@@ -2332,7 +2357,7 @@ class Dashboard(QWidget):
             )
             preview = (
                 f"{draft_text}｜主翻译：{final_text}（临时预览 + 最终稿）\n"
-                f"桥接：{bridge_text}｜主翻译失败时由 GLM 接管\n"
+                f"桥接：{bridge_text}｜主翻译失败时尝试本机 free-pool\n"
                 "开发者配置，暂不通用"
             )
         else:
@@ -2391,15 +2416,11 @@ class Dashboard(QWidget):
                 self.groq_api_key.text().strip()
                 or self.cerebras_api_key.text().strip()
             )
-            has_glm = bool(
-                self.cloudflare_account_id.text().strip()
-                and self.cloudflare_api_token.text().strip()
-            )
             if smart_final_pool:
-                if not (has_fast_pool or has_glm):
-                    missing.append("Groq/Cerebras 或 GLM")
-            elif not (has_gemini or has_glm):
-                missing.append("Gemini 或 GLM")
+                if not has_fast_pool:
+                    missing.append("Groq 或 Cerebras Key")
+            elif not has_gemini:
+                missing.append("Gemini Key")
         elif single:
             if not (
                 self.api_key.text().strip() and self.base_url.text().strip()
@@ -2581,7 +2602,7 @@ class Dashboard(QWidget):
                 workflow=workflow,
                 bridge_provider=bridge_provider,
                 smart_hybrid_final_provider=str(
-                    self.smart_hybrid_final_provider.currentData() or "gemini"
+                    self.smart_hybrid_final_provider.currentData() or "groq_cerebras"
                 ),
                 single_provider=self.provider.currentText(),
                 api_key=self.api_key.text(),
@@ -2603,6 +2624,10 @@ class Dashboard(QWidget):
                     self.single_streaming_mode.currentData() or "auto"
                 ),
                 course_profile_id=str(self.course_profile.currentData() or ""),
+                interpretation_mode=str(
+                    self.translation_interpretation_mode.currentData()
+                    or "contextual"
+                ),
             ),
             providers=ProviderSettings(
                 deepseek_api_key=self.provider_keys.get("DeepSeek Official", ""),

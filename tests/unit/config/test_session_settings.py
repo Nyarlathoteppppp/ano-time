@@ -24,9 +24,10 @@ class SessionSettingsSnapshotTests(unittest.TestCase):
 
         self.assertEqual(snapshot.current_course_topic, "Current lecture")
         self.assertEqual(snapshot.nested, {"items": ["before"]})
-        self.assertIn("Gemini 主翻译", describe_session(snapshot))
+        self.assertIn("Groq → Cerebras 主翻译", describe_session(snapshot))
         self.assertIn("主题：Current lecture", describe_session(snapshot))
         self.assertIn("档案：Statistical Machine Learning", describe_session(snapshot))
+        self.assertIn("翻译方式：语境推测（增强纠错）", describe_session(snapshot))
 
     def test_single_model_description_uses_session_route(self):
         settings = SessionSettingsSnapshot({
@@ -35,11 +36,13 @@ class SessionSettingsSnapshotTests(unittest.TestCase):
             "single_provider": "OpenAI",
             "model": "gpt-test",
             "current_course_topic": "",
+            "translation_interpretation_mode": "standard",
         })
 
         self.assertEqual(
             describe_session(settings),
-            "Apple 草稿 → OpenAI\nPreview：OpenAI 实时预览",
+            "Apple 草稿 → OpenAI\n翻译方式：原样翻译（常规纠错）\n"
+            "Preview：OpenAI 实时预览",
         )
 
     def test_single_model_description_reflects_disabled_apple_draft(self):
@@ -50,11 +53,13 @@ class SessionSettingsSnapshotTests(unittest.TestCase):
             "model": "gpt-test",
             "current_course_topic": "",
             "fast_translation_backend": "off",
+            "translation_interpretation_mode": "contextual",
         })
 
         self.assertEqual(
             describe_session(settings),
-            "无本机草稿 → OpenAI\nPreview：OpenAI 实时预览",
+            "无本机草稿 → OpenAI\n翻译方式：语境推测（增强纠错）\n"
+            "Preview：OpenAI 实时预览",
         )
 
 

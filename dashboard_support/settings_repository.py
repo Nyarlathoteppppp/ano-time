@@ -118,6 +118,16 @@ class DashboardSettingsRepository:
                 str(translation.output_price_per_million),
             )
         parser.set("translation", "target_lang", translation.target_language)
+        interpretation_mode = str(
+            getattr(translation, "interpretation_mode", "contextual")
+        ).lower()
+        parser.set(
+            "translation",
+            "interpretation_mode",
+            interpretation_mode
+            if interpretation_mode in ("standard", "contextual")
+            else "contextual",
+        )
         parser.set("translation", "domain", translation.domain)
         # Lecture topics belong to one active Launch only. SessionController
         # injects the current UI value into an immutable session snapshot.
@@ -131,7 +141,13 @@ class DashboardSettingsRepository:
         parser.set(
             "translation",
             "smart_hybrid_final_provider",
-            str(getattr(translation, "smart_hybrid_final_provider", "gemini")),
+            str(
+                getattr(
+                    translation,
+                    "smart_hybrid_final_provider",
+                    "groq_cerebras",
+                )
+            ),
         )
         parser.set("translation", "single_provider", translation.single_provider)
         parser.set(

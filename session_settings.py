@@ -55,12 +55,12 @@ def translation_chain(settings):
         route = "Apple 草稿（仅本机翻译）"
     elif workflow == "smart_hybrid":
         final_provider = str(
-            getattr(settings, "smart_hybrid_final_provider", "gemini")
+            getattr(settings, "smart_hybrid_final_provider", "groq_cerebras")
         )
         final_label = (
-            "Groq → Cerebras 主翻译 → GLM 兜底"
+            "Groq → Cerebras 主翻译 → 本机 free-pool"
             if final_provider == "groq_cerebras"
-            else "Gemini 主翻译 → GLM 兜底"
+            else "Gemini 主翻译 → 本机 free-pool"
         )
         route = f"{draft_prefix} → {final_label}"
         if settings.bridge_provider == "groq":
@@ -75,6 +75,15 @@ def translation_chain(settings):
 def describe_session(settings):
     """Return concise text for the control-center active-session card."""
     parts = [translation_chain(settings)]
+    if str(settings.translation_workflow or "") != "apple_only":
+        interpretation = str(
+            getattr(settings, "translation_interpretation_mode", "contextual")
+        )
+        parts.append(
+            "翻译方式：原样翻译（常规纠错）"
+            if interpretation == "standard"
+            else "翻译方式：语境推测（增强纠错）"
+        )
     topic = str(settings.current_course_topic or "").strip()
     if topic:
         parts.append(f"主题：{topic}")
